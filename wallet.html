@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Getränke-Wallet – Start</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 1rem;
+    }
+    .row {
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.4rem;
+    }
+    input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.4rem 0.6rem;
+      font-size: 1rem;
+    }
+    button {
+      margin-top: 0.6rem;
+      padding: 0.4rem 0.8rem;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    small {
+      color: #666;
+      display: block;
+      margin-top: 0.3rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Willkommen im Getränke-Wallet</h1>
+
+  <div class="row">
+    <p>
+      Lege deinen Nutzernamen fest. Alle Daten werden nur lokal in deinem Browser
+      gespeichert. Du kannst später über deine persönliche URL wieder einsteigen.
+    </p>
+  </div>
+
+  <div class="row">
+    <label for="username">Dein Name / Alias</label>
+    <input id="username" type="text" placeholder="z. B. bartosz, kueche, clubraum…">
+    <small>
+      Erlaubt sind Buchstaben, Zahlen, Bindestriche und Unterstriche.
+      Leerzeichen werden in Bindestriche umgewandelt.
+    </small>
+    <button id="btn-start">Loslegen</button>
+  </div>
+
+  <div class="row">
+    <p>
+      Du hast schon eine Wallet-URL (z. B. vom Export)?<br>
+      Öffne sie einfach direkt – die Daten werden importiert.
+    </p>
+  </div>
+
+  <script>
+    (function () {
+      const input = document.getElementById('username');
+      const btn = document.getElementById('btn-start');
+
+      function normalizeName(name) {
+        let n = name.trim().toLowerCase();
+        // Leerzeichen zu Bindestrichen
+        n = n.replace(/\s+/g, '-');
+        // Nur a-z, 0-9, -, _
+        n = n.replace(/[^a-z0-9_-]/g, '');
+        // Speziellen Prefix für Import reservieren
+        if (n.startsWith('import:')) {
+          n = 'user-' + n;
+        }
+        return n;
+      }
+
+      function randomId(len) {
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let s = '';
+        for (let i = 0; i < len; i++) {
+          s += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return s;
+      }
+
+      function start() {
+        const raw = input.value || '';
+        let userId = normalizeName(raw);
+
+        if (!userId) {
+          if (!confirm('Kein gültiger Name eingegeben. Soll ein zufälliger Name verwendet werden?')) {
+            return;
+          }
+          userId = 'user-' + randomId(6);
+        }
+
+        // Weiterleitung zur Wallet-Seite mit stabilem Hash
+        window.location.href = 'wallet.html#' + userId;
+      }
+
+      btn.addEventListener('click', start);
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          start();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
