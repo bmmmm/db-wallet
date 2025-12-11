@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <title>db-wallet</title>
+  <title>db-wallet – Getränke</title>
   <style>
     body {
       font-family: system-ui, sans-serif;
@@ -13,7 +13,7 @@
     h1 { font-size: 1.4rem; margin-bottom: 1rem; }
     button { padding: .4rem .7rem; margin: .2rem; cursor: pointer; }
     input[type="number"] { width: 5rem; padding: .3rem; }
-    #export-url { width: 100%; margin-top: .5rem; }
+    #export-url { width: 100%; margin-top: .5rem; padding: .3rem; }
     pre {
       background: #f5f5f5;
       padding: .7rem;
@@ -25,42 +25,41 @@
 </head>
 <body>
 
-<h1>dein db-wallet</h1>
+<h1>dein Getränke-Wallet 🥤</h1>
 
 <div>
-  <div>User-ID: <strong id="uid"></strong></div>
-  <div>Gesamt: <strong id="total">0</strong></div>
-  <div>Offen: <strong id="unpaid">0</strong></div>
+  <div>User: <strong id="uid"></strong></div>
+  <div>Gesamt getrunken: <strong id="total">0</strong></div>
+  <div>Offen seit letzter Zahlung: <strong id="unpaid">0</strong></div>
 </div>
 
 <br>
 
-<label for="amount">Menge:</label>
+<label for="amount">Menge (Getränke):</label>
 <input id="amount" type="number" min="1" value="1">
 
 <br><br>
 
-<button id="btn-drink">Trinken (+)</button>
-<button id="btn-minus">Minus (–)</button>
-<button id="btn-pay">Bezahlt</button>
+<button id="btn-drink">+ Trinken 🍺</button>
+<button id="btn-minus">– Zurücknehmen ↩️</button>
+<button id="btn-pay">Bezahlt 💸</button>
 
 <br><br>
 
-<button id="btn-export">Export-URL erzeugen</button>
-<input id="export-url" readonly>
+<button id="btn-export">Export-Link erzeugen 🔗</button>
+<input id="export-url" readonly placeholder="Hier erscheint dein Export-Link">
 
 <br><br>
 
-<button id="btn-history">Historie anzeigen</button>
-<button id="btn-reset">Daten löschen</button>
+<button id="btn-history">Getränke-Historie anzeigen 📊</button>
+<button id="btn-reset">Alles löschen 🗑️</button>
 
-<pre id="history">Noch keine Einträge.</pre>
+<pre id="history">Noch keine Drinks geloggt. ✨</pre>
 
 <script>
 (function () {
   const STORAGE_PREFIX = "wallet:";
 
-  // --- Base64 URL helpers ---
   function base64UrlEncode(str) {
     return btoa(unescape(encodeURIComponent(str)))
       .replace(/\+/g, "-")
@@ -75,7 +74,6 @@
     return decodeURIComponent(escape(atob(base)));
   }
 
-  // --- ID / Wallet-Handling ---
   function randomId(len = 6) {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
     let out = "";
@@ -140,10 +138,10 @@
       };
       saveWallet(wallet);
       window.location.hash = "#" + userId;
-      alert("Daten importiert.");
+      alert("Getränkedaten importiert ✅");
       return userId;
     } catch (e) {
-      alert("Import fehlgeschlagen.");
+      alert("Import fehlgeschlagen ❌");
       window.location.hash = "";
       return null;
     }
@@ -161,7 +159,6 @@
     return userId;
   }
 
-  // --- Events & Summary ---
   function newEvent(wallet, type, n) {
     return {
       id:
@@ -217,7 +214,7 @@
     }
     if (total < 0) total = 0;
 
-    // Offener Betrag seit letzter Zahlung
+    // Unbezahlte Drinks seit letzter Zahlung
     let unpaid = 0;
     let lastPayIndex = -1;
     for (let i = events.length - 1; i >= 0; i--) {
@@ -237,10 +234,9 @@
       a.date.localeCompare(b.date)
     );
 
-    return { totalDrinks: total, unpaidDrinks: unpaid, perDay };
+    return { total, unpaid, perDay };
   }
 
-  // --- DOM-Init ---
   document.addEventListener("DOMContentLoaded", () => {
     const elUid = document.getElementById("uid");
     const elTotal = document.getElementById("total");
@@ -261,6 +257,10 @@
 
     elUid.textContent = userId;
 
+    function resetAmount() {
+      elAmount.value = "1";
+    }
+
     function getAmount() {
       const n = parseInt(elAmount.value, 10);
       return isNaN(n) || n <= 0 ? 1 : n;
@@ -268,12 +268,12 @@
 
     function refreshSummary(showHistory) {
       const summary = computeSummary(wallet);
-      elTotal.textContent = summary.totalDrinks;
-      elUnpaid.textContent = summary.unpaidDrinks;
+      elTotal.textContent = summary.total;
+      elUnpaid.textContent = summary.unpaid;
 
       if (showHistory) {
         if (!summary.perDay.length) {
-          elHistory.textContent = "Noch keine Einträge.";
+          elHistory.textContent = "Noch keine Drinks geloggt. ✨";
         } else {
           const lines = summary.perDay.map((d) => {
             const bar = "#".repeat(Math.min(d.drinks, 50));
@@ -284,30 +284,36 @@
       }
     }
 
-    // Buttons
     btnDrink.addEventListener("click", () => {
       const n = getAmount();
       wallet.events.push(newEvent(wallet, "d", n));
       saveWallet(wallet);
+      resetAmount();
       refreshSummary(false);
     });
 
     btnMinus.addEventListener("click", () => {
-      const n = getAmount();
-      const before = computeSummary(wallet);
-      const effective = Math.min(n, before.totalDrinks);
+      const summaryBefore = computeSummary(wallet);
+      const requested = getAmount();
+      const maxCancelable = summaryBefore.unpaid; // nur bis zur letzten Zahlung zurück
+      const effective = Math.min(requested, maxCancelable);
+
       if (effective <= 0) {
-        alert("Nichts zum Abziehen.");
+        alert("Keine offenen Drinks zum Zurücknehmen 🤷‍♂️");
+        resetAmount();
         return;
       }
+
       wallet.events.push(newEvent(wallet, "s", effective));
       saveWallet(wallet);
+      resetAmount();
       refreshSummary(false);
     });
 
     btnPay.addEventListener("click", () => {
       wallet.events.push(newEvent(wallet, "p"));
       saveWallet(wallet);
+      resetAmount();
       refreshSummary(false);
     });
 
@@ -329,12 +335,20 @@
       elExportUrl.select();
     });
 
+    // Export-URL: beim Klick direkt alles markieren
+    elExportUrl.addEventListener("focus", () => {
+      elExportUrl.select();
+    });
+    elExportUrl.addEventListener("click", () => {
+      elExportUrl.select();
+    });
+
     btnHistory.addEventListener("click", () => {
       refreshSummary(true);
     });
 
     btnReset.addEventListener("click", () => {
-      if (!confirm("Wirklich alle Daten für diese Wallet löschen?")) return;
+      if (!confirm("Wirklich alle Getränkedaten für diesen User löschen? 🗑️")) return;
       localStorage.removeItem(STORAGE_PREFIX + wallet.userId);
       wallet = {
         userId: wallet.userId,
@@ -344,7 +358,8 @@
       };
       saveWallet(wallet);
       elExportUrl.value = "";
-      elHistory.textContent = "Noch keine Einträge.";
+      elHistory.textContent = "Noch keine Drinks geloggt. ✨";
+      resetAmount();
       refreshSummary(false);
     });
 
