@@ -21,6 +21,13 @@
       white-space: pre;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
+    .history-mode-label {
+      margin-right: .4rem;
+    }
+    .mode-btn.active {
+      background: #222;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -51,7 +58,13 @@
 
 <br><br>
 
-<button id="btn-history">Getränke-Historie anzeigen 📊</button>
+<div>
+  <span class="history-mode-label">Historienansicht:</span>
+  <button id="mode-diagram" class="mode-btn active">Diagramm 📊</button>
+  <button id="mode-log" class="mode-btn">Log 📜</button>
+</div>
+
+<button id="btn-history">Historie anzeigen</button>
 <button id="btn-reset">Alles löschen 🗑️</button>
 
 <pre id="history">Noch keine Drinks geloggt. ✨</pre>
@@ -59,6 +72,7 @@
 <script>
 (function () {
   const STORAGE_PREFIX = "wallet:";
+  let historyMode = "diagram"; // "diagram" | "log"
 
   function base64UrlEncode(str) {
     return btoa(unescape(encodeURIComponent(str)))
@@ -173,8 +187,9 @@
     };
   }
 
+  // liefert auch die sortierten Events zurück
   function computeSummary(wallet) {
-    const events = wallet.events
+    const eventsSorted = wallet.events
       .slice()
       .sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id));
 
@@ -189,7 +204,7 @@
       return `${y}-${m}-${day}`;
     }
 
-    for (const e of events) {
+    for (const e of eventsSorted) {
       const key = dayKey(e.ts);
       if (!perDayMap.has(key)) {
         perDayMap.set(key, { date: key, drinks: 0, paid: false });
@@ -217,14 +232,14 @@
     // Unbezahlte Drinks seit letzter Zahlung
     let unpaid = 0;
     let lastPayIndex = -1;
-    for (let i = events.length - 1; i >= 0; i--) {
-      if (events[i].t === "p") {
+    for (let i = eventsSorted.length - 1; i >= 0; i--) {
+      if (eventsSorted[i].t === "p") {
         lastPayIndex = i;
         break;
       }
     }
-    for (let i = lastPayIndex + 1; i < events.length; i++) {
-      const e = events[i];
+    for (let i = lastPayIndex + 1; i < eventsSorted.length; i++) {
+      const e = eventsSorted[i];
       if (e.t === "d") unpaid += e.n || 0;
       if (e.t === "s") unpaid -= e.n || 0;
     }
@@ -234,7 +249,7 @@
       a.date.localeCompare(b.date)
     );
 
-    return { total, unpaid, perDay };
+    return { total, unpaid, perDay, eventsSorted };
   }
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -251,6 +266,8 @@
     const btnExport = document.getElementById("btn-export");
     const btnHistory = document.getElementById("btn-history");
     const btnReset = document.getElementById("btn-reset");
+    const btnModeDiagram = document.getElementById("mode-diagram");
+    const btnModeLog = document.getElementById("mode-log");
 
     const userId = ensureUserId();
     let wallet = loadWallet(userId);
@@ -266,20 +283,57 @@
       return isNaN(n) || n <= 0 ? 1 : n;
     }
 
+    function setHistoryMode(mode) {
+      historyMode = mode;
+      btnModeDiagram.classList.toggle("active", mode === "diagram");
+      btnModeLog.classList.toggle("active", mode === "log");
+      // direkt aktualisieren, wenn schon was angezeigt wird
+      refreshSummary(true);
+    }
+
+    function formatLogLine(e) {
+      const d = new Date(e.ts);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${day}`;
+      const timeStr = `${hh}:${mm}`;
+      let action = "";
+      if (e.t === "d") action = `+${e.n || 0} Drink(s)`;
+      else if (e.t === "s") action = `-${e.n || 0} korrigiert`;
+      else if (e.t === "p") action = "Bezahlt";
+      return `${dateStr} ${timeStr} | ${action}`;
+    }
+
     function refreshSummary(showHistory) {
       const summary = computeSummary(wallet);
       elTotal.textContent = summary.total;
       elUnpaid.textContent = summary.unpaid;
 
       if (showHistory) {
-        if (!summary.perDay.length) {
-          elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-        } else {
-          const lines = summary.perDay.map((d) => {
-            const bar = "#".repeat(Math.min(d.drinks, 50));
-            return `${d.date} | ${bar} (${d.drinks})${d.paid ? " [bezahlt]" : ""}`;
-          });
-          elHistory.textContent = lines.join("\n");
+        if (historyMode === "diagram") {
+          if (!summary.perDay.length) {
+            elHistory.textContent = "Noch keine Drinks geloggt. ✨";
+          } else {
+            const lines = summary.perDay.map((d) => {
+              const bar = "#".repeat(Math.min(d.drinks, 50));
+              return `${d.date} | ${bar}`;
+            });
+            elHistory.textContent = lines.join("\n");
+          }
+        } else if (historyMode === "log") {
+          if (!summary.eventsSorted.length) {
+            elHistory.textContent = "Noch keine Drinks geloggt. ✨";
+          } else {
+            // neueste oben → von hinten nach vorne
+            const lines = [];
+            for (let i = summary.eventsSorted.length - 1; i >= 0; i--) {
+              lines.push(formatLogLine(summary.eventsSorted[i]));
+            }
+            elHistory.textContent = lines.join("\n");
+          }
         }
       }
     }
@@ -295,7 +349,7 @@
     btnMinus.addEventListener("click", () => {
       const summaryBefore = computeSummary(wallet);
       const requested = getAmount();
-      const maxCancelable = summaryBefore.unpaid; // nur bis zur letzten Zahlung zurück
+      const maxCancelable = summaryBefore.unpaid; // nur offene Drinks korrigierbar
       const effective = Math.min(requested, maxCancelable);
 
       if (effective <= 0) {
@@ -335,7 +389,7 @@
       elExportUrl.select();
     });
 
-    // Export-URL: beim Klick direkt alles markieren
+    // Export-URL: beim Klick/Focus direkt alles markieren
     elExportUrl.addEventListener("focus", () => {
       elExportUrl.select();
     });
@@ -362,6 +416,9 @@
       resetAmount();
       refreshSummary(false);
     });
+
+    btnModeDiagram.addEventListener("click", () => setHistoryMode("diagram"));
+    btnModeLog.addEventListener("click", () => setHistoryMode("log"));
 
     refreshSummary(false);
   });
