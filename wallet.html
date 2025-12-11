@@ -1,64 +1,356 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <title>db-wallet – Start</title>
+  <meta charset="utf-8">
+  <title>db-wallet</title>
   <style>
     body {
       font-family: system-ui, sans-serif;
-      max-width: 600px;
+      max-width: 700px;
       margin: 2rem auto;
       padding: 0 1rem;
     }
-    h1 { font-size: 1.6rem; margin-bottom: 1rem; }
-    input {
-      width: 100%; padding: .5rem; font-size: 1rem;
-      margin-bottom: .5rem; box-sizing: border-box;
+    h1 { font-size: 1.4rem; margin-bottom: 1rem; }
+    button { padding: .4rem .7rem; margin: .2rem; cursor: pointer; }
+    input[type="number"] { width: 5rem; padding: .3rem; }
+    #export-url { width: 100%; margin-top: .5rem; }
+    pre {
+      background: #f5f5f5;
+      padding: .7rem;
+      min-height: 3rem;
+      white-space: pre;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
-    button {
-      padding: .5rem .9rem; font-size: 1rem; cursor: pointer;
-    }
-    small { color: #666; }
   </style>
 </head>
 <body>
 
-<h1>Willkommen im db-wallet</h1>
+<h1>dein db-wallet</h1>
 
-<p>Gib deinen gewünschten Namen ein. Alle Daten bleiben lokal in deinem Browser.</p>
+<div>
+  <div>User-ID: <strong id="uid"></strong></div>
+  <div>Gesamt: <strong id="total">0</strong></div>
+  <div>Offen: <strong id="unpaid">0</strong></div>
+</div>
 
-<input id="username" type="text" placeholder="z. B. bartosz, kueche, clubraum …" />
-<small>Nur Buchstaben, Zahlen, '-', '_'. Leerzeichen werden '-'</small>
+<br>
+
+<label for="amount">Menge:</label>
+<input id="amount" type="number" min="1" value="1">
+
 <br><br>
-<button id="btn-start">Weiter</button>
+
+<button id="btn-drink">Trinken (+)</button>
+<button id="btn-minus">Minus (–)</button>
+<button id="btn-pay">Bezahlt</button>
+
+<br><br>
+
+<button id="btn-export">Export-URL erzeugen</button>
+<input id="export-url" readonly>
+
+<br><br>
+
+<button id="btn-history">Historie anzeigen</button>
+<button id="btn-reset">Daten löschen</button>
+
+<pre id="history">Noch keine Einträge.</pre>
 
 <script>
-  function normalize(name) {
-    let n = name.trim().toLowerCase();
-    n = n.replace(/\s+/g, "-");
-    n = n.replace(/[^a-z0-9_-]/g, "");
-    if (n.startsWith("import:")) n = "user-" + n;
-    return n;
+(function () {
+  const STORAGE_PREFIX = "wallet:";
+
+  // --- Base64 URL helpers ---
+  function base64UrlEncode(str) {
+    return btoa(unescape(encodeURIComponent(str)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
   }
 
+  function base64UrlDecode(str) {
+    const padLen = (4 - (str.length % 4)) % 4;
+    const padded = str + "=".repeat(padLen);
+    const base = padded.replace(/-/g, "+").replace(/_/g, "/");
+    return decodeURIComponent(escape(atob(base)));
+  }
+
+  // --- ID / Wallet-Handling ---
   function randomId(len = 6) {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let o = "";
-    for (let i = 0; i < len; i++) o += chars[Math.random() * chars.length | 0];
-    return o;
+    let out = "";
+    for (let i = 0; i < len; i++) {
+      out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out;
   }
 
-  function start() {
-    const raw = document.getElementById("username").value;
-    let u = normalize(raw);
-    if (!u) u = "user-" + randomId();
-    window.location.href = "wallet.html#" + u;
+  function getUserIdFromHash() {
+    const hash = window.location.hash.slice(1);
+    if (!hash || hash.startsWith("import:")) return null;
+    return hash;
   }
 
-  document.getElementById("btn-start").onclick = start;
-  document.getElementById("username").addEventListener("keydown", e => {
-    if (e.key === "Enter") start();
+  function loadWallet(userId) {
+    const raw = localStorage.getItem(STORAGE_PREFIX + userId);
+    if (!raw) {
+      return { userId, deviceId: randomId(), v: 1, events: [] };
+    }
+    try {
+      const obj = JSON.parse(raw);
+      if (!Array.isArray(obj.events)) obj.events = [];
+      if (!obj.deviceId) obj.deviceId = randomId();
+      obj.userId = userId;
+      obj.v = obj.v || 1;
+      return obj;
+    } catch (e) {
+      return { userId, deviceId: randomId(), v: 1, events: [] };
+    }
+  }
+
+  function saveWallet(wallet) {
+    localStorage.setItem(STORAGE_PREFIX + wallet.userId, JSON.stringify(wallet));
+  }
+
+  function mergeEvents(localEvents, remoteEvents) {
+    const map = new Map();
+    for (const e of localEvents || []) {
+      if (e && e.id) map.set(e.id, e);
+    }
+    for (const e of remoteEvents || []) {
+      if (e && e.id && !map.has(e.id)) map.set(e.id, e);
+    }
+    return Array.from(map.values());
+  }
+
+  function tryImportFromHash() {
+    const hash = window.location.hash.slice(1);
+    if (!hash.startsWith("import:")) return null;
+    try {
+      const payload = base64UrlDecode(hash.slice(7));
+      const remote = JSON.parse(payload);
+      const userId = remote.userId || ("user-" + randomId());
+      const local = loadWallet(userId);
+      const mergedEvents = mergeEvents(local.events, remote.events || []);
+      const wallet = {
+        userId,
+        deviceId: local.deviceId || randomId(),
+        v: remote.v || local.v || 1,
+        events: mergedEvents
+      };
+      saveWallet(wallet);
+      window.location.hash = "#" + userId;
+      alert("Daten importiert.");
+      return userId;
+    } catch (e) {
+      alert("Import fehlgeschlagen.");
+      window.location.hash = "";
+      return null;
+    }
+  }
+
+  function ensureUserId() {
+    let userId = tryImportFromHash();
+    if (userId) return userId;
+
+    userId = getUserIdFromHash();
+    if (!userId) {
+      userId = "user-" + randomId();
+      window.location.hash = "#" + userId;
+    }
+    return userId;
+  }
+
+  // --- Events & Summary ---
+  function newEvent(wallet, type, n) {
+    return {
+      id:
+        wallet.deviceId +
+        "-" +
+        Date.now().toString(36) +
+        "-" +
+        Math.random().toString(16).slice(2),
+      t: type,   // 'd' = drink, 's' = subtract, 'p' = paid
+      n: typeof n === "number" ? n : undefined,
+      ts: Date.now()
+    };
+  }
+
+  function computeSummary(wallet) {
+    const events = wallet.events
+      .slice()
+      .sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id));
+
+    let total = 0;
+    const perDayMap = new Map();
+
+    function dayKey(ts) {
+      const d = new Date(ts);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    for (const e of events) {
+      const key = dayKey(e.ts);
+      if (!perDayMap.has(key)) {
+        perDayMap.set(key, { date: key, drinks: 0, paid: false });
+      }
+      const day = perDayMap.get(key);
+
+      if (e.t === "d") {
+        const n = e.n || 0;
+        total += n;
+        day.drinks += n;
+      } else if (e.t === "s") {
+        const n = e.n || 0;
+        total -= n;
+        day.drinks -= n;
+      } else if (e.t === "p") {
+        day.paid = true;
+      }
+    }
+
+    for (const d of perDayMap.values()) {
+      if (d.drinks < 0) d.drinks = 0;
+    }
+    if (total < 0) total = 0;
+
+    // Offener Betrag seit letzter Zahlung
+    let unpaid = 0;
+    let lastPayIndex = -1;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].t === "p") {
+        lastPayIndex = i;
+        break;
+      }
+    }
+    for (let i = lastPayIndex + 1; i < events.length; i++) {
+      const e = events[i];
+      if (e.t === "d") unpaid += e.n || 0;
+      if (e.t === "s") unpaid -= e.n || 0;
+    }
+    if (unpaid < 0) unpaid = 0;
+
+    const perDay = Array.from(perDayMap.values()).sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
+
+    return { totalDrinks: total, unpaidDrinks: unpaid, perDay };
+  }
+
+  // --- DOM-Init ---
+  document.addEventListener("DOMContentLoaded", () => {
+    const elUid = document.getElementById("uid");
+    const elTotal = document.getElementById("total");
+    const elUnpaid = document.getElementById("unpaid");
+    const elAmount = document.getElementById("amount");
+    const elExportUrl = document.getElementById("export-url");
+    const elHistory = document.getElementById("history");
+
+    const btnDrink = document.getElementById("btn-drink");
+    const btnMinus = document.getElementById("btn-minus");
+    const btnPay = document.getElementById("btn-pay");
+    const btnExport = document.getElementById("btn-export");
+    const btnHistory = document.getElementById("btn-history");
+    const btnReset = document.getElementById("btn-reset");
+
+    const userId = ensureUserId();
+    let wallet = loadWallet(userId);
+
+    elUid.textContent = userId;
+
+    function getAmount() {
+      const n = parseInt(elAmount.value, 10);
+      return isNaN(n) || n <= 0 ? 1 : n;
+    }
+
+    function refreshSummary(showHistory) {
+      const summary = computeSummary(wallet);
+      elTotal.textContent = summary.totalDrinks;
+      elUnpaid.textContent = summary.unpaidDrinks;
+
+      if (showHistory) {
+        if (!summary.perDay.length) {
+          elHistory.textContent = "Noch keine Einträge.";
+        } else {
+          const lines = summary.perDay.map((d) => {
+            const bar = "#".repeat(Math.min(d.drinks, 50));
+            return `${d.date} | ${bar} (${d.drinks})${d.paid ? " [bezahlt]" : ""}`;
+          });
+          elHistory.textContent = lines.join("\n");
+        }
+      }
+    }
+
+    // Buttons
+    btnDrink.addEventListener("click", () => {
+      const n = getAmount();
+      wallet.events.push(newEvent(wallet, "d", n));
+      saveWallet(wallet);
+      refreshSummary(false);
+    });
+
+    btnMinus.addEventListener("click", () => {
+      const n = getAmount();
+      const before = computeSummary(wallet);
+      const effective = Math.min(n, before.totalDrinks);
+      if (effective <= 0) {
+        alert("Nichts zum Abziehen.");
+        return;
+      }
+      wallet.events.push(newEvent(wallet, "s", effective));
+      saveWallet(wallet);
+      refreshSummary(false);
+    });
+
+    btnPay.addEventListener("click", () => {
+      wallet.events.push(newEvent(wallet, "p"));
+      saveWallet(wallet);
+      refreshSummary(false);
+    });
+
+    btnExport.addEventListener("click", () => {
+      const payload = JSON.stringify({
+        userId: wallet.userId,
+        v: wallet.v,
+        events: wallet.events
+      });
+      const token = base64UrlEncode(payload);
+      const url =
+        window.location.origin +
+        window.location.pathname +
+        "#import:" +
+        token;
+
+      elExportUrl.value = url;
+      elExportUrl.focus();
+      elExportUrl.select();
+    });
+
+    btnHistory.addEventListener("click", () => {
+      refreshSummary(true);
+    });
+
+    btnReset.addEventListener("click", () => {
+      if (!confirm("Wirklich alle Daten für diese Wallet löschen?")) return;
+      localStorage.removeItem(STORAGE_PREFIX + wallet.userId);
+      wallet = {
+        userId: wallet.userId,
+        deviceId: randomId(),
+        v: 1,
+        events: []
+      };
+      saveWallet(wallet);
+      elExportUrl.value = "";
+      elHistory.textContent = "Noch keine Einträge.";
+      refreshSummary(false);
+    });
+
+    refreshSummary(false);
   });
+})();
 </script>
 
 </body>
