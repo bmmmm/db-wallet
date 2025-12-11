@@ -13,7 +13,12 @@
     h1 { font-size: 1.4rem; margin-bottom: 1rem; }
     button { padding: .4rem .7rem; margin: .2rem; cursor: pointer; }
     input[type="number"] { width: 5rem; padding: .3rem; }
-    #export-url { width: 100%; margin-top: .5rem; padding: .3rem; }
+    #export-url, #delete-range {
+      width: 100%;
+      margin-top: .5rem;
+      padding: .3rem;
+      box-sizing: border-box;
+    }
     pre {
       background: #f5f5f5;
       padding: .7rem;
@@ -47,7 +52,7 @@
 
 <br><br>
 
-<button id="btn-drink">+ Trinken 🍺</button>
+<button id="btn-drink">+ Trinken 🥤</button>
 <button id="btn-minus">– Zurücknehmen ↩️</button>
 <button id="btn-pay">Bezahlt 💸</button>
 
@@ -62,9 +67,17 @@
   <span class="history-mode-label">Historienansicht:</span>
   <button id="mode-diagram" class="mode-btn active">Diagramm 📊</button>
   <button id="mode-log" class="mode-btn">Log 📜</button>
+  <button id="mode-raw" class="mode-btn">Raw-Log 🛠️</button>
 </div>
 
-<button id="btn-history">Historie anzeigen</button>
+<br>
+
+<label for="delete-range">Logeinträge löschen (IDs, z. B. 1,3,5-7):</label>
+<input id="delete-range" type="text" placeholder="IDs aus der Log-Ansicht eingeben …">
+<button id="btn-delete-range">Ausgewählte Logeinträge löschen 🧹</button>
+
+<br><br>
+
 <button id="btn-reset">Alles löschen 🗑️</button>
 
 <pre id="history">Noch keine Drinks geloggt. ✨</pre>
@@ -72,7 +85,7 @@
 <script>
 (function () {
   const STORAGE_PREFIX = "wallet:";
-  let historyMode = "diagram"; // "diagram" | "log"
+  let historyMode = "diagram"; // "diagram" | "log" | "raw"
 
   function base64UrlEncode(str) {
     return btoa(unescape(encodeURIComponent(str)))
@@ -252,6 +265,32 @@
     return { total, unpaid, perDay, eventsSorted };
   }
 
+  function parseDeleteRange(input, maxIndex) {
+    const result = new Set();
+    if (!input) return result;
+    const parts = input.split(",").map(p => p.trim()).filter(Boolean);
+
+    for (const part of parts) {
+      if (part.includes("-")) {
+        const [startStr, endStr] = part.split("-").map(p => p.trim());
+        const start = parseInt(startStr, 10);
+        const end = parseInt(endStr, 10);
+        if (isNaN(start) || isNaN(end)) continue;
+        if (start < 1 || end < 1) continue;
+        if (start > end) continue;
+        for (let i = start; i <= end; i++) {
+          if (i <= maxIndex) result.add(i);
+        }
+      } else {
+        const n = parseInt(part, 10);
+        if (!isNaN(n) && n >= 1 && n <= maxIndex) {
+          result.add(n);
+        }
+      }
+    }
+    return result;
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const elUid = document.getElementById("uid");
     const elTotal = document.getElementById("total");
@@ -259,23 +298,30 @@
     const elAmount = document.getElementById("amount");
     const elExportUrl = document.getElementById("export-url");
     const elHistory = document.getElementById("history");
+    const elDeleteRange = document.getElementById("delete-range");
 
     const btnDrink = document.getElementById("btn-drink");
     const btnMinus = document.getElementById("btn-minus");
     const btnPay = document.getElementById("btn-pay");
     const btnExport = document.getElementById("btn-export");
-    const btnHistory = document.getElementById("btn-history");
     const btnReset = document.getElementById("btn-reset");
     const btnModeDiagram = document.getElementById("mode-diagram");
     const btnModeLog = document.getElementById("mode-log");
+    const btnModeRaw = document.getElementById("mode-raw");
+    const btnDeleteRange = document.getElementById("btn-delete-range");
 
     const userId = ensureUserId();
     let wallet = loadWallet(userId);
 
     elUid.textContent = userId;
+    elExportUrl.value = ""; // initial leer
 
     function resetAmount() {
       elAmount.value = "1";
+    }
+
+    function clearExport() {
+      elExportUrl.value = "";
     }
 
     function getAmount() {
@@ -287,11 +333,11 @@
       historyMode = mode;
       btnModeDiagram.classList.toggle("active", mode === "diagram");
       btnModeLog.classList.toggle("active", mode === "log");
-      // direkt aktualisieren, wenn schon was angezeigt wird
-      refreshSummary(true);
+      btnModeRaw.classList.toggle("active", mode === "raw");
+      refreshSummary(); // immer direkt aktualisieren
     }
 
-    function formatLogLine(e) {
+    function formatLogLine(e, index) {
       const d = new Date(e.ts);
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -301,40 +347,42 @@
       const dateStr = `${y}-${m}-${day}`;
       const timeStr = `${hh}:${mm}`;
       let action = "";
-      if (e.t === "d") action = `+${e.n || 0} Drink(s)`;
+      if (e.t === "d") action = `+${e.n || 0} Getränk(e)`;
       else if (e.t === "s") action = `-${e.n || 0} korrigiert`;
       else if (e.t === "p") action = "Bezahlt";
-      return `${dateStr} ${timeStr} | ${action}`;
+      return `#${index} | ${dateStr} ${timeStr} | ${action}`;
     }
 
-    function refreshSummary(showHistory) {
+    function refreshSummary() {
       const summary = computeSummary(wallet);
       elTotal.textContent = summary.total;
       elUnpaid.textContent = summary.unpaid;
 
-      if (showHistory) {
-        if (historyMode === "diagram") {
-          if (!summary.perDay.length) {
-            elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-          } else {
-            const lines = summary.perDay.map((d) => {
-              const bar = "#".repeat(Math.min(d.drinks, 50));
-              return `${d.date} | ${bar}`;
-            });
-            elHistory.textContent = lines.join("\n");
-          }
-        } else if (historyMode === "log") {
-          if (!summary.eventsSorted.length) {
-            elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-          } else {
-            // neueste oben → von hinten nach vorne
-            const lines = [];
-            for (let i = summary.eventsSorted.length - 1; i >= 0; i--) {
-              lines.push(formatLogLine(summary.eventsSorted[i]));
-            }
-            elHistory.textContent = lines.join("\n");
-          }
+      if (historyMode === "diagram") {
+        if (!summary.perDay.length) {
+          elHistory.textContent = "Noch keine Drinks geloggt. ✨";
+        } else {
+          const lines = summary.perDay.map((d) => {
+            const bar = "#".repeat(Math.min(d.drinks, 50));
+            const paidMark = d.paid ? " 💰" : "";
+            return `${d.date}${paidMark} | ${bar}`;
+          });
+          elHistory.textContent = lines.join("\n");
         }
+      } else if (historyMode === "log") {
+        if (!summary.eventsSorted.length) {
+          elHistory.textContent = "Noch keine Drinks geloggt. ✨";
+        } else {
+          const lines = [];
+          const len = summary.eventsSorted.length;
+          for (let i = len - 1; i >= 0; i--) {
+            const idx = i + 1; // 1-basiert
+            lines.push(formatLogLine(summary.eventsSorted[i], idx));
+          }
+          elHistory.textContent = lines.join("\n");
+        }
+      } else if (historyMode === "raw") {
+        elHistory.textContent = JSON.stringify(wallet, null, 2);
       }
     }
 
@@ -343,32 +391,36 @@
       wallet.events.push(newEvent(wallet, "d", n));
       saveWallet(wallet);
       resetAmount();
-      refreshSummary(false);
+      clearExport();
+      refreshSummary();
     });
 
     btnMinus.addEventListener("click", () => {
       const summaryBefore = computeSummary(wallet);
       const requested = getAmount();
-      const maxCancelable = summaryBefore.unpaid; // nur offene Drinks korrigierbar
+      const maxCancelable = summaryBefore.unpaid;
       const effective = Math.min(requested, maxCancelable);
 
       if (effective <= 0) {
         alert("Keine offenen Drinks zum Zurücknehmen 🤷‍♂️");
         resetAmount();
+        clearExport();
         return;
       }
 
       wallet.events.push(newEvent(wallet, "s", effective));
       saveWallet(wallet);
       resetAmount();
-      refreshSummary(false);
+      clearExport();
+      refreshSummary();
     });
 
     btnPay.addEventListener("click", () => {
       wallet.events.push(newEvent(wallet, "p"));
       saveWallet(wallet);
       resetAmount();
-      refreshSummary(false);
+      clearExport();
+      refreshSummary();
     });
 
     btnExport.addEventListener("click", () => {
@@ -389,16 +441,11 @@
       elExportUrl.select();
     });
 
-    // Export-URL: beim Klick/Focus direkt alles markieren
     elExportUrl.addEventListener("focus", () => {
       elExportUrl.select();
     });
     elExportUrl.addEventListener("click", () => {
       elExportUrl.select();
-    });
-
-    btnHistory.addEventListener("click", () => {
-      refreshSummary(true);
     });
 
     btnReset.addEventListener("click", () => {
@@ -413,14 +460,65 @@
       saveWallet(wallet);
       elExportUrl.value = "";
       elHistory.textContent = "Noch keine Drinks geloggt. ✨";
+      elDeleteRange.value = "";
       resetAmount();
-      refreshSummary(false);
+      refreshSummary();
     });
 
     btnModeDiagram.addEventListener("click", () => setHistoryMode("diagram"));
     btnModeLog.addEventListener("click", () => setHistoryMode("log"));
+    btnModeRaw.addEventListener("click", () => setHistoryMode("raw"));
 
-    refreshSummary(false);
+    btnDeleteRange.addEventListener("click", () => {
+      const summary = computeSummary(wallet);
+      const maxIndex = summary.eventsSorted.length;
+      if (maxIndex === 0) {
+        alert("Keine Logeinträge vorhanden.");
+        clearExport();
+        return;
+      }
+
+      const input = elDeleteRange.value.trim();
+      const indices = parseDeleteRange(input, maxIndex);
+
+      if (!indices.size) {
+        alert("Keine gültigen IDs im Eingabefeld gefunden.");
+        clearExport();
+        return;
+      }
+
+      const idsToDelete = new Set();
+      let payCount = 0;
+
+      summary.eventsSorted.forEach((e, i) => {
+        const idx = i + 1;
+        if (indices.has(idx)) {
+          idsToDelete.add(e.id);
+          if (e.t === "p") payCount++;
+        }
+      });
+
+      if (!idsToDelete.size) {
+        alert("Keine passenden Logeinträge gefunden.");
+        clearExport();
+        return;
+      }
+
+      let msg = `Wirklich ${idsToDelete.size} Logeintrag/Einträge löschen? 🧹`;
+      if (payCount > 0) {
+        msg += `\nAchtung: Darunter sind ${payCount} Zahlung(en) 💸.`;
+      }
+
+      if (!confirm(msg)) return;
+
+      wallet.events = wallet.events.filter(e => !idsToDelete.has(e.id));
+      saveWallet(wallet);
+      clearExport();
+      refreshSummary();
+    });
+
+    // Initiale Anzeige
+    refreshSummary();
   });
 })();
 </script>
