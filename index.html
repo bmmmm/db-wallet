@@ -39,6 +39,7 @@
 <body>
 
 <h1>db-wallet</h1>
+<button id="btn-info">Info ℹ️</button>
 
 <section>
   <h2>Neuen Nutzer anlegen</h2>
@@ -49,7 +50,7 @@
 
 <hr>
 
-<section>
+<section id="existing-users-section">
   <h2>Vorhandene Nutzer:innen</h2>
   <div id="existing-users"></div>
   <br />
@@ -121,20 +122,29 @@
 
   function renderExistingUsers() {
     const container = document.getElementById("existing-users");
+    const section = document.getElementById("existing-users-section");
     if (!container) return;
 
     const entries = collectWalletEntries();
     container.innerHTML = "";
 
     if (!entries.length) {
-      container.textContent = "Noch keine Nutzer:innen gespeichert.";
+      if (section) {
+        section.style.display = "none";
+      }
       return;
+    }
+
+    if (section) {
+      section.style.display = "block";
     }
 
     const list = document.createElement("div");
     entries.forEach((entry, index) => {
-      const label = document.createElement("label");
-      label.style.display = "block";
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.alignItems = "center";
+      row.style.gap = "0.5rem";
 
       const radio = document.createElement("input");
       radio.type = "radio";
@@ -142,9 +152,19 @@
       radio.value = entry.userId;
       if (index === 0) radio.checked = true;
 
-      label.appendChild(radio);
-      label.appendChild(document.createTextNode(" " + entry.userId));
-      list.appendChild(label);
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "user-delete-checkbox";
+      checkbox.value = entry.userId;
+
+      const label = document.createElement("span");
+      label.textContent = entry.userId;
+
+      row.appendChild(radio);
+      row.appendChild(checkbox);
+      row.appendChild(label);
+
+      list.appendChild(row);
     });
 
     container.appendChild(list);
@@ -157,8 +177,35 @@
       window.location.href = "wallet.html#" + selected.value;
     });
 
+    const btnDelete = document.createElement("button");
+    btnDelete.textContent = "Ausgewählte Nutzer löschen 🗑️";
+    btnDelete.addEventListener("click", () => {
+      const checkboxes = container.querySelectorAll(".user-delete-checkbox:checked");
+      if (!checkboxes.length) return;
+
+      const usersToDelete = Array.from(checkboxes).map(cb => cb.value);
+      const confirmMsg =
+        usersToDelete.length === 1
+          ? `Soll der Nutzer "${usersToDelete[0]}" wirklich gelöscht werden?`
+          : `Sollen die folgenden ${usersToDelete.length} Nutzer wirklich gelöscht werden?\n\n` +
+            usersToDelete.join(", ");
+
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+
+      usersToDelete.forEach(userId => {
+        const storageKey = STORAGE_PREFIX + userId;
+        localStorage.removeItem(storageKey);
+        localStorage.removeItem(userId);
+      });
+
+      renderExistingUsers();
+    });
+
     container.appendChild(document.createElement("br"));
     container.appendChild(btnOpen);
+    container.appendChild(btnDelete);
   }
 
   function start() {
@@ -176,6 +223,7 @@
     const fileImport = document.getElementById("file-import");
     const btnRawAll = document.getElementById("btn-raw-all");
     const rawOutput = document.getElementById("raw-output");
+    const btnInfo = document.getElementById("btn-info");
 
     if (btnStart) {
       btnStart.onclick = start;
@@ -183,6 +231,11 @@
     if (inputUsername) {
       inputUsername.addEventListener("keydown", e => {
         if (e.key === "Enter") start();
+      });
+    }
+    if (btnInfo) {
+      btnInfo.addEventListener("click", () => {
+        window.open("https://github.com/bmmmm/db-wallet", "_blank");
       });
     }
     if (btnSearchUsers) {
