@@ -69,6 +69,7 @@ button {
     white-space: normal;
     text-align: center;
     line-height: 1.35;
+    touch-action: manipulation;
     transition:
         transform 120ms ease,
         box-shadow 120ms ease,
@@ -203,6 +204,49 @@ hr {
     color: var(--accent-strong);
 }
 
+.wallet-actions,
+.wallet-export {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: var(--shadow);
+    margin-top: 1rem;
+}
+
+.wallet-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.wallet-actions .raw-toggle {
+    margin-top: 0;
+}
+
+.wallet-actions pre {
+    margin: 0;
+}
+
+.action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.action-buttons button {
+    margin: 0;
+}
+
+.pay-options {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.pay-options button {
+    margin: 0;
+}
+
 #existing-users div {
     color: var(--text);
 }
@@ -266,6 +310,45 @@ hr {
     input[type="number"] {
         width: 100%;
         max-width: 120px;
+    }
+
+    .wallet-actions,
+    .wallet-export {
+        padding: 0.85rem;
+    }
+
+    .action-buttons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.55rem;
+    }
+
+    #btn-pay {
+        grid-column: 1 / -1;
+    }
+
+    .action-buttons button {
+        width: 100%;
+    }
+
+    #btn-drink,
+    #btn-minus,
+    #btn-pay,
+    #btn-pay-today,
+    #btn-credit,
+    #btn-pay-cancel {
+        min-height: 48px;
+        padding: 0.75rem 1rem;
+        font-size: 1.05rem;
+    }
+
+    #pay-options {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #pay-options button {
+        width: 100%;
     }
 
     .theme-buttons {
