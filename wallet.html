@@ -39,6 +39,18 @@
       gap: .5rem;
       flex-wrap: wrap;
     }
+    .raw-toggle {
+      margin-top: .3rem;
+      font-size: .9rem;
+    }
+    .raw-toggle-btn.active {
+      background: #444;
+      color: #fff;
+    }
+    .raw-toggle-btn {
+      padding: .2rem .5rem;
+      font-size: .85rem;
+    }
   </style>
 </head>
 <body>
@@ -74,6 +86,12 @@
   <button id="mode-raw" class="mode-btn">Raw-Log 🛠️</button>
 </div>
 
+<div class="raw-toggle">
+  Raw-Log für:
+  <button id="raw-scope-current" class="raw-toggle-btn active">aktuellen User</button>
+  <button id="raw-scope-all" class="raw-toggle-btn">alle User</button>
+</div>
+
 <br>
 
 <!-- Log-Bearbeitung -->
@@ -85,7 +103,7 @@
 
 <br><br>
 
-<!-- Export-Bereich (bewusst ganz unten, vor der Ausgabe) -->
+<!-- Export-Bereich -->
 <button id="btn-export">Export-Link erzeugen 🔗</button>
 <input id="export-url" readonly placeholder="Hier erscheint dein Export-Link">
 
@@ -97,6 +115,7 @@
 (function () {
   const STORAGE_PREFIX = "wallet:";
   let historyMode = "diagram"; // "diagram" | "log" | "raw"
+  let rawScope = "current";   // "current" | "all"
 
   function base64UrlEncode(str) {
     return btoa(unescape(encodeURIComponent(str)))
@@ -146,6 +165,17 @@
 
   function saveWallet(wallet) {
     localStorage.setItem(STORAGE_PREFIX + wallet.userId, JSON.stringify(wallet));
+  }
+
+  function getAllWallets() {
+    const all = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+      const userId = key.slice(STORAGE_PREFIX.length);
+      all[userId] = loadWallet(userId);
+    }
+    return all;
   }
 
   function mergeEvents(localEvents, remoteEvents) {
@@ -321,6 +351,8 @@
     const btnModeLog = document.getElementById("mode-log");
     const btnModeRaw = document.getElementById("mode-raw");
     const btnDeleteRange = document.getElementById("btn-delete-range");
+    const btnRawCurrent = document.getElementById("raw-scope-current");
+    const btnRawAll = document.getElementById("raw-scope-all");
 
     const userId = ensureUserId();
     let wallet = loadWallet(userId);
@@ -347,6 +379,15 @@
       btnModeLog.classList.toggle("active", mode === "log");
       btnModeRaw.classList.toggle("active", mode === "raw");
       refreshSummary();
+    }
+
+    function setRawScope(scope) {
+      rawScope = scope;
+      btnRawCurrent.classList.toggle("active", scope === "current");
+      btnRawAll.classList.toggle("active", scope === "all");
+      if (historyMode === "raw") {
+        refreshSummary();
+      }
     }
 
     function formatLogLine(e, index) {
@@ -394,7 +435,12 @@
           elHistory.textContent = lines.join("\n");
         }
       } else if (historyMode === "raw") {
-        elHistory.textContent = JSON.stringify(wallet, null, 2);
+        if (rawScope === "current") {
+          elHistory.textContent = JSON.stringify(wallet, null, 2);
+        } else {
+          const all = getAllWallets();
+          elHistory.textContent = JSON.stringify(all, null, 2);
+        }
       }
     }
 
@@ -484,6 +530,9 @@
     btnModeDiagram.addEventListener("click", () => setHistoryMode("diagram"));
     btnModeLog.addEventListener("click", () => setHistoryMode("log"));
     btnModeRaw.addEventListener("click", () => setHistoryMode("raw"));
+
+    btnRawCurrent.addEventListener("click", () => setRawScope("current"));
+    btnRawAll.addEventListener("click", () => setRawScope("all"));
 
     btnDeleteRange.addEventListener("click", () => {
       const summary = computeSummary(wallet);
