@@ -95,11 +95,13 @@
 <br>
 
 <!-- Log-Bearbeitung -->
-<label for="delete-range">Logeinträge löschen (IDs, z. B. 1,3,5-7):</label>
-<input id="delete-range" type="text" placeholder="IDs aus der Historie-Ansicht eingeben …">
-<br>
-<button id="btn-delete-range">Ausgewählte Logeinträge löschen 🧹</button>
-<button id="btn-reset">Alles löschen 🗑️</button>
+<div id="log-edit-group">
+  <label for="delete-range">Logeinträge löschen (IDs, z. B. 1,3,5-7):</label>
+  <input id="delete-range" type="text" placeholder="IDs aus der Historie-Ansicht eingeben …">
+  <br>
+  <button id="btn-delete-range">Ausgewählte Logeinträge löschen 🧹</button>
+</div>
+<button id="btn-reset">Alle Daten für diesen User löschen 🗑️</button>
 
 <br><br>
 
@@ -340,6 +342,7 @@
     const elExportUrl = document.getElementById("export-url");
     const elHistory = document.getElementById("history");
     const elDeleteRange = document.getElementById("delete-range");
+    const logEditGroup = document.getElementById("log-edit-group");
 
     const btnHome = document.getElementById("btn-home");
     const btnDrink = document.getElementById("btn-drink");
@@ -378,6 +381,17 @@
       btnModeDiagram.classList.toggle("active", mode === "diagram");
       btnModeLog.classList.toggle("active", mode === "log");
       btnModeRaw.classList.toggle("active", mode === "raw");
+
+      // Log-spezifische Steuerelemente nur im Historie-Modus anzeigen
+      if (logEditGroup) {
+        logEditGroup.style.display = mode === "log" ? "block" : "none";
+      }
+
+      // Beim Wechsel auf Diagramm oder Historie immer auf "aktuellen User" für Raw zurücksetzen
+      if (mode !== "raw") {
+        setRawScope("current");
+      }
+
       refreshSummary();
     }
 
@@ -511,7 +525,7 @@
     });
 
     btnReset.addEventListener("click", () => {
-      if (!confirm("Wirklich alle Getränkedaten für diesen User löschen? 🗑️")) return;
+      if (!confirm(`Wirklich alle Getränkedaten für "${userId}" löschen? 🗑️`)) return;
       localStorage.removeItem(STORAGE_PREFIX + wallet.userId);
       wallet = {
         userId: wallet.userId,
@@ -538,7 +552,7 @@
       const summary = computeSummary(wallet);
       const maxIndex = summary.eventsSorted.length;
       if (maxIndex === 0) {
-        alert("Keine Logeinträge vorhanden.");
+        alert(`Keine Logeinträge für "${userId}" vorhanden.`);
         clearExport();
         return;
       }
@@ -569,7 +583,7 @@
         return;
       }
 
-      let msg = `Wirklich ${idsToDelete.size} Logeintrag/Einträge löschen? 🧹`;
+      let msg = `Wirklich ${idsToDelete.size} Logeintrag/Einträge für "${userId}" löschen? 🧹`;
       if (payCount > 0) {
         msg += `\nAchtung: Darunter sind ${payCount} Zahlung(en) 💸.`;
       }
