@@ -33,17 +33,24 @@
       background: #222;
       color: #fff;
     }
+    .top-row {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
 <body>
 
 <h1>dein Getränke-Wallet 🥤</h1>
 
-<div>
+<div class="top-row">
   <div>User: <strong id="uid"></strong></div>
-  <div>Gesamt getrunken: <strong id="total">0</strong></div>
-  <div>Offen seit letzter Zahlung: <strong id="unpaid">0</strong></div>
+  <button id="btn-home">Zur Startseite 🏠</button>
 </div>
+<div>Gesamt getrunken: <strong id="total">0</strong></div>
+<div>Offen seit letzter Zahlung: <strong id="unpaid">0</strong></div>
 
 <br>
 
@@ -52,33 +59,37 @@
 
 <br><br>
 
+<!-- Hauptaktionen -->
 <button id="btn-drink">+ Trinken 🥤</button>
 <button id="btn-minus">– Zurücknehmen ↩️</button>
 <button id="btn-pay">Bezahlt 💸</button>
 
 <br><br>
 
-<button id="btn-export">Export-Link erzeugen 🔗</button>
-<input id="export-url" readonly placeholder="Hier erscheint dein Export-Link">
-
-<br><br>
-
+<!-- Ausgabe-Modus -->
 <div>
-  <span class="history-mode-label">Historienansicht:</span>
+  <span class="history-mode-label">Ausgabe:</span>
   <button id="mode-diagram" class="mode-btn active">Diagramm 📊</button>
-  <button id="mode-log" class="mode-btn">Log 📜</button>
+  <button id="mode-log" class="mode-btn">Historie 📜</button>
   <button id="mode-raw" class="mode-btn">Raw-Log 🛠️</button>
 </div>
 
 <br>
 
+<!-- Log-Bearbeitung -->
 <label for="delete-range">Logeinträge löschen (IDs, z. B. 1,3,5-7):</label>
-<input id="delete-range" type="text" placeholder="IDs aus der Log-Ansicht eingeben …">
+<input id="delete-range" type="text" placeholder="IDs aus der Historie-Ansicht eingeben …">
+<br>
 <button id="btn-delete-range">Ausgewählte Logeinträge löschen 🧹</button>
+<button id="btn-reset">Alles löschen 🗑️</button>
 
 <br><br>
 
-<button id="btn-reset">Alles löschen 🗑️</button>
+<!-- Export-Bereich (bewusst ganz unten, vor der Ausgabe) -->
+<button id="btn-export">Export-Link erzeugen 🔗</button>
+<input id="export-url" readonly placeholder="Hier erscheint dein Export-Link">
+
+<br><br>
 
 <pre id="history">Noch keine Drinks geloggt. ✨</pre>
 
@@ -300,6 +311,7 @@
     const elHistory = document.getElementById("history");
     const elDeleteRange = document.getElementById("delete-range");
 
+    const btnHome = document.getElementById("btn-home");
     const btnDrink = document.getElementById("btn-drink");
     const btnMinus = document.getElementById("btn-minus");
     const btnPay = document.getElementById("btn-pay");
@@ -334,7 +346,7 @@
       btnModeDiagram.classList.toggle("active", mode === "diagram");
       btnModeLog.classList.toggle("active", mode === "log");
       btnModeRaw.classList.toggle("active", mode === "raw");
-      refreshSummary(); // immer direkt aktualisieren
+      refreshSummary();
     }
 
     function formatLogLine(e, index) {
@@ -385,6 +397,10 @@
         elHistory.textContent = JSON.stringify(wallet, null, 2);
       }
     }
+
+    btnHome.addEventListener("click", () => {
+      window.location.href = "index.html";
+    });
 
     btnDrink.addEventListener("click", () => {
       const n = getAmount();
