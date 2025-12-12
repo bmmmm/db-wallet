@@ -275,6 +275,15 @@
   }
 
   // liefert auch die sortierten Events zurück
+  // Erweiterung: unterstützt jetzt auch Gutschriften ("g")
+  // Balance-Logik:
+  //  - "d" (Drink)      => balance += n
+  //  - "s" (Subtract)   => balance -= n
+  //  - "g" (Gutschrift) => balance -= n
+  //  - "p" (Bezahlt)    => wenn balance > 0, dann balance = 0
+  // Am Ende:
+  //  - unpaid  = max(balance, 0)       (offene Getränke)
+  //  - credit  = max(-balance, 0)      (verbleibende Gutschrift in Getränken)
   function computeSummary(wallet) {
     const eventsSorted = wallet.events
       .slice()
@@ -282,6 +291,7 @@
 
     let total = 0;
     const perDayMap = new Map();
+    let balance = 0; // >0 = offene Getränke, <0 = Guthaben
 
     function dayKey(ts) {
       const d = new Date(ts);
@@ -302,12 +312,21 @@
         const n = e.n || 0;
         total += n;
         day.drinks += n;
+        balance += n;
       } else if (e.t === "s") {
         const n = e.n || 0;
         total -= n;
         day.drinks -= n;
+        balance -= n;
       } else if (e.t === "p") {
         day.paid = true;
+        if (balance > 0) {
+          balance = 0;
+        }
+      } else if (e.t === "g") {
+        const n = e.n || 0;
+        // Gutschriften zählen nicht in die Tages-Drinkmenge
+        balance -= n;
       }
     }
 
@@ -316,27 +335,14 @@
     }
     if (total < 0) total = 0;
 
-    // Unbezahlte Drinks seit letzter Zahlung
-    let unpaid = 0;
-    let lastPayIndex = -1;
-    for (let i = eventsSorted.length - 1; i >= 0; i--) {
-      if (eventsSorted[i].t === "p") {
-        lastPayIndex = i;
-        break;
-      }
-    }
-    for (let i = lastPayIndex + 1; i < eventsSorted.length; i++) {
-      const e = eventsSorted[i];
-      if (e.t === "d") unpaid += e.n || 0;
-      if (e.t === "s") unpaid -= e.n || 0;
-    }
-    if (unpaid < 0) unpaid = 0;
+    const unpaid = Math.max(balance, 0);
+    const credit = Math.max(-balance, 0);
 
     const perDay = Array.from(perDayMap.values()).sort((a, b) =>
       a.date.localeCompare(b.date)
     );
 
-    return { total, unpaid, perDay, eventsSorted };
+    return { total, unpaid, credit, perDay, eventsSorted };
   }
 
   function parseDeleteRange(input, maxIndex) {
@@ -476,6 +482,7 @@
       if (e.t === "d") action = `+${e.n || 0} Getränk(e)`;
       else if (e.t === "s") action = `-${e.n || 0} korrigiert`;
       else if (e.t === "p") action = "Bezahlt";
+      else if (e.t === "g") action = `Gutschrift ${e.n || 0} Getränk(e)`;
       return `#${index} | ${dateStr} ${timeStr} | ${action}`;
     }
 
@@ -570,25 +577,76 @@
 
     if (btnPayToday) {
       btnPayToday.addEventListener("click", () => {
-        wallet.events.push(newEvent(wallet, "p"));
-        saveWallet(wallet);
-        resetAmount();
-        clearExport();
-        if (payOptions) {
-          payOptions.style.display = "none";
+        const summaryBefore = computeSummary(wallet);
+
+        if (summaryBefore.unpaid > 0) {
+          // Normale Zahlung für offene Getränke
+          wallet.events.push(newEvent(wallet, "p"));
+          saveWallet(wallet);
+          resetAmount();
+          clearExport();
+          if (payOptions) {
+            payOptions.style.display = "none";
+          }
+          refreshSummary();
+        } else {
+          // Keine offenen Getränke -> Gutschrift anbieten
+          const amountStr = prompt(
+            "Aktuell sind keine offenen Getränke vorhanden.\nStattdessen kannst du eine Gutschrift in Getränken eintragen.\nWie viele Getränke möchtest du als Gutschrift buchen?",
+            "10"
+          );
+          if (amountStr === null) {
+            clearExport();
+            return;
+          }
+          const n = parseInt(amountStr, 10);
+          if (isNaN(n) || n <= 0) {
+            alert("Ungültige Menge für die Gutschrift.");
+            clearExport();
+            return;
+          }
+          wallet.events.push(newEvent(wallet, "g", n));
+          saveWallet(wallet);
+          resetAmount();
+          clearExport();
+          if (payOptions) {
+            payOptions.style.display = "none";
+          }
+          refreshSummary();
         }
-        refreshSummary();
       });
     }
 
     if (btnPayDate && payDateInput) {
       btnPayDate.addEventListener("click", () => {
-        // Datumsauswahl anzeigen, wenn sie noch nicht sichtbar ist
+        const summaryBefore = computeSummary(wallet);
+
+        // Datumsauswahl ist nur sinnvoll, wenn es offene Getränke gibt
         if (payDateInput.style.display === "none" || payDateInput.style.display === "") {
+          if (summaryBefore.unpaid <= 0) {
+            alert(
+              "Aktuell sind keine offenen Getränke vorhanden.\n" +
+              "Die Datumswahl ist nur für Zahlungen mit offenen Getränken gedacht.\n" +
+              "Für eine Gutschrift nutze bitte 'heute buchen 💰'."
+            );
+            return;
+          }
           payDateInput.style.display = "inline-block";
           payDateInput.value = todayDateStr();
           btnPayDate.textContent = "Datum buchen 💰";
           payDateInput.focus();
+          return;
+        }
+
+        // Zweiter Klick: ausgewähltes Datum als Zahlungsdatum verwenden
+        if (summaryBefore.unpaid <= 0) {
+          alert(
+            "Aktuell sind keine offenen Getränke vorhanden.\n" +
+            "Es kann keine weitere Zahlung verbucht werden."
+          );
+          payDateInput.value = "";
+          payDateInput.style.display = "none";
+          btnPayDate.textContent = "Datum wählen 📅";
           return;
         }
 
