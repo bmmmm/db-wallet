@@ -1,370 +1,381 @@
 <!doctype html>
 <html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <title>db-wallet – Start</title>
-  <style>
-    body {
-      font-family: system-ui, sans-serif;
-      max-width: 600px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-    }
-    h1 { font-size: 1.6rem; margin-bottom: 1rem; }
-    h2 { font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: .5rem; }
-    button {
-      padding: .5rem .9rem;
-      font-size: 1rem;
-      cursor: pointer;
-      margin-top: .3rem;
-      margin-right: .3rem;
-    }
-    input[type="text"] {
-      padding: .4rem .5rem;
-      font-size: 1rem;
-      width: 70%;
-      max-width: 320px;
-      box-sizing: border-box;
-    }
-    pre {
-      white-space: pre-wrap;
-      background: #f5f5f5;
-      padding: .5rem;
-      max-height: 220px;
-      overflow: auto;
-      font-size: .85rem;
-    }
-  </style>
-</head>
-<body>
+    <head>
+        <meta charset="utf-8" />
+        <title>db-wallet – Start</title>
+        <link rel="stylesheet" href="style.css" />
 
-<h1>db-wallet</h1>
-<button id="btn-info">Info ℹ️</button>
+    </head>
+    <body>
+        <h1>db-wallet</h1>
+        <button id="btn-info">Info ℹ️</button>
 
-<section>
-  <h2>Neuen Nutzer anlegen</h2>
-  <p>Nutzername eingeben oder leer lassen, um einen zufälligen Namen zu erhalten.</p>
-  <input id="username" type="text" placeholder="z. B. peter, kueche, clubraum …" />
-  <button id="btn-start">Weiter</button>
-</section>
+        <section>
+            <h2>Neuen Nutzer anlegen</h2>
+            <p>
+                Nutzername eingeben oder leer lassen, um einen zufälligen Namen
+                zu erhalten.
+            </p>
+            <input
+                id="username"
+                type="text"
+                placeholder="z. B. peter, kueche, clubraum …"
+            />
+            <button id="btn-start">Weiter</button>
+        </section>
 
-<hr>
+        <hr />
 
-<section id="existing-users-section">
-  <h2>Vorhandene Nutzer:innen</h2>
-  <div id="existing-users"></div>
-  <br />
-  <button id="btn-search-users">Nach lokalen Nutzer:innen suchen 🔍</button>
-</section>
+        <section id="existing-users-section">
+            <h2>Vorhandene Nutzer:innen</h2>
+            <div id="existing-users"></div>
+            <br />
+            <button id="btn-search-users">
+                Nach lokalen Nutzer:innen suchen 🔍
+            </button>
+        </section>
 
-<hr>
+        <hr />
 
-<section>
-  <h2>Import &amp; Rohdaten</h2>
-  <button id="btn-import-json">JSON importieren 📄</button>
-  <input id="file-import" type="file" accept="application/json" style="display:none;" />
-  <button id="btn-raw-all">Alle Raw-Daten anzeigen 🧾</button>
-  <button id="btn-nuke-all">Alle lokalen Nutzer löschen 💣</button>
-  <pre id="raw-output"></pre>
-</section>
+        <section>
+            <h2>Import &amp; Rohdaten</h2>
+            <button id="btn-import-json">JSON importieren 📄</button>
+            <input
+                id="file-import"
+                type="file"
+                accept="application/json"
+                style="display: none"
+            />
+            <button id="btn-raw-all">Alle Raw-Daten anzeigen 🧾</button>
+            <button id="btn-nuke-all">Alle lokalen Nutzer löschen 💣</button>
+            <pre id="raw-output"></pre>
+        </section>
 
-<script>
-  function normalize(name) {
-    let n = String(name || "").trim().toLowerCase();
-    n = n.replace(/\s+/g, "-");
-    n = n.replace(/[^a-z0-9_-]/g, "");
-    if (n.startsWith("import:")) n = "user-" + n.slice("import:".length);
-    return n;
-  }
-
-  function randomId(len = 6) {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let o = "";
-    for (let i = 0; i < len; i++) o += chars[Math.random() * chars.length | 0];
-    return o;
-  }
-
-  const STORAGE_PREFIX = "db-wallet:";
-
-  // Alle Wallet-ähnlichen Objekte aus localStorage sammeln
-  function collectWalletEntries() {
-    const entries = [];
-    const seenUserIds = new Set();
-
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-
-      if (!key.startsWith(STORAGE_PREFIX)) continue;
-
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const obj = JSON.parse(raw);
-        if (
-          obj &&
-          typeof obj === "object" &&
-          typeof obj.userId === "string" &&
-          Array.isArray(obj.events)
-        ) {
-          if (!seenUserIds.has(obj.userId)) {
-            seenUserIds.add(obj.userId);
-            entries.push({ key, userId: obj.userId, wallet: obj });
-          }
-        }
-      } catch (e) {
-        // ignorieren
-      }
-    }
-
-    entries.sort((a, b) => a.userId.localeCompare(b.userId));
-    return entries;
-  }
-
-  function renderExistingUsers() {
-    const container = document.getElementById("existing-users");
-    const section = document.getElementById("existing-users-section");
-    if (!container) return;
-
-    const entries = collectWalletEntries();
-    container.innerHTML = "";
-
-    if (!entries.length) {
-      if (section) {
-        section.style.display = "none";
-      }
-      return;
-    }
-
-    if (section) {
-      section.style.display = "block";
-    }
-
-    const list = document.createElement("div");
-    entries.forEach((entry, index) => {
-      const row = document.createElement("div");
-      row.style.display = "flex";
-      row.style.alignItems = "center";
-      row.style.gap = "0.5rem";
-
-      const radio = document.createElement("input");
-      radio.type = "radio";
-      radio.name = "existing-user";
-      radio.value = entry.userId;
-      radio.title = "Diesen Nutzer öffnen";
-      if (index === 0) radio.checked = true;
-
-      const radioLabel = document.createElement("span");
-      radioLabel.textContent = "öffnen";
-
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.className = "user-delete-checkbox";
-      checkbox.value = entry.userId;
-      checkbox.title = "Diesen Nutzer zum Löschen markieren";
-
-      const checkboxLabel = document.createElement("span");
-      checkboxLabel.textContent = "löschen";
-
-      const label = document.createElement("span");
-      label.textContent = entry.userId;
-
-      row.appendChild(radio);
-      row.appendChild(radioLabel);
-      row.appendChild(checkbox);
-      row.appendChild(checkboxLabel);
-      row.appendChild(label);
-
-      list.appendChild(row);
-    });
-
-    container.appendChild(list);
-
-    const btnOpen = document.createElement("button");
-    btnOpen.textContent = "Ausgewählten Nutzer öffnen";
-    btnOpen.addEventListener("click", () => {
-      const selected = container.querySelector('input[name="existing-user"]:checked');
-      if (!selected) return;
-      window.location.href = "wallet.html#" + selected.value;
-    });
-
-    const btnDelete = document.createElement("button");
-    btnDelete.textContent = "Ausgewählte Nutzer löschen 🗑️";
-    btnDelete.addEventListener("click", () => {
-      const checkboxes = container.querySelectorAll(".user-delete-checkbox:checked");
-      if (!checkboxes.length) return;
-
-      const usersToDelete = Array.from(checkboxes).map(cb => cb.value);
-      const confirmMsg =
-        usersToDelete.length === 1
-          ? `Soll der Nutzer "${usersToDelete[0]}" wirklich gelöscht werden?`
-          : `Sollen die folgenden ${usersToDelete.length} Nutzer wirklich gelöscht werden?\n\n` +
-            usersToDelete.join(", ");
-
-      if (!window.confirm(confirmMsg)) {
-        return;
-      }
-
-      usersToDelete.forEach(userId => {
-        const storageKey = STORAGE_PREFIX + userId;
-        localStorage.removeItem(storageKey);
-        localStorage.removeItem(userId);
-      });
-
-      renderExistingUsers();
-    });
-
-    container.appendChild(document.createElement("br"));
-    container.appendChild(btnOpen);
-    container.appendChild(btnDelete);
-  }
-
-  function start() {
-    const raw = document.getElementById("username").value;
-    let u = normalize(raw);
-    if (!u) u = "user-" + randomId();
-    window.location.href = "wallet.html#" + u;
-  }
-
-  (function init() {
-    const inputUsername = document.getElementById("username");
-    const btnStart = document.getElementById("btn-start");
-    const btnSearchUsers = document.getElementById("btn-search-users");
-    const btnImportJson = document.getElementById("btn-import-json");
-    const fileImport = document.getElementById("file-import");
-    const btnRawAll = document.getElementById("btn-raw-all");
-    const btnNukeAll = document.getElementById("btn-nuke-all");
-    const rawOutput = document.getElementById("raw-output");
-    const btnInfo = document.getElementById("btn-info");
-
-    if (btnStart) {
-      btnStart.onclick = start;
-    }
-    if (inputUsername) {
-      inputUsername.addEventListener("keydown", e => {
-        if (e.key === "Enter") start();
-      });
-    }
-    if (btnInfo) {
-      btnInfo.addEventListener("click", () => {
-        window.open("https://github.com/bmmmm/db-wallet", "_blank");
-      });
-    }
-    if (btnSearchUsers) {
-      btnSearchUsers.addEventListener("click", () => {
-        renderExistingUsers();
-      });
-    }
-    if (btnNukeAll) {
-      btnNukeAll.addEventListener("click", () => {
-        const entries = collectWalletEntries();
-        if (!entries.length) {
-          alert("Es wurden keine lokalen Nutzer gefunden.");
-          return;
-        }
-
-        const userIds = entries.map(e => e.userId);
-        const confirmMsg =
-          userIds.length === 1
-            ? `Soll der lokale Nutzer "${userIds[0]}" wirklich vollständig gelöscht werden?`
-            : `Sollen die folgenden ${userIds.length} lokalen Nutzer wirklich vollständig gelöscht werden?\n\n` +
-              userIds.join(", ");
-
-        if (!window.confirm(confirmMsg)) {
-          return;
-        }
-
-        // Alle Wallet-Einträge und Legacy-Keys entfernen
-        entries.forEach(entry => {
-          localStorage.removeItem(entry.key);        // db-wallet:<userId>
-          localStorage.removeItem(entry.userId);     // Legacy-Key
-        });
-
-        // Registry entfernen, falls vorhanden
-        try {
-          localStorage.removeItem("db-wallet:registry");
-        } catch (e) {
-          // ignore
-        }
-
-        // UI aktualisieren
-        if (rawOutput) {
-          rawOutput.textContent = "";
-        }
-        renderExistingUsers();
-        alert("Alle lokalen db-wallet-Nutzer wurden gelöscht.");
-      });
-    }
-
-    if (btnImportJson && fileImport) {
-      btnImportJson.addEventListener("click", () => {
-        fileImport.value = "";
-        fileImport.click();
-      });
-
-      fileImport.addEventListener("change", e => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = ev => {
-          try {
-            const text = ev.target.result;
-            const data = JSON.parse(text);
-
-            if (!data || typeof data !== "object") {
-              throw new Error("Ungültiges JSON-Format.");
+        <script>
+            function normalize(name) {
+                let n = String(name || "")
+                    .trim()
+                    .toLowerCase();
+                n = n.replace(/\s+/g, "-");
+                n = n.replace(/[^a-z0-9_-]/g, "");
+                if (n.startsWith("import:"))
+                    n = "user-" + n.slice("import:".length);
+                return n;
             }
 
-            let userId = data.userId ? String(data.userId).trim() : "";
-            userId = normalize(userId);
-            if (!userId) {
-              userId = "user-" + randomId();
+            function randomId(len = 6) {
+                const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+                let o = "";
+                for (let i = 0; i < len; i++)
+                    o += chars[(Math.random() * chars.length) | 0];
+                return o;
             }
 
-            const wallet = {
-              userId,
-              deviceId: data.deviceId || randomId(8),
-              v: data.v || 1,
-              events: Array.isArray(data.events) ? data.events : []
-            };
+            const STORAGE_PREFIX = "db-wallet:";
 
-            const json = JSON.stringify(wallet);
-            const storageKey = STORAGE_PREFIX + userId;
+            // Alle Wallet-ähnlichen Objekte aus localStorage sammeln
+            function collectWalletEntries() {
+                const entries = [];
+                const seenUserIds = new Set();
 
-            localStorage.setItem(storageKey, json);
-            localStorage.setItem(userId, json);
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (!key) continue;
 
-            renderExistingUsers();
-            window.location.href = "wallet.html#" + userId;
-          } catch (err) {
-            alert("Import fehlgeschlagen: " + (err.message || err));
-          }
-        };
-        reader.readAsText(file);
-      });
-    }
+                    if (!key.startsWith(STORAGE_PREFIX)) continue;
 
-    if (btnRawAll && rawOutput) {
-      btnRawAll.addEventListener("click", () => {
-        const entries = collectWalletEntries();
-        if (!entries.length) {
-          rawOutput.textContent = "Keine Wallet-Daten im lokalen Speicher gefunden.";
-          return;
-        }
-        const all = entries.map(e => ({
-          storageKey: e.key,
-          userId: e.userId,
-          wallet: e.wallet
-        }));
-        rawOutput.textContent = JSON.stringify(all, null, 2);
-      });
-    }
+                    try {
+                        const raw = localStorage.getItem(key);
+                        if (!raw) continue;
+                        const obj = JSON.parse(raw);
+                        if (
+                            obj &&
+                            typeof obj === "object" &&
+                            typeof obj.userId === "string" &&
+                            Array.isArray(obj.events)
+                        ) {
+                            if (!seenUserIds.has(obj.userId)) {
+                                seenUserIds.add(obj.userId);
+                                entries.push({
+                                    key,
+                                    userId: obj.userId,
+                                    wallet: obj,
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        // ignorieren
+                    }
+                }
 
-    // beim Laden direkt versuchen, Wallets zu finden
-    renderExistingUsers();
-  })();
-</script>
+                entries.sort((a, b) => a.userId.localeCompare(b.userId));
+                return entries;
+            }
 
-</body>
+            function renderExistingUsers() {
+                const container = document.getElementById("existing-users");
+                const section = document.getElementById(
+                    "existing-users-section",
+                );
+                if (!container) return;
+
+                const entries = collectWalletEntries();
+                container.innerHTML = "";
+
+                if (!entries.length) {
+                    if (section) {
+                        section.style.display = "none";
+                    }
+                    return;
+                }
+
+                if (section) {
+                    section.style.display = "block";
+                }
+
+                const list = document.createElement("div");
+                entries.forEach((entry, index) => {
+                    const row = document.createElement("div");
+                    row.style.display = "flex";
+                    row.style.alignItems = "center";
+                    row.style.gap = "0.5rem";
+
+                    const radio = document.createElement("input");
+                    radio.type = "radio";
+                    radio.name = "existing-user";
+                    radio.value = entry.userId;
+                    radio.title = "Diesen Nutzer öffnen";
+                    if (index === 0) radio.checked = true;
+
+                    const radioLabel = document.createElement("span");
+                    radioLabel.textContent = "öffnen";
+
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox";
+                    checkbox.className = "user-delete-checkbox";
+                    checkbox.value = entry.userId;
+                    checkbox.title = "Diesen Nutzer zum Löschen markieren";
+
+                    const checkboxLabel = document.createElement("span");
+                    checkboxLabel.textContent = "löschen";
+
+                    const label = document.createElement("span");
+                    label.textContent = entry.userId;
+
+                    row.appendChild(radio);
+                    row.appendChild(radioLabel);
+                    row.appendChild(checkbox);
+                    row.appendChild(checkboxLabel);
+                    row.appendChild(label);
+
+                    list.appendChild(row);
+                });
+
+                container.appendChild(list);
+
+                const btnOpen = document.createElement("button");
+                btnOpen.textContent = "Ausgewählten Nutzer öffnen";
+                btnOpen.addEventListener("click", () => {
+                    const selected = container.querySelector(
+                        'input[name="existing-user"]:checked',
+                    );
+                    if (!selected) return;
+                    window.location.href = "wallet.html#" + selected.value;
+                });
+
+                const btnDelete = document.createElement("button");
+                btnDelete.textContent = "Ausgewählte Nutzer löschen 🗑️";
+                btnDelete.addEventListener("click", () => {
+                    const checkboxes = container.querySelectorAll(
+                        ".user-delete-checkbox:checked",
+                    );
+                    if (!checkboxes.length) return;
+
+                    const usersToDelete = Array.from(checkboxes).map(
+                        (cb) => cb.value,
+                    );
+                    const confirmMsg =
+                        usersToDelete.length === 1
+                            ? `Soll der Nutzer "${usersToDelete[0]}" wirklich gelöscht werden?`
+                            : `Sollen die folgenden ${usersToDelete.length} Nutzer wirklich gelöscht werden?\n\n` +
+                              usersToDelete.join(", ");
+
+                    if (!window.confirm(confirmMsg)) {
+                        return;
+                    }
+
+                    usersToDelete.forEach((userId) => {
+                        const storageKey = STORAGE_PREFIX + userId;
+                        localStorage.removeItem(storageKey);
+                        localStorage.removeItem(userId);
+                    });
+
+                    renderExistingUsers();
+                });
+
+                container.appendChild(document.createElement("br"));
+                container.appendChild(btnOpen);
+                container.appendChild(btnDelete);
+            }
+
+            function start() {
+                const raw = document.getElementById("username").value;
+                let u = normalize(raw);
+                if (!u) u = "user-" + randomId();
+                window.location.href = "wallet.html#" + u;
+            }
+
+            (function init() {
+                const inputUsername = document.getElementById("username");
+                const btnStart = document.getElementById("btn-start");
+                const btnSearchUsers =
+                    document.getElementById("btn-search-users");
+                const btnImportJson =
+                    document.getElementById("btn-import-json");
+                const fileImport = document.getElementById("file-import");
+                const btnRawAll = document.getElementById("btn-raw-all");
+                const btnNukeAll = document.getElementById("btn-nuke-all");
+                const rawOutput = document.getElementById("raw-output");
+                const btnInfo = document.getElementById("btn-info");
+
+                if (btnStart) {
+                    btnStart.onclick = start;
+                }
+                if (inputUsername) {
+                    inputUsername.addEventListener("keydown", (e) => {
+                        if (e.key === "Enter") start();
+                    });
+                }
+                if (btnInfo) {
+                    btnInfo.addEventListener("click", () => {
+                        window.open(
+                            "https://github.com/bmmmm/db-wallet",
+                            "_blank",
+                        );
+                    });
+                }
+                if (btnSearchUsers) {
+                    btnSearchUsers.addEventListener("click", () => {
+                        renderExistingUsers();
+                    });
+                }
+                if (btnNukeAll) {
+                    btnNukeAll.addEventListener("click", () => {
+                        const entries = collectWalletEntries();
+                        if (!entries.length) {
+                            alert("Es wurden keine lokalen Nutzer gefunden.");
+                            return;
+                        }
+
+                        const userIds = entries.map((e) => e.userId);
+                        const confirmMsg =
+                            userIds.length === 1
+                                ? `Soll der lokale Nutzer "${userIds[0]}" wirklich vollständig gelöscht werden?`
+                                : `Sollen die folgenden ${userIds.length} lokalen Nutzer wirklich vollständig gelöscht werden?\n\n` +
+                                  userIds.join(", ");
+
+                        if (!window.confirm(confirmMsg)) {
+                            return;
+                        }
+
+                        // Alle Wallet-Einträge und Legacy-Keys entfernen
+                        entries.forEach((entry) => {
+                            localStorage.removeItem(entry.key); // db-wallet:<userId>
+                            localStorage.removeItem(entry.userId); // Legacy-Key
+                        });
+
+                        // Registry entfernen, falls vorhanden
+                        try {
+                            localStorage.removeItem("db-wallet:registry");
+                        } catch (e) {
+                            // ignore
+                        }
+
+                        // UI aktualisieren
+                        if (rawOutput) {
+                            rawOutput.textContent = "";
+                        }
+                        renderExistingUsers();
+                        alert("Alle lokalen db-wallet-Nutzer wurden gelöscht.");
+                    });
+                }
+
+                if (btnImportJson && fileImport) {
+                    btnImportJson.addEventListener("click", () => {
+                        fileImport.value = "";
+                        fileImport.click();
+                    });
+
+                    fileImport.addEventListener("change", (e) => {
+                        const file = e.target.files && e.target.files[0];
+                        if (!file) return;
+
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                            try {
+                                const text = ev.target.result;
+                                const data = JSON.parse(text);
+
+                                if (!data || typeof data !== "object") {
+                                    throw new Error("Ungültiges JSON-Format.");
+                                }
+
+                                let userId = data.userId
+                                    ? String(data.userId).trim()
+                                    : "";
+                                userId = normalize(userId);
+                                if (!userId) {
+                                    userId = "user-" + randomId();
+                                }
+
+                                const wallet = {
+                                    userId,
+                                    deviceId: data.deviceId || randomId(8),
+                                    v: data.v || 1,
+                                    events: Array.isArray(data.events)
+                                        ? data.events
+                                        : [],
+                                };
+
+                                const json = JSON.stringify(wallet);
+                                const storageKey = STORAGE_PREFIX + userId;
+
+                                localStorage.setItem(storageKey, json);
+                                localStorage.setItem(userId, json);
+
+                                renderExistingUsers();
+                                window.location.href = "wallet.html#" + userId;
+                            } catch (err) {
+                                alert(
+                                    "Import fehlgeschlagen: " +
+                                        (err.message || err),
+                                );
+                            }
+                        };
+                        reader.readAsText(file);
+                    });
+                }
+
+                if (btnRawAll && rawOutput) {
+                    btnRawAll.addEventListener("click", () => {
+                        const entries = collectWalletEntries();
+                        if (!entries.length) {
+                            rawOutput.textContent =
+                                "Keine Wallet-Daten im lokalen Speicher gefunden.";
+                            return;
+                        }
+                        const all = entries.map((e) => ({
+                            storageKey: e.key,
+                            userId: e.userId,
+                            wallet: e.wallet,
+                        }));
+                        rawOutput.textContent = JSON.stringify(all, null, 2);
+                    });
+                }
+
+                // beim Laden direkt versuchen, Wallets zu finden
+                renderExistingUsers();
+            })();
+        </script>
+    </body>
 </html>

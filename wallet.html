@@ -1,1002 +1,1172 @@
 <!doctype html>
 <html lang="de">
-<head>
-  <meta charset="utf-8">
-  <title>db-wallet – Getränke</title>
-  <style>
-    body {
-      font-family: system-ui, sans-serif;
-      max-width: 700px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-    }
-    h1 { font-size: 1.4rem; margin-bottom: 1rem; }
-    button { padding: .4rem .7rem; margin: .2rem; cursor: pointer; }
-    input[type="number"] { width: 5rem; padding: .3rem; }
-    #export-url, #delete-range {
-      width: 100%;
-      margin-top: .5rem;
-      padding: .3rem;
-      box-sizing: border-box;
-    }
-    pre {
-      background: #f5f5f5;
-      padding: .7rem;
-      min-height: 3rem;
-      white-space: pre;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    }
-    .history-mode-label {
-      margin-right: .4rem;
-    }
-    .mode-btn.active {
-      background: #222;
-      color: #fff;
-    }
-    .top-row {
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-      flex-wrap: wrap;
-    }
-    .raw-toggle {
-      margin-top: .3rem;
-      font-size: .9rem;
-    }
-    .raw-toggle-btn.active {
-      background: #444;
-      color: #fff;
-    }
-    .raw-toggle-btn {
-      padding: .2rem .5rem;
-      font-size: .85rem;
-    }
-  </style>
-</head>
-<body>
-
-<h1>dein Getränke-Wallet 🥤</h1>
-
-<div class="top-row">
-  <div>User: <strong id="uid"></strong></div>
-  <button id="btn-home">Zur Startseite 🏠</button>
-  <button id="btn-info">Info ℹ️</button>
-</div>
-<div>Gesamt getrunken: <strong id="total">0</strong></div>
-<div>Offen seit letzter Zahlung: <strong id="unpaid">0</strong></div>
-<div>Guthaben: <strong id="credit">0</strong></div>
-
-<br>
-
-<label for="amount">Menge (Getränke):</label>
-<input id="amount" type="number" min="1" value="1">
-
-<br><br>
-
-<!-- Hauptaktionen -->
-<button id="btn-drink">+ Trinken 🥤</button>
-<button id="btn-minus">– Zurücknehmen ↩️</button>
-<button id="btn-pay">Bezahlen 💸</button>
-<span id="pay-options" style="display:none;">
-  <button id="btn-pay-today">heute bezahlen 💰</button>
-  <button id="btn-credit">Guthaben aufladen 💰</button>
-</span>
-
-<br><br>
-
-<!-- Ausgabe-Modus -->
-<div>
-  <span class="history-mode-label">Ausgabe:</span>
-  <button id="mode-diagram" class="mode-btn active">Diagramm 📊</button>
-  <button id="mode-log" class="mode-btn">Historie 📜</button>
-  <button id="mode-raw" class="mode-btn">Raw-Log 🛠️</button>
-</div>
-
-<div class="raw-toggle">
-  Raw-Log für:
-  <button id="raw-scope-current" class="raw-toggle-btn active">aktuellen User</button>
-  <button id="raw-scope-all" class="raw-toggle-btn">alle User</button>
-</div>
-
-<br>
-
-<!-- Log-Bearbeitung -->
-<div id="log-tools">
-  <label>
-    <input type="checkbox" id="log-edit-toggle">
-    Bearbeitungsfunktionen anzeigen
-  </label>
-  <div id="log-edit-group">
-    <label for="delete-range">
-      Log-Aktions-IDs:
-      <small>(Bearbeiten: genau eine ID, Löschen: mehrere IDs/Ranges, z. B. 1,3,5-7)</small>
-    </label>
-    <input id="delete-range" type="text" placeholder="IDs aus der Historie-Ansicht eingeben …">
-    <br>
-    <button id="btn-edit-entry">Ausgewählten Eintrag bearbeiten ✏️</button>
-    <button id="btn-selection-delete">Ausgewählte Einträge löschen 🧹</button>
-    <button id="btn-reset">Alle Daten für diesen User löschen 🗑️</button>
-  </div>
-</div>
-
-<br><br>
-
-<!-- Export-Bereich -->
-<button id="btn-export">Export</button>
-<span id="export-options" style="display:none;">
-  <button id="btn-export-link">Export-Link erzeugen 🔗</button>
-  <button id="btn-export-json">Als JSON herunterladen 📄</button>
-</span>
-<input id="export-url" readonly placeholder="Hier erscheint dein Export-Link">
-
-<br><br>
-
-<pre id="history">Noch keine Drinks geloggt. ✨</pre>
-
-<script>
-(function () {
-  const STORAGE_PREFIX = "db-wallet:";
-  const REGISTRY_KEY = "db-wallet:registry";
-  let historyMode = "diagram"; // "diagram" | "log" | "raw"
-  let rawScope = "current";   // "current" | "all"
-
-  function base64UrlEncode(str) {
-    return btoa(unescape(encodeURIComponent(str)))
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/g, "");
-  }
-
-  function base64UrlDecode(str) {
-    const padLen = (4 - (str.length % 4)) % 4;
-    const padded = str + "=".repeat(padLen);
-    const base = padded.replace(/-/g, "+").replace(/_/g, "/");
-    return decodeURIComponent(escape(atob(base)));
-  }
-
-  function randomId(len = 6) {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let out = "";
-    for (let i = 0; i < len; i++) {
-      out += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return out;
-  }
-
-  function loadRegistry() {
-    try {
-      const raw = localStorage.getItem(REGISTRY_KEY);
-      if (!raw) return {};
-      const obj = JSON.parse(raw);
-      return obj && typeof obj === "object" ? obj : {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  function saveRegistry(reg) {
-    try {
-      localStorage.setItem(REGISTRY_KEY, JSON.stringify(reg));
-    } catch (e) {
-      // ignore registry write errors
-    }
-  }
-
-  function todayDateStr() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-
-  function dateStrFromTimestamp(ts) {
-    const d = new Date(ts);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-
-  function getUserIdFromHash() {
-    const hash = window.location.hash.slice(1);
-    if (!hash || hash.startsWith("import:")) return null;
-    return hash;
-  }
-
-  function loadWallet(userId) {
-    const raw = localStorage.getItem(STORAGE_PREFIX + userId);
-    if (!raw) {
-      return { userId, deviceId: randomId(), v: 1, events: [] };
-    }
-    try {
-      const obj = JSON.parse(raw);
-      if (!Array.isArray(obj.events)) obj.events = [];
-      if (!obj.deviceId) obj.deviceId = randomId();
-      obj.userId = userId;
-      obj.v = obj.v || 1;
-      return obj;
-    } catch (e) {
-      return { userId, deviceId: randomId(), v: 1, events: [] };
-    }
-  }
-
-  function saveWallet(wallet) {
-    if (!wallet || !wallet.userId) return;
-
-    const storageKey = STORAGE_PREFIX + wallet.userId;
-    const json = JSON.stringify(wallet);
-
-    // Hauptspeicherort
-    localStorage.setItem(storageKey, json);
-
-    // Legacy-Key für mögliche ältere Versionen (nur userId)
-    localStorage.setItem(wallet.userId, json);
-
-    // Registry aktualisieren
-    const reg = loadRegistry();
-    reg[wallet.userId] = {
-      userId: wallet.userId,
-      storageKey,
-      lastUpdated: Date.now()
-    };
-    saveRegistry(reg);
-  }
-
-  function getAllWallets() {
-    const all = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-      const userId = key.slice(STORAGE_PREFIX.length);
-      all[userId] = loadWallet(userId);
-    }
-    return all;
-  }
-
-  function mergeEvents(localEvents, remoteEvents) {
-    const map = new Map();
-    for (const e of localEvents || []) {
-      if (e && e.id) map.set(e.id, e);
-    }
-    for (const e of remoteEvents || []) {
-      if (e && e.id && !map.has(e.id)) map.set(e.id, e);
-    }
-    return Array.from(map.values());
-  }
-
-  function tryImportFromHash() {
-    const hash = window.location.hash.slice(1);
-    if (!hash.startsWith("import:")) return null;
-    try {
-      const payload = base64UrlDecode(hash.slice(7));
-      const remote = JSON.parse(payload);
-      const userId = remote.userId || ("user-" + randomId());
-      const local = loadWallet(userId);
-      const mergedEvents = mergeEvents(local.events, remote.events || []);
-      const wallet = {
-        userId,
-        deviceId: local.deviceId || randomId(),
-        v: remote.v || local.v || 1,
-        events: mergedEvents
-      };
-      saveWallet(wallet);
-      window.location.hash = "#" + userId;
-      alert("Getränkedaten importiert ✅");
-      return userId;
-    } catch (e) {
-      alert("Import fehlgeschlagen ❌");
-      window.location.hash = "";
-      return null;
-    }
-  }
-
-  function ensureUserId() {
-    let userId = tryImportFromHash();
-    if (userId) return userId;
-
-    userId = getUserIdFromHash();
-    if (!userId) {
-      userId = "user-" + randomId();
-      window.location.hash = "#" + userId;
-    }
-    return userId;
-  }
-
-  function newEvent(wallet, type, n) {
-    return {
-      id:
-        wallet.deviceId +
-        "-" +
-        Date.now().toString(36) +
-        "-" +
-        Math.random().toString(16).slice(2),
-      t: type,   // 'd' = drink, 's' = subtract, 'p' = paid
-      n: typeof n === "number" ? n : undefined,
-      ts: Date.now()
-    };
-  }
-
-  // liefert auch die sortierten Events zurück
-  // Erweiterung: unterstützt jetzt auch Gutschriften ("g")
-  // Balance-Logik:
-  //  - "d" (Drink)      => balance += n
-  //  - "s" (Subtract)   => balance -= n
-  //  - "g" (Gutschrift) => balance -= n
-  //  - "p" (Bezahlt)    => wenn balance > 0, dann balance = 0
-  // Am Ende:
-  //  - unpaid  = max(balance, 0)       (offene Getränke)
-  //  - credit  = max(-balance, 0)      (verbleibende Gutschrift in Getränken)
-  function computeSummary(wallet) {
-    const eventsSorted = wallet.events
-      .slice()
-      .sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id));
-
-    let total = 0;
-    const perDayMap = new Map();
-    let balance = 0; // >0 = offene Getränke, <0 = Guthaben
-
-    function dayKey(ts) {
-      const d = new Date(ts);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    }
-
-    for (const e of eventsSorted) {
-      const key = dayKey(e.ts);
-      if (!perDayMap.has(key)) {
-        perDayMap.set(key, { date: key, drinks: 0, paid: false });
-      }
-      const day = perDayMap.get(key);
-
-      if (e.t === "d") {
-        const n = e.n || 0;
-        total += n;
-        day.drinks += n;
-        balance += n;
-      } else if (e.t === "s") {
-        const n = e.n || 0;
-        total -= n;
-        day.drinks -= n;
-        balance -= n;
-      } else if (e.t === "p") {
-        day.paid = true;
-        if (balance > 0) {
-          balance = 0;
-        }
-      } else if (e.t === "g") {
-        const n = e.n || 0;
-        // Gutschriften zählen nicht in die Tages-Drinkmenge
-        balance -= n;
-      }
-    }
-
-    for (const d of perDayMap.values()) {
-      if (d.drinks < 0) d.drinks = 0;
-    }
-    if (total < 0) total = 0;
-
-    const unpaid = Math.max(balance, 0);
-    const credit = Math.max(-balance, 0);
-
-    const perDay = Array.from(perDayMap.values()).sort((a, b) =>
-      a.date.localeCompare(b.date)
-    );
-
-    return { total, unpaid, credit, perDay, eventsSorted };
-  }
-
-  function parseDeleteRange(input, maxIndex) {
-    const result = new Set();
-    if (!input) return result;
-    const parts = input.split(",").map(p => p.trim()).filter(Boolean);
-
-    for (const part of parts) {
-      if (part.includes("-")) {
-        const [startStr, endStr] = part.split("-").map(p => p.trim());
-        const start = parseInt(startStr, 10);
-        const end = parseInt(endStr, 10);
-        if (isNaN(start) || isNaN(end)) continue;
-        if (start < 1 || end < 1) continue;
-        if (start > end) continue;
-        for (let i = start; i <= end; i++) {
-          if (i <= maxIndex) result.add(i);
-        }
-      } else {
-        const n = parseInt(part, 10);
-        if (!isNaN(n) && n >= 1 && n <= maxIndex) {
-          result.add(n);
-        }
-      }
-    }
-    return result;
-  }
-
-  document.addEventListener("DOMContentLoaded", () => {
-    const elUid = document.getElementById("uid");
-    const elTotal = document.getElementById("total");
-    const elUnpaid = document.getElementById("unpaid");
-    const elCredit = document.getElementById("credit");
-    const elAmount = document.getElementById("amount");
-    const elExportUrl = document.getElementById("export-url");
-    const elHistory = document.getElementById("history");
-    const elDeleteRange = document.getElementById("delete-range");
-    const logTools = document.getElementById("log-tools");
-    const logEditGroup = document.getElementById("log-edit-group");
-    const rawToggle = document.querySelector(".raw-toggle");
-    const logEditToggle = document.getElementById("log-edit-toggle");
-
-    const btnHome = document.getElementById("btn-home");
-    const btnInfo = document.getElementById("btn-info");
-    const btnDrink = document.getElementById("btn-drink");
-    const btnMinus = document.getElementById("btn-minus");
-    const btnPay = document.getElementById("btn-pay");
-    const payOptions = document.getElementById("pay-options");
-    const btnPayToday = document.getElementById("btn-pay-today");
-    const btnCredit = document.getElementById("btn-credit");
-    const btnExport = document.getElementById("btn-export");
-    const exportOptions = document.getElementById("export-options");
-    const btnExportLink = document.getElementById("btn-export-link");
-    const btnExportJson = document.getElementById("btn-export-json");
-    const btnReset = document.getElementById("btn-reset");
-    const btnModeDiagram = document.getElementById("mode-diagram");
-    const btnModeLog = document.getElementById("mode-log");
-    const btnModeRaw = document.getElementById("mode-raw");
-    const btnEditEntry = document.getElementById("btn-edit-entry");
-    const btnSelectionDelete = document.getElementById("btn-selection-delete");
-    const btnRawCurrent = document.getElementById("raw-scope-current");
-    const btnRawAll = document.getElementById("raw-scope-all");
-
-    const userId = ensureUserId();
-    let wallet = loadWallet(userId);
-    saveWallet(wallet);
-
-    elUid.textContent = userId;
-    elExportUrl.value = ""; // initial leer
-
-    function resetAmount() {
-      elAmount.value = "1";
-    }
-
-    function clearExport() {
-      elExportUrl.value = "";
-    }
-
-    function getAmount() {
-      const n = parseInt(elAmount.value, 10);
-      return isNaN(n) || n <= 0 ? 1 : n;
-    }
-
-    // Setzt das Zahlungs-UI zentral zurück
-    function resetPayUi() {
-      if (payOptions) {
-        payOptions.style.display = "none";
-      }
-      if (btnPayToday) {
-        btnPayToday.textContent = "heute bezahlen 💰";
-      }
-      if (btnPay) {
-        btnPay.style.display = "inline-block";
-      }
-      if (btnMinus) {
-        btnMinus.style.display = "inline-block";
-      }
-      if (btnDrink) {
-        btnDrink.style.display = "inline-block";
-      }
-    }
-
-    function setHistoryMode(mode) {
-      historyMode = mode;
-      btnModeDiagram.classList.toggle("active", mode === "diagram");
-      btnModeLog.classList.toggle("active", mode === "log");
-      btnModeRaw.classList.toggle("active", mode === "raw");
-
-      // Raw-Scope-Toggle nur im Raw-Log-Modus anzeigen
-      if (rawToggle) {
-        rawToggle.style.display = mode === "raw" ? "block" : "none";
-      }
-
-      // Log-Bearbeitungsgruppe nur im Historie-Modus sichtbar,
-      // Edit-Funktionen erst bei aktivierter Checkbox
-      if (logTools) {
-        if (mode === "log") {
-          logTools.style.display = "block";
-          if (logEditGroup && logEditToggle) {
-            logEditGroup.style.display = logEditToggle.checked ? "block" : "none";
-          }
-        } else {
-          logTools.style.display = "none";
-        }
-      }
-
-      // Beim Wechsel auf Diagramm oder Historie immer auf "aktuellen User" für Raw zurücksetzen
-      if (mode !== "raw") {
-        setRawScope("current");
-      }
-
-      refreshSummary();
-    }
-    if (logEditToggle) {
-      logEditToggle.addEventListener("change", () => {
-        if (historyMode === "log" && logEditGroup) {
-          logEditGroup.style.display = logEditToggle.checked ? "block" : "none";
-        }
-      });
-    }
-
-    function setRawScope(scope) {
-      rawScope = scope;
-      btnRawCurrent.classList.toggle("active", scope === "current");
-      btnRawAll.classList.toggle("active", scope === "all");
-      if (historyMode === "raw") {
-        refreshSummary();
-      }
-    }
-
-    function formatLogLine(e, index) {
-      const d = new Date(e.ts);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      const dateStr = `${y}-${m}-${day}`;
-      const timeStr = `${hh}:${mm}`;
-      let action = "";
-      if (e.t === "d") action = `+${e.n || 0} Getränk(e)`;
-      else if (e.t === "s") action = `-${e.n || 0} korrigiert`;
-      else if (e.t === "p") action = "Bezahlt";
-      else if (e.t === "g") action = `Gutschrift ${e.n || 0} Getränk(e)`;
-      return `#${index} | ${dateStr} ${timeStr} | ${action}`;
-    }
-
-    function refreshSummary() {
-      const summary = computeSummary(wallet);
-      elTotal.textContent = summary.total;
-      elUnpaid.textContent = summary.unpaid;
-      if (elCredit) {
-        elCredit.textContent = summary.credit;
-      }
-
-      if (historyMode === "diagram") {
-        if (!summary.perDay.length) {
-          elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-        } else {
-          const lines = summary.perDay.map((d) => {
-            const bar = "#".repeat(Math.min(d.drinks, 50));
-            const paidMark = d.paid ? " 💰" : "";
-            return `${d.date}${paidMark} | ${bar}`;
-          });
-          elHistory.textContent = lines.join("\n");
-        }
-      } else if (historyMode === "log") {
-        if (!summary.eventsSorted.length) {
-          elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-        } else {
-          const lines = [];
-          const len = summary.eventsSorted.length;
-          for (let i = len - 1; i >= 0; i--) {
-            const idx = i + 1; // 1-basiert
-            lines.push(formatLogLine(summary.eventsSorted[i], idx));
-          }
-          elHistory.textContent = lines.join("\n");
-        }
-      } else if (historyMode === "raw") {
-        if (rawScope === "current") {
-          elHistory.textContent = JSON.stringify(wallet, null, 2);
-        } else {
-          const all = getAllWallets();
-          elHistory.textContent = JSON.stringify(all, null, 2);
-        }
-      }
-    }
-
-    btnHome.addEventListener("click", () => {
-      window.location.href = "index.html";
-    });
-    if (btnInfo) {
-      btnInfo.addEventListener("click", () => {
-        window.open("https://github.com/bmmmm/db-wallet", "_blank");
-      });
-    }
-
-    btnDrink.addEventListener("click", () => {
-      const n = getAmount();
-      wallet.events.push(newEvent(wallet, "d", n));
-      saveWallet(wallet);
-      resetAmount();
-      clearExport();
-      refreshSummary();
-    });
-
-    btnMinus.addEventListener("click", () => {
-      const summaryBefore = computeSummary(wallet);
-      const requested = getAmount();
-      const unpaid = summaryBefore.unpaid;
-      const credit = summaryBefore.credit;
-      const total = summaryBefore.total;
-
-      // 1. Priorität: offene Getränke korrigieren
-      if (unpaid > 0) {
-        const effective = Math.min(requested, unpaid);
-        if (effective <= 0) {
-          alert("Keine offenen Drinks zum Zurücknehmen 🤷‍♂️");
-          resetAmount();
-          clearExport();
-          return;
-        }
-
-        wallet.events.push(newEvent(wallet, "s", effective));
-        saveWallet(wallet);
-        resetAmount();
-        clearExport();
-        refreshSummary();
-        return;
-      }
-
-      // 2. Falls keine offenen Drinks, aber Guthaben UND bereits getrunkene Drinks vorhanden:
-      //    Dann kann eine Korrektur genutzt werden, um getrunkene Drinks wieder ins Guthaben zu schieben.
-      if (credit > 0 && total > 0) {
-        const effective = Math.min(requested, credit, total);
-        if (effective <= 0) {
-          alert(
-            "Es gibt keine getrunkenen Getränke, die korrigiert werden können.\n" +
-            "Neue Drinks werden zuerst vom Guthaben abgezogen."
-          );
-          resetAmount();
-          clearExport();
-          return;
-        }
-
-        wallet.events.push(newEvent(wallet, "s", effective));
-        saveWallet(wallet);
-        resetAmount();
-        clearExport();
-        refreshSummary();
-        return;
-      }
-
-      // 3. Weder offene Drinks noch sinnvolle Korrektur bei Guthaben möglich
-      if (credit > 0) {
-        alert(
-          `Du hast Guthaben von ${credit} Getränk(en), aber keine getrunkenen Getränke zum Zurücknehmen.\n` +
-          "Neue Drinks werden zuerst vom Guthaben abgezogen."
-        );
-      } else {
-        alert("Keine Drinks zum Zurücknehmen 🤷‍♂️");
-      }
-      resetAmount();
-      clearExport();
-    });
-
-    btnPay.addEventListener("click", () => {
-      if (!payOptions) return;
-      // Toggle Sichtbarkeit der Zahlungsoptionen
-      if (payOptions.style.display === "none" || payOptions.style.display === "") {
-        payOptions.style.display = "inline-block";
-        // Während des Zahlungsvorgangs Bezahlen-, Minus- und Trinken-Button ausblenden
-        if (btnPay) btnPay.style.display = "none";
-        if (btnMinus) btnMinus.style.display = "none";
-        if (btnDrink) btnDrink.style.display = "none";
-      } else {
-        // Zahlungsvorgang abbrechen/zuklappen -> UI zurücksetzen
-        resetPayUi();
-      }
-    });
-
-    if (btnPayToday) {
-      btnPayToday.addEventListener("click", () => {
-        const summaryBefore = computeSummary(wallet);
-
-        if (summaryBefore.unpaid <= 0) {
-          alert("Keine offenen Getränke zum Bezahlen.");
-          clearExport();
-          return;
-        }
-
-        // Normale Zahlung für offene Getränke (heute)
-        wallet.events.push(newEvent(wallet, "p"));
-        saveWallet(wallet);
-        resetAmount();
-        clearExport();
-        resetPayUi();
-        refreshSummary();
-      });
-    }
-
-
-    if (btnCredit) {
-      btnCredit.addEventListener("click", () => {
-        const amountStr = prompt(
-          "Wie viele Getränke möchtest du als Guthaben buchen?",
-          "10"
-        );
-        if (amountStr === null) {
-          clearExport();
-          return;
-        }
-        const n = parseInt(amountStr, 10);
-        if (isNaN(n) || n <= 0) {
-          alert("Ungültige Menge für die Gutschrift.");
-          clearExport();
-          return;
-        }
-        wallet.events.push(newEvent(wallet, "g", n));
-        saveWallet(wallet);
-        resetAmount();
-        clearExport();
-        resetPayUi();
-        refreshSummary();
-      });
-    }
-
-    btnExport.addEventListener("click", () => {
-      if (!exportOptions) return;
-      // Export-Optionen ein-/ausblenden
-      if (exportOptions.style.display === "none" || exportOptions.style.display === "") {
-        exportOptions.style.display = "inline-block";
-      } else {
-        exportOptions.style.display = "none";
-        // Beim Ausblenden das Exportfeld leeren
-        clearExport();
-      }
-    });
-
-    if (btnExportLink) {
-      btnExportLink.addEventListener("click", () => {
-        const payload = JSON.stringify({
-          userId: wallet.userId,
-          v: wallet.v,
-          events: wallet.events
-        });
-        const token = base64UrlEncode(payload);
-        const url =
-          window.location.origin +
-          window.location.pathname +
-          "#import:" +
-          token;
-
-        elExportUrl.value = url;
-        elExportUrl.focus();
-        elExportUrl.select();
-      });
-    }
-
-    if (btnExportJson) {
-      btnExportJson.addEventListener("click", () => {
-        const data = {
-          userId: wallet.userId,
-          deviceId: wallet.deviceId,
-          v: wallet.v,
-          events: wallet.events
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
-          type: "application/json"
-        });
-        const a = document.createElement("a");
-        const date = todayDateStr();
-        const safeUserId = String(wallet.userId || "user").replace(/[^a-zA-Z0-9_-]/g, "_");
-        a.href = URL.createObjectURL(blob);
-        a.download = `db-wallet-${safeUserId}-${date}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(a.href);
-      });
-    }
-
-    elExportUrl.addEventListener("focus", () => {
-      elExportUrl.select();
-    });
-    elExportUrl.addEventListener("click", () => {
-      elExportUrl.select();
-    });
-
-    btnReset.addEventListener("click", () => {
-      if (!confirm(`Wirklich alle Getränkedaten für "${userId}" löschen? 🗑️`)) return;
-      localStorage.removeItem(STORAGE_PREFIX + wallet.userId);
-      wallet = {
-        userId: wallet.userId,
-        deviceId: randomId(),
-        v: 1,
-        events: []
-      };
-      saveWallet(wallet);
-      elExportUrl.value = "";
-      elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-      elDeleteRange.value = "";
-      resetAmount();
-      refreshSummary();
-    });
-
-    btnModeDiagram.addEventListener("click", () => setHistoryMode("diagram"));
-    btnModeLog.addEventListener("click", () => setHistoryMode("log"));
-    btnModeRaw.addEventListener("click", () => setHistoryMode("raw"));
-
-    btnRawCurrent.addEventListener("click", () => setRawScope("current"));
-    btnRawAll.addEventListener("click", () => setRawScope("all"));
-
-    btnSelectionDelete.addEventListener("click", () => {
-      const summary = computeSummary(wallet);
-      const maxIndex = summary.eventsSorted.length;
-      if (maxIndex === 0) {
-        alert(`Keine Logeinträge für "${userId}" vorhanden.`);
-        clearExport();
-        elDeleteRange.value = "";
-        return;
-      }
-
-      const input = elDeleteRange.value.trim();
-      const indices = parseDeleteRange(input, maxIndex);
-
-      if (!indices.size) {
-        alert("Keine gültigen IDs im Eingabefeld gefunden.");
-        clearExport();
-        elDeleteRange.value = "";
-        return;
-      }
-
-      const idsToDelete = new Set();
-      let payCount = 0;
-
-      summary.eventsSorted.forEach((e, i) => {
-        const idx = i + 1;
-        if (indices.has(idx)) {
-          idsToDelete.add(e.id);
-          if (e.t === "p") payCount++;
-        }
-      });
-
-      if (!idsToDelete.size) {
-        alert("Keine passenden Logeinträge gefunden.");
-        clearExport();
-        elDeleteRange.value = "";
-        return;
-      }
-
-      let msg = `Wirklich ${idsToDelete.size} Logeintrag/Einträge für "${userId}" löschen? 🧹`;
-      if (payCount > 0) {
-        msg += `\nAchtung: Darunter sind ${payCount} Zahlung(en) 💸.`;
-      }
-
-      if (!confirm(msg)) return;
-
-      wallet.events = wallet.events.filter(e => !idsToDelete.has(e.id));
-      saveWallet(wallet);
-      clearExport();
-      elDeleteRange.value = "";
-      refreshSummary();
-    });
-
-    if (btnEditEntry) {
-      btnEditEntry.addEventListener("click", () => {
-        const summary = computeSummary(wallet);
-        const maxIndex = summary.eventsSorted.length;
-        if (maxIndex === 0) {
-          alert(`Keine Logeinträge für "${userId}" vorhanden.`);
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        const input = elDeleteRange.value.trim();
-        const indices = parseDeleteRange(input, maxIndex);
-
-        if (!indices.size) {
-          alert("Bitte genau eine ID angeben, die bearbeitet werden soll.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        if (indices.size > 1) {
-          alert("Bearbeitung funktioniert nur mit genau einer ID.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        const targetIndex = Array.from(indices)[0]; // 1-basiert
-        const targetEvent = summary.eventsSorted[targetIndex - 1];
-        if (!targetEvent) {
-          alert("Die ausgewählte ID konnte keinem Logeintrag zugeordnet werden.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        const currentDateStr = dateStrFromTimestamp(targetEvent.ts);
-        const newDateStr = prompt(
-          `Neues Datum für Eintrag #${targetIndex} (YYYY-MM-DD):`,
-          currentDateStr
-        );
-        if (newDateStr === null) {
-          // Abgebrochen
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDateStr)) {
-          alert("Ungültiges Datumsformat. Erwartet wird YYYY-MM-DD.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        // Datum mit aktueller Uhrzeit kombinieren
-        const now = new Date();
-        const parts = newDateStr.split("-");
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1; // 0-basiert
-        const day = parseInt(parts[2], 10);
-        const testDate = new Date(
-          year,
-          month,
-          day,
-          now.getHours(),
-          now.getMinutes(),
-          now.getSeconds(),
-          now.getMilliseconds()
-        );
-        if (isNaN(testDate.getTime())) {
-          alert("Ungültiges Datum.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        let newAmount = targetEvent.n;
-        if (targetEvent.t !== "p") {
-          const defaultAmount = typeof targetEvent.n === "number" ? targetEvent.n : 1;
-          const amountStr = prompt(
-            `Neue Menge für Eintrag #${targetIndex}:`,
-            String(defaultAmount)
-          );
-          if (amountStr === null) {
-            clearExport();
-            elDeleteRange.value = "";
-            return;
-          }
-          const parsed = parseInt(amountStr, 10);
-          if (isNaN(parsed) || parsed <= 0) {
-            alert("Ungültige Menge.");
-            clearExport();
-            elDeleteRange.value = "";
-            return;
-          }
-          newAmount = parsed;
-        }
-
-        const newTs = testDate.getTime();
-        const targetId = targetEvent.id;
-
-        wallet.events = wallet.events.map(e => {
-          if (e.id === targetId) {
-            return {
-              ...e,
-              ts: newTs,
-              n: e.t === "p" ? undefined : newAmount
-            };
-          }
-          return e;
-        });
-
-        saveWallet(wallet);
-        clearExport();
-        elDeleteRange.value = "";
-        refreshSummary();
-      });
-    }
-
-
-    // Initiale Anzeige (setzt auch Sichtbarkeit der Raw-/Log-Controls)
-    setHistoryMode(historyMode);
-  });
-})();
-</script>
-
-</body>
+    <head>
+        <meta charset="utf-8" />
+        <title>db-wallet – Getränke</title>
+        <link rel="stylesheet" href="style.css" />
+
+    </head>
+    <body>
+        <h1>dein Getränke-Wallet 🥤</h1>
+
+        <div class="top-row">
+            <div>User: <strong id="uid"></strong></div>
+            <button id="btn-home">Zur Startseite 🏠</button>
+            <button id="btn-info">Info ℹ️</button>
+        </div>
+        <div class="stat-panel">
+            <div class="stat">
+                Gesamt getrunken:<br /><strong id="total">0</strong>
+            </div>
+            <div class="stat">
+                Offen seit letzter Zahlung:<br /><strong id="unpaid">0</strong>
+            </div>
+            <div class="stat">
+                Guthaben:<br /><strong id="credit">0</strong>
+            </div>
+        </div>
+
+        <br />
+
+        <label for="amount">Menge (Getränke):</label>
+        <input id="amount" type="number" min="1" value="1" />
+
+        <br /><br />
+
+        <!-- Hauptaktionen -->
+        <button id="btn-drink">+ Trinken 🥤</button>
+        <button id="btn-minus">– Zurücknehmen ↩️</button>
+        <button id="btn-pay">Bezahlen 💸</button>
+        <span id="pay-options" style="display: none">
+            <button id="btn-pay-today">heute bezahlen 💰</button>
+            <button id="btn-credit">Guthaben aufladen 💰</button>
+        </span>
+
+        <br /><br />
+
+        <!-- Ausgabe-Modus -->
+        <div>
+            <span class="history-mode-label">Ausgabe:</span>
+            <button id="mode-diagram" class="mode-btn active">
+                Diagramm 📊
+            </button>
+            <button id="mode-log" class="mode-btn">Historie 📜</button>
+            <button id="mode-raw" class="mode-btn">Raw-Log 🛠️</button>
+        </div>
+
+        <div class="raw-toggle">
+            Raw-Log für:
+            <button id="raw-scope-current" class="raw-toggle-btn active">
+                aktuellen User
+            </button>
+            <button id="raw-scope-all" class="raw-toggle-btn">alle User</button>
+        </div>
+
+        <br />
+
+        <!-- Log-Bearbeitung -->
+        <div id="log-tools">
+            <label>
+                <input type="checkbox" id="log-edit-toggle" />
+                Bearbeitungsfunktionen anzeigen
+            </label>
+            <div id="log-edit-group">
+                <label for="delete-range">
+                    Log-Aktions-IDs:
+                    <small
+                        >(Bearbeiten: genau eine ID, Löschen: mehrere
+                        IDs/Ranges, z. B. 1,3,5-7)</small
+                    >
+                </label>
+                <input
+                    id="delete-range"
+                    type="text"
+                    placeholder="IDs aus der Historie-Ansicht eingeben …"
+                />
+                <br />
+                <button id="btn-edit-entry">
+                    Ausgewählten Eintrag bearbeiten ✏️
+                </button>
+                <button id="btn-selection-delete">
+                    Ausgewählte Einträge löschen 🧹
+                </button>
+                <button id="btn-reset">
+                    Alle Daten für diesen User löschen 🗑️
+                </button>
+            </div>
+        </div>
+
+        <br /><br />
+
+        <!-- Export-Bereich -->
+        <button id="btn-export">Export</button>
+        <span id="export-options" style="display: none">
+            <button id="btn-export-link">Export-Link erzeugen 🔗</button>
+            <button id="btn-export-json">Als JSON herunterladen 📄</button>
+        </span>
+        <input
+            id="export-url"
+            readonly
+            placeholder="Hier erscheint dein Export-Link"
+        />
+
+        <br /><br />
+
+        <pre id="history">Noch keine Drinks geloggt. ✨</pre>
+
+        <script>
+            (function () {
+                const helpers = (() => {
+                    const STORAGE_PREFIX = "db-wallet:";
+                    const REGISTRY_KEY = "db-wallet:registry";
+                    const encoder = new TextEncoder();
+                    const decoder = new TextDecoder();
+
+                    function randomId(len = 6) {
+                        const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+                        let out = "";
+                        for (let i = 0; i < len; i++) {
+                            out +=
+                                chars[Math.floor(Math.random() * chars.length)];
+                        }
+                        return out;
+                    }
+
+                    function base64UrlEncode(str) {
+                        const bytes = encoder.encode(str);
+                        let binary = "";
+                        for (let i = 0; i < bytes.length; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        return btoa(binary)
+                            .replace(/\+/g, "-")
+                            .replace(/\//g, "_")
+                            .replace(/=+$/g, "");
+                    }
+
+                    function base64UrlDecode(str) {
+                        const padLen = (4 - (str.length % 4)) % 4;
+                        const padded = str + "=".repeat(padLen);
+                        const base = padded
+                            .replace(/-/g, "+")
+                            .replace(/_/g, "/");
+                        const binary = atob(base);
+                        const bytes = new Uint8Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) {
+                            bytes[i] = binary.charCodeAt(i);
+                        }
+                        return decoder.decode(bytes);
+                    }
+
+                    function safeParse(raw) {
+                        try {
+                            return JSON.parse(raw);
+                        } catch (e) {
+                            return null;
+                        }
+                    }
+
+                    function loadRegistry() {
+                        const raw = localStorage.getItem(REGISTRY_KEY);
+                        const obj = safeParse(raw);
+                        return obj && typeof obj === "object" ? obj : {};
+                    }
+
+                    function saveRegistry(reg) {
+                        try {
+                            localStorage.setItem(
+                                REGISTRY_KEY,
+                                JSON.stringify(reg),
+                            );
+                        } catch (e) {
+                            // ignore registry write errors
+                        }
+                    }
+
+                    return {
+                        STORAGE_PREFIX,
+                        REGISTRY_KEY,
+                        randomId,
+                        base64UrlEncode,
+                        base64UrlDecode,
+                        loadRegistry,
+                        saveRegistry,
+                        safeParse,
+                    };
+                })();
+
+                const {
+                    STORAGE_PREFIX,
+                    REGISTRY_KEY,
+                    randomId,
+                    base64UrlEncode,
+                    base64UrlDecode,
+                    loadRegistry,
+                    saveRegistry,
+                    safeParse,
+                } = helpers;
+
+                let historyMode = "diagram"; // "diagram" | "log" | "raw"
+                let rawScope = "current"; // "current" | "all"
+
+                function todayDateStr() {
+                    const d = new Date();
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, "0");
+                    const day = String(d.getDate()).padStart(2, "0");
+                    return `${y}-${m}-${day}`;
+                }
+
+                function dateStrFromTimestamp(ts) {
+                    const d = new Date(ts);
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, "0");
+                    const day = String(d.getDate()).padStart(2, "0");
+                    return `${y}-${m}-${day}`;
+                }
+
+                function getUserIdFromHash() {
+                    const hash = window.location.hash.slice(1);
+                    if (!hash || hash.startsWith("import:")) return null;
+                    return hash;
+                }
+
+                function loadWallet(userId) {
+                    const raw = localStorage.getItem(STORAGE_PREFIX + userId);
+                    if (!raw) {
+                        return {
+                            userId,
+                            deviceId: randomId(),
+                            v: 1,
+                            events: [],
+                        };
+                    }
+                    const obj = safeParse(raw) || {};
+                    if (!Array.isArray(obj.events)) obj.events = [];
+                    if (!obj.deviceId) obj.deviceId = randomId();
+                    obj.userId = userId;
+                    obj.v = obj.v || 1;
+                    return obj;
+                }
+
+                function saveWallet(wallet) {
+                    if (!wallet || !wallet.userId) return;
+
+                    const storageKey = STORAGE_PREFIX + wallet.userId;
+                    const json = JSON.stringify(wallet);
+
+                    // Hauptspeicherort
+                    localStorage.setItem(storageKey, json);
+
+                    // Legacy-Key für mögliche ältere Versionen (nur userId)
+                    localStorage.setItem(wallet.userId, json);
+
+                    // Registry aktualisieren
+                    const reg = loadRegistry();
+                    reg[wallet.userId] = {
+                        userId: wallet.userId,
+                        storageKey,
+                        lastUpdated: Date.now(),
+                    };
+                    saveRegistry(reg);
+                }
+
+                function getAllWallets() {
+                    const all = {};
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+                        const userId = key.slice(STORAGE_PREFIX.length);
+                        all[userId] = loadWallet(userId);
+                    }
+                    return all;
+                }
+
+                function mergeEvents(localEvents, remoteEvents) {
+                    const map = new Map();
+                    for (const e of localEvents || []) {
+                        if (e && e.id) map.set(e.id, e);
+                    }
+                    for (const e of remoteEvents || []) {
+                        if (e && e.id && !map.has(e.id)) map.set(e.id, e);
+                    }
+                    return Array.from(map.values());
+                }
+
+                function tryImportFromHash() {
+                    const hash = window.location.hash.slice(1);
+                    if (!hash.startsWith("import:")) return null;
+                    try {
+                        const payload = base64UrlDecode(hash.slice(7));
+                        const remote = safeParse(payload);
+                        if (!remote || typeof remote !== "object") {
+                            throw new Error("Invalid import payload");
+                        }
+                        const userId = remote.userId || "user-" + randomId();
+                        const local = loadWallet(userId);
+                        const mergedEvents = mergeEvents(
+                            local.events,
+                            remote.events || [],
+                        );
+                        const wallet = {
+                            userId,
+                            deviceId: local.deviceId || randomId(),
+                            v: remote.v || local.v || 1,
+                            events: mergedEvents,
+                        };
+                        saveWallet(wallet);
+                        window.location.hash = "#" + userId;
+                        alert("Getränkedaten importiert ✅");
+                        return userId;
+                    } catch (e) {
+                        alert("Import fehlgeschlagen ❌");
+                        window.location.hash = "";
+                        return null;
+                    }
+                }
+
+                function ensureUserId() {
+                    let userId = tryImportFromHash();
+                    if (userId) return userId;
+
+                    userId = getUserIdFromHash();
+                    if (!userId) {
+                        userId = "user-" + randomId();
+                        window.location.hash = "#" + userId;
+                    }
+                    return userId;
+                }
+
+                function newEvent(wallet, type, n) {
+                    return {
+                        id:
+                            wallet.deviceId +
+                            "-" +
+                            Date.now().toString(36) +
+                            "-" +
+                            Math.random().toString(16).slice(2),
+                        t: type, // 'd' = drink, 's' = subtract, 'p' = paid
+                        n: typeof n === "number" ? n : undefined,
+                        ts: Date.now(),
+                    };
+                }
+
+                // liefert auch die sortierten Events zurück
+                // Erweiterung: unterstützt jetzt auch Gutschriften ("g")
+                // Balance-Logik:
+                //  - "d" (Drink)      => balance += n
+                //  - "s" (Subtract)   => balance -= n
+                //  - "g" (Gutschrift) => balance -= n
+                //  - "p" (Bezahlt)    => wenn balance > 0, dann balance = 0
+                // Am Ende:
+                //  - unpaid  = max(balance, 0)       (offene Getränke)
+                //  - credit  = max(-balance, 0)      (verbleibende Gutschrift in Getränken)
+                function computeSummary(wallet) {
+                    const eventsSorted = wallet.events
+                        .slice()
+                        .sort(
+                            (a, b) => a.ts - b.ts || a.id.localeCompare(b.id),
+                        );
+
+                    let total = 0;
+                    const perDayMap = new Map();
+                    let balance = 0; // >0 = offene Getränke, <0 = Guthaben
+
+                    function dayKey(ts) {
+                        const d = new Date(ts);
+                        const y = d.getFullYear();
+                        const m = String(d.getMonth() + 1).padStart(2, "0");
+                        const day = String(d.getDate()).padStart(2, "0");
+                        return `${y}-${m}-${day}`;
+                    }
+
+                    for (const e of eventsSorted) {
+                        const key = dayKey(e.ts);
+                        if (!perDayMap.has(key)) {
+                            perDayMap.set(key, {
+                                date: key,
+                                drinks: 0,
+                                paid: false,
+                            });
+                        }
+                        const day = perDayMap.get(key);
+
+                        if (e.t === "d") {
+                            const n = e.n || 0;
+                            total += n;
+                            day.drinks += n;
+                            balance += n;
+                        } else if (e.t === "s") {
+                            const n = e.n || 0;
+                            total -= n;
+                            day.drinks -= n;
+                            balance -= n;
+                        } else if (e.t === "p") {
+                            day.paid = true;
+                            if (balance > 0) {
+                                balance = 0;
+                            }
+                        } else if (e.t === "g") {
+                            const n = e.n || 0;
+                            // Gutschriften zählen nicht in die Tages-Drinkmenge
+                            balance -= n;
+                        }
+                    }
+
+                    for (const d of perDayMap.values()) {
+                        if (d.drinks < 0) d.drinks = 0;
+                    }
+                    if (total < 0) total = 0;
+
+                    const unpaid = Math.max(balance, 0);
+                    const credit = Math.max(-balance, 0);
+
+                    const perDay = Array.from(perDayMap.values()).sort((a, b) =>
+                        a.date.localeCompare(b.date),
+                    );
+
+                    return { total, unpaid, credit, perDay, eventsSorted };
+                }
+
+                function parseDeleteRange(input, maxIndex) {
+                    const result = new Set();
+                    if (!input) return result;
+                    const parts = input
+                        .split(",")
+                        .map((p) => p.trim())
+                        .filter(Boolean);
+
+                    for (const part of parts) {
+                        if (part.includes("-")) {
+                            const [startStr, endStr] = part
+                                .split("-")
+                                .map((p) => p.trim());
+                            const start = parseInt(startStr, 10);
+                            const end = parseInt(endStr, 10);
+                            if (isNaN(start) || isNaN(end)) continue;
+                            if (start < 1 || end < 1) continue;
+                            if (start > end) continue;
+                            for (let i = start; i <= end; i++) {
+                                if (i <= maxIndex) result.add(i);
+                            }
+                        } else {
+                            const n = parseInt(part, 10);
+                            if (!isNaN(n) && n >= 1 && n <= maxIndex) {
+                                result.add(n);
+                            }
+                        }
+                    }
+                    return result;
+                }
+
+                document.addEventListener("DOMContentLoaded", () => {
+                    const elUid = document.getElementById("uid");
+                    const elTotal = document.getElementById("total");
+                    const elUnpaid = document.getElementById("unpaid");
+                    const elCredit = document.getElementById("credit");
+                    const elAmount = document.getElementById("amount");
+                    const elExportUrl = document.getElementById("export-url");
+                    const elHistory = document.getElementById("history");
+                    const elDeleteRange =
+                        document.getElementById("delete-range");
+                    const logTools = document.getElementById("log-tools");
+                    const logEditGroup =
+                        document.getElementById("log-edit-group");
+                    const rawToggle = document.querySelector(".raw-toggle");
+                    const logEditToggle =
+                        document.getElementById("log-edit-toggle");
+
+                    const btnHome = document.getElementById("btn-home");
+                    const btnInfo = document.getElementById("btn-info");
+                    const btnDrink = document.getElementById("btn-drink");
+                    const btnMinus = document.getElementById("btn-minus");
+                    const btnPay = document.getElementById("btn-pay");
+                    const payOptions = document.getElementById("pay-options");
+                    const btnPayToday =
+                        document.getElementById("btn-pay-today");
+                    const btnCredit = document.getElementById("btn-credit");
+                    const btnExport = document.getElementById("btn-export");
+                    const exportOptions =
+                        document.getElementById("export-options");
+                    const btnExportLink =
+                        document.getElementById("btn-export-link");
+                    const btnExportJson =
+                        document.getElementById("btn-export-json");
+                    const btnReset = document.getElementById("btn-reset");
+                    const btnModeDiagram =
+                        document.getElementById("mode-diagram");
+                    const btnModeLog = document.getElementById("mode-log");
+                    const btnModeRaw = document.getElementById("mode-raw");
+                    const btnEditEntry =
+                        document.getElementById("btn-edit-entry");
+                    const btnSelectionDelete = document.getElementById(
+                        "btn-selection-delete",
+                    );
+                    const btnRawCurrent =
+                        document.getElementById("raw-scope-current");
+                    const btnRawAll = document.getElementById("raw-scope-all");
+
+                    const userId = ensureUserId();
+                    let wallet = loadWallet(userId);
+                    saveWallet(wallet);
+
+                    let summaryCache = null;
+                    let rawAllCache = null;
+
+                    const invalidateCaches = () => {
+                        summaryCache = null;
+                        rawAllCache = null;
+                    };
+
+                    const getSummary = () => {
+                        if (!summaryCache) {
+                            summaryCache = computeSummary(wallet);
+                        }
+                        return summaryCache;
+                    };
+
+                    elUid.textContent = userId;
+                    elExportUrl.value = ""; // initial leer
+
+                    function resetAmount() {
+                        elAmount.value = "1";
+                    }
+
+                    function clearExport() {
+                        elExportUrl.value = "";
+                    }
+
+                    function getAmount() {
+                        const n = parseInt(elAmount.value, 10);
+                        return isNaN(n) || n <= 0 ? 1 : n;
+                    }
+
+                    // Setzt das Zahlungs-UI zentral zurück
+                    function resetPayUi() {
+                        if (payOptions) {
+                            payOptions.style.display = "none";
+                        }
+                        if (btnPayToday) {
+                            btnPayToday.textContent = "heute bezahlen 💰";
+                        }
+                        if (btnPay) {
+                            btnPay.style.display = "inline-block";
+                        }
+                        if (btnMinus) {
+                            btnMinus.style.display = "inline-block";
+                        }
+                        if (btnDrink) {
+                            btnDrink.style.display = "inline-block";
+                        }
+                    }
+
+                    function setHistoryMode(mode) {
+                        historyMode = mode;
+                        btnModeDiagram.classList.toggle(
+                            "active",
+                            mode === "diagram",
+                        );
+                        btnModeLog.classList.toggle("active", mode === "log");
+                        btnModeRaw.classList.toggle("active", mode === "raw");
+
+                        // Raw-Scope-Toggle nur im Raw-Log-Modus anzeigen
+                        if (rawToggle) {
+                            rawToggle.style.display =
+                                mode === "raw" ? "block" : "none";
+                        }
+
+                        // Log-Bearbeitungsgruppe nur im Historie-Modus sichtbar,
+                        // Edit-Funktionen erst bei aktivierter Checkbox
+                        if (logTools) {
+                            if (mode === "log") {
+                                logTools.style.display = "block";
+                                if (logEditGroup && logEditToggle) {
+                                    logEditGroup.style.display =
+                                        logEditToggle.checked
+                                            ? "block"
+                                            : "none";
+                                }
+                            } else {
+                                logTools.style.display = "none";
+                            }
+                        }
+
+                        // Beim Wechsel auf Diagramm oder Historie immer auf "aktuellen User" für Raw zurücksetzen
+                        if (mode !== "raw") {
+                            setRawScope("current");
+                        }
+
+                        refreshSummary();
+                    }
+                    if (logEditToggle) {
+                        logEditToggle.addEventListener("change", () => {
+                            if (historyMode === "log" && logEditGroup) {
+                                logEditGroup.style.display =
+                                    logEditToggle.checked ? "block" : "none";
+                            }
+                        });
+                    }
+
+                    function setRawScope(scope) {
+                        rawScope = scope;
+                        btnRawCurrent.classList.toggle(
+                            "active",
+                            scope === "current",
+                        );
+                        btnRawAll.classList.toggle("active", scope === "all");
+                        if (historyMode === "raw") {
+                            refreshSummary();
+                        }
+                    }
+
+                    function formatLogLine(e, index) {
+                        const d = new Date(e.ts);
+                        const y = d.getFullYear();
+                        const m = String(d.getMonth() + 1).padStart(2, "0");
+                        const day = String(d.getDate()).padStart(2, "0");
+                        const hh = String(d.getHours()).padStart(2, "0");
+                        const mm = String(d.getMinutes()).padStart(2, "0");
+                        const dateStr = `${y}-${m}-${day}`;
+                        const timeStr = `${hh}:${mm}`;
+                        let action = "";
+                        if (e.t === "d") action = `+${e.n || 0} Getränk(e)`;
+                        else if (e.t === "s")
+                            action = `-${e.n || 0} korrigiert`;
+                        else if (e.t === "p") action = "Bezahlt";
+                        else if (e.t === "g")
+                            action = `Gutschrift ${e.n || 0} Getränk(e)`;
+                        return `#${index} | ${dateStr} ${timeStr} | ${action}`;
+                    }
+
+                    function refreshSummary() {
+                        const summary = getSummary();
+                        elTotal.textContent = summary.total;
+                        elUnpaid.textContent = summary.unpaid;
+                        if (elCredit) {
+                            elCredit.textContent = summary.credit;
+                        }
+
+                        if (historyMode === "diagram") {
+                            if (!summary.perDay.length) {
+                                elHistory.textContent =
+                                    "Noch keine Drinks geloggt. ✨";
+                            } else {
+                                const lines = summary.perDay.map((d) => {
+                                    const bar = "#".repeat(
+                                        Math.min(d.drinks, 50),
+                                    );
+                                    const paidMark = d.paid ? " 💰" : "";
+                                    return `${d.date}${paidMark} | ${bar}`;
+                                });
+                                elHistory.textContent = lines.join("\n");
+                            }
+                        } else if (historyMode === "log") {
+                            if (!summary.eventsSorted.length) {
+                                elHistory.textContent =
+                                    "Noch keine Drinks geloggt. ✨";
+                            } else {
+                                const lines = [];
+                                const len = summary.eventsSorted.length;
+                                for (let i = len - 1; i >= 0; i--) {
+                                    const idx = i + 1; // 1-basiert
+                                    lines.push(
+                                        formatLogLine(
+                                            summary.eventsSorted[i],
+                                            idx,
+                                        ),
+                                    );
+                                }
+                                elHistory.textContent = lines.join("\n");
+                            }
+                        } else if (historyMode === "raw") {
+                            if (rawScope === "current") {
+                                elHistory.textContent = JSON.stringify(
+                                    wallet,
+                                    null,
+                                    2,
+                                );
+                            } else {
+                                if (!rawAllCache) {
+                                    rawAllCache = JSON.stringify(
+                                        getAllWallets(),
+                                        null,
+                                        2,
+                                    );
+                                }
+                                elHistory.textContent = rawAllCache;
+                            }
+                        }
+                    }
+
+                    btnHome.addEventListener("click", () => {
+                        window.location.href = "index.html";
+                    });
+                    if (btnInfo) {
+                        btnInfo.addEventListener("click", () => {
+                            window.open(
+                                "https://github.com/bmmmm/db-wallet",
+                                "_blank",
+                            );
+                        });
+                    }
+
+                    btnDrink.addEventListener("click", () => {
+                        const n = getAmount();
+                        wallet.events.push(newEvent(wallet, "d", n));
+                        saveWallet(wallet);
+                        invalidateCaches();
+                        resetAmount();
+                        clearExport();
+                        refreshSummary();
+                    });
+
+                    btnMinus.addEventListener("click", () => {
+                        const summaryBefore = getSummary();
+                        const requested = getAmount();
+                        const unpaid = summaryBefore.unpaid;
+                        const credit = summaryBefore.credit;
+                        const total = summaryBefore.total;
+
+                        // 1. Priorität: offene Getränke korrigieren
+                        if (unpaid > 0) {
+                            const effective = Math.min(requested, unpaid);
+                            if (effective <= 0) {
+                                alert(
+                                    "Keine offenen Drinks zum Zurücknehmen 🤷‍♂️",
+                                );
+                                resetAmount();
+                                clearExport();
+                                return;
+                            }
+
+                            wallet.events.push(
+                                newEvent(wallet, "s", effective),
+                            );
+                            saveWallet(wallet);
+                            invalidateCaches();
+                            resetAmount();
+                            clearExport();
+                            refreshSummary();
+                            return;
+                        }
+
+                        // 2. Falls keine offenen Drinks, aber Guthaben UND bereits getrunkene Drinks vorhanden:
+                        //    Dann kann eine Korrektur genutzt werden, um getrunkene Drinks wieder ins Guthaben zu schieben.
+                        if (credit > 0 && total > 0) {
+                            const effective = Math.min(
+                                requested,
+                                credit,
+                                total,
+                            );
+                            if (effective <= 0) {
+                                alert(
+                                    "Es gibt keine getrunkenen Getränke, die korrigiert werden können.\n" +
+                                        "Neue Drinks werden zuerst vom Guthaben abgezogen.",
+                                );
+                                resetAmount();
+                                clearExport();
+                                return;
+                            }
+
+                            wallet.events.push(
+                                newEvent(wallet, "s", effective),
+                            );
+                            saveWallet(wallet);
+                            invalidateCaches();
+                            resetAmount();
+                            clearExport();
+                            refreshSummary();
+                            return;
+                        }
+
+                        // 3. Weder offene Drinks noch sinnvolle Korrektur bei Guthaben möglich
+                        if (credit > 0) {
+                            alert(
+                                `Du hast Guthaben von ${credit} Getränk(en), aber keine getrunkenen Getränke zum Zurücknehmen.\n` +
+                                    "Neue Drinks werden zuerst vom Guthaben abgezogen.",
+                            );
+                        } else {
+                            alert("Keine Drinks zum Zurücknehmen 🤷‍♂️");
+                        }
+                        resetAmount();
+                        clearExport();
+                    });
+
+                    btnPay.addEventListener("click", () => {
+                        if (!payOptions) return;
+                        // Toggle Sichtbarkeit der Zahlungsoptionen
+                        if (
+                            payOptions.style.display === "none" ||
+                            payOptions.style.display === ""
+                        ) {
+                            payOptions.style.display = "inline-block";
+                            // Während des Zahlungsvorgangs Bezahlen-, Minus- und Trinken-Button ausblenden
+                            if (btnPay) btnPay.style.display = "none";
+                            if (btnMinus) btnMinus.style.display = "none";
+                            if (btnDrink) btnDrink.style.display = "none";
+                        } else {
+                            // Zahlungsvorgang abbrechen/zuklappen -> UI zurücksetzen
+                            resetPayUi();
+                        }
+                    });
+
+                    if (btnPayToday) {
+                        btnPayToday.addEventListener("click", () => {
+                            const summaryBefore = getSummary();
+
+                            if (summaryBefore.unpaid <= 0) {
+                                alert("Keine offenen Getränke zum Bezahlen.");
+                                clearExport();
+                                return;
+                            }
+
+                            // Normale Zahlung für offene Getränke (heute)
+                            wallet.events.push(newEvent(wallet, "p"));
+                            saveWallet(wallet);
+                            invalidateCaches();
+                            resetAmount();
+                            clearExport();
+                            resetPayUi();
+                            refreshSummary();
+                        });
+                    }
+
+                    if (btnCredit) {
+                        btnCredit.addEventListener("click", () => {
+                            const amountStr = prompt(
+                                "Wie viele Getränke möchtest du als Guthaben buchen?",
+                                "10",
+                            );
+                            if (amountStr === null) {
+                                clearExport();
+                                return;
+                            }
+                            const n = parseInt(amountStr, 10);
+                            if (isNaN(n) || n <= 0) {
+                                alert("Ungültige Menge für die Gutschrift.");
+                                clearExport();
+                                return;
+                            }
+                            wallet.events.push(newEvent(wallet, "g", n));
+                            saveWallet(wallet);
+                            invalidateCaches();
+                            resetAmount();
+                            clearExport();
+                            resetPayUi();
+                            refreshSummary();
+                        });
+                    }
+
+                    btnExport.addEventListener("click", () => {
+                        if (!exportOptions) return;
+                        // Export-Optionen ein-/ausblenden
+                        if (
+                            exportOptions.style.display === "none" ||
+                            exportOptions.style.display === ""
+                        ) {
+                            exportOptions.style.display = "inline-block";
+                        } else {
+                            exportOptions.style.display = "none";
+                            // Beim Ausblenden das Exportfeld leeren
+                            clearExport();
+                        }
+                    });
+
+                    if (btnExportLink) {
+                        btnExportLink.addEventListener("click", () => {
+                            const payload = JSON.stringify({
+                                userId: wallet.userId,
+                                v: wallet.v,
+                                events: wallet.events,
+                            });
+                            const token = base64UrlEncode(payload);
+                            const url =
+                                window.location.origin +
+                                window.location.pathname +
+                                "#import:" +
+                                token;
+
+                            elExportUrl.value = url;
+                            elExportUrl.focus();
+                            elExportUrl.select();
+                        });
+                    }
+
+                    if (btnExportJson) {
+                        btnExportJson.addEventListener("click", () => {
+                            const data = {
+                                userId: wallet.userId,
+                                deviceId: wallet.deviceId,
+                                v: wallet.v,
+                                events: wallet.events,
+                            };
+                            const blob = new Blob(
+                                [JSON.stringify(data, null, 2)],
+                                {
+                                    type: "application/json",
+                                },
+                            );
+                            const a = document.createElement("a");
+                            const date = todayDateStr();
+                            const safeUserId = String(
+                                wallet.userId || "user",
+                            ).replace(/[^a-zA-Z0-9_-]/g, "_");
+                            a.href = URL.createObjectURL(blob);
+                            a.download = `db-wallet-${safeUserId}-${date}.json`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(a.href);
+                        });
+                    }
+
+                    elExportUrl.addEventListener("focus", () => {
+                        elExportUrl.select();
+                    });
+                    elExportUrl.addEventListener("click", () => {
+                        elExportUrl.select();
+                    });
+
+                    btnReset.addEventListener("click", () => {
+                        if (
+                            !confirm(
+                                `Wirklich alle Getränkedaten für "${userId}" löschen? 🗑️`,
+                            )
+                        )
+                            return;
+                        localStorage.removeItem(STORAGE_PREFIX + wallet.userId);
+                        wallet = {
+                            userId: wallet.userId,
+                            deviceId: randomId(),
+                            v: 1,
+                            events: [],
+                        };
+                        saveWallet(wallet);
+                        invalidateCaches();
+                        elExportUrl.value = "";
+                        elHistory.textContent = "Noch keine Drinks geloggt. ✨";
+                        elDeleteRange.value = "";
+                        resetAmount();
+                        refreshSummary();
+                    });
+
+                    btnModeDiagram.addEventListener("click", () =>
+                        setHistoryMode("diagram"),
+                    );
+                    btnModeLog.addEventListener("click", () =>
+                        setHistoryMode("log"),
+                    );
+                    btnModeRaw.addEventListener("click", () =>
+                        setHistoryMode("raw"),
+                    );
+
+                    btnRawCurrent.addEventListener("click", () =>
+                        setRawScope("current"),
+                    );
+                    btnRawAll.addEventListener("click", () =>
+                        setRawScope("all"),
+                    );
+
+                    btnSelectionDelete.addEventListener("click", () => {
+                        const summary = getSummary();
+                        const maxIndex = summary.eventsSorted.length;
+                        if (maxIndex === 0) {
+                            alert(
+                                `Keine Logeinträge für "${userId}" vorhanden.`,
+                            );
+                            clearExport();
+                            elDeleteRange.value = "";
+                            return;
+                        }
+
+                        const input = elDeleteRange.value.trim();
+                        const indices = parseDeleteRange(input, maxIndex);
+
+                        if (!indices.size) {
+                            alert(
+                                "Keine gültigen IDs im Eingabefeld gefunden.",
+                            );
+                            clearExport();
+                            elDeleteRange.value = "";
+                            return;
+                        }
+
+                        const idsToDelete = new Set();
+                        let payCount = 0;
+
+                        summary.eventsSorted.forEach((e, i) => {
+                            const idx = i + 1;
+                            if (indices.has(idx)) {
+                                idsToDelete.add(e.id);
+                                if (e.t === "p") payCount++;
+                            }
+                        });
+
+                        if (!idsToDelete.size) {
+                            alert("Keine passenden Logeinträge gefunden.");
+                            clearExport();
+                            elDeleteRange.value = "";
+                            return;
+                        }
+
+                        let msg = `Wirklich ${idsToDelete.size} Logeintrag/Einträge für "${userId}" löschen? 🧹`;
+                        if (payCount > 0) {
+                            msg += `\nAchtung: Darunter sind ${payCount} Zahlung(en) 💸.`;
+                        }
+
+                        if (!confirm(msg)) return;
+
+                        wallet.events = wallet.events.filter(
+                            (e) => !idsToDelete.has(e.id),
+                        );
+                        saveWallet(wallet);
+                        invalidateCaches();
+                        clearExport();
+                        elDeleteRange.value = "";
+                        refreshSummary();
+                    });
+
+                    if (btnEditEntry) {
+                        btnEditEntry.addEventListener("click", () => {
+                            const summary = getSummary();
+                            const maxIndex = summary.eventsSorted.length;
+                            if (maxIndex === 0) {
+                                alert(
+                                    `Keine Logeinträge für "${userId}" vorhanden.`,
+                                );
+                                clearExport();
+                                elDeleteRange.value = "";
+                                return;
+                            }
+
+                            const input = elDeleteRange.value.trim();
+                            const indices = parseDeleteRange(input, maxIndex);
+
+                            if (!indices.size) {
+                                alert(
+                                    "Bitte genau eine ID angeben, die bearbeitet werden soll.",
+                                );
+                                clearExport();
+                                elDeleteRange.value = "";
+                                return;
+                            }
+
+                            if (indices.size > 1) {
+                                alert(
+                                    "Bearbeitung funktioniert nur mit genau einer ID.",
+                                );
+                                clearExport();
+                                elDeleteRange.value = "";
+                                return;
+                            }
+
+                            const targetIndex = Array.from(indices)[0]; // 1-basiert
+                            const targetEvent =
+                                summary.eventsSorted[targetIndex - 1];
+                            if (!targetEvent) {
+                                alert(
+                                    "Die ausgewählte ID konnte keinem Logeintrag zugeordnet werden.",
+                                );
+                                clearExport();
+                                elDeleteRange.value = "";
+                                return;
+                            }
+
+                            const currentDateStr = dateStrFromTimestamp(
+                                targetEvent.ts,
+                            );
+                            const newDateStr = prompt(
+                                `Neues Datum für Eintrag #${targetIndex} (YYYY-MM-DD):`,
+                                currentDateStr,
+                            );
+                            if (newDateStr === null) {
+                                // Abgebrochen
+                                clearExport();
+                                elDeleteRange.value = "";
+                                return;
+                            }
+                            if (!/^\d{4}-\d{2}-\d{2}$/.test(newDateStr)) {
+                                alert(
+                                    "Ungültiges Datumsformat. Erwartet wird YYYY-MM-DD.",
+                                );
+                                clearExport();
+                                elDeleteRange.value = "";
+                                return;
+                            }
+
+                            // Datum mit aktueller Uhrzeit kombinieren
+                            const now = new Date();
+                            const parts = newDateStr.split("-");
+                            const year = parseInt(parts[0], 10);
+                            const month = parseInt(parts[1], 10) - 1; // 0-basiert
+                            const day = parseInt(parts[2], 10);
+                            const testDate = new Date(
+                                year,
+                                month,
+                                day,
+                                now.getHours(),
+                                now.getMinutes(),
+                                now.getSeconds(),
+                                now.getMilliseconds(),
+                            );
+                            if (isNaN(testDate.getTime())) {
+                                alert("Ungültiges Datum.");
+                                clearExport();
+                                elDeleteRange.value = "";
+                                return;
+                            }
+
+                            let newAmount = targetEvent.n;
+                            if (targetEvent.t !== "p") {
+                                const defaultAmount =
+                                    typeof targetEvent.n === "number"
+                                        ? targetEvent.n
+                                        : 1;
+                                const amountStr = prompt(
+                                    `Neue Menge für Eintrag #${targetIndex}:`,
+                                    String(defaultAmount),
+                                );
+                                if (amountStr === null) {
+                                    clearExport();
+                                    elDeleteRange.value = "";
+                                    return;
+                                }
+                                const parsed = parseInt(amountStr, 10);
+                                if (isNaN(parsed) || parsed <= 0) {
+                                    alert("Ungültige Menge.");
+                                    clearExport();
+                                    elDeleteRange.value = "";
+                                    return;
+                                }
+                                newAmount = parsed;
+                            }
+
+                            const newTs = testDate.getTime();
+                            const targetId = targetEvent.id;
+
+                            wallet.events = wallet.events.map((e) => {
+                                if (e.id === targetId) {
+                                    return {
+                                        ...e,
+                                        ts: newTs,
+                                        n: e.t === "p" ? undefined : newAmount,
+                                    };
+                                }
+                                return e;
+                            });
+
+                            saveWallet(wallet);
+                            invalidateCaches();
+                            clearExport();
+                            elDeleteRange.value = "";
+                            refreshSummary();
+                        });
+                    }
+
+                    // Initiale Anzeige (setzt auch Sichtbarkeit der Raw-/Log-Controls)
+                    setHistoryMode(historyMode);
+                });
+            })();
+        </script>
+    </body>
 </html>

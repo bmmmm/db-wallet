@@ -1,0 +1,203 @@
+:root {
+    --bg: #0b0f16;
+    --panel: #0f1724;
+    --border: #1f2a3a;
+    --accent: #7dd3fc;
+    --accent-strong: #22d3ee;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --danger: #f87171;
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+    font-family:
+        "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+    color: var(--text);
+    background:
+        radial-gradient(
+            circle at 18% 15%,
+            rgba(34, 211, 238, 0.1),
+            transparent 35%
+        ),
+        radial-gradient(
+            circle at 80% 0%,
+            rgba(125, 211, 252, 0.14),
+            transparent 35%
+        ),
+        var(--bg);
+}
+
+body {
+    max-width: 760px;
+    margin: 2rem auto 3rem;
+    padding: 0 1.25rem 2.5rem;
+    line-height: 1.6;
+}
+
+h1 {
+    font-size: 1.6rem;
+    margin-bottom: 1rem;
+    letter-spacing: 0.02em;
+}
+
+h2 {
+    font-size: 1.2rem;
+    margin: 1.4rem 0 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+}
+
+section,
+#existing-users-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: var(--shadow);
+    margin-top: 1rem;
+}
+
+button {
+    padding: 0.45rem 0.8rem;
+    margin: 0.2rem;
+    cursor: pointer;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: linear-gradient(135deg, #111827, #0f1724);
+    color: var(--text);
+    transition:
+        transform 120ms ease,
+        box-shadow 120ms ease,
+        border-color 120ms ease;
+}
+
+button:hover {
+    border-color: var(--accent);
+    box-shadow: 0 6px 18px rgba(125, 211, 252, 0.25);
+    transform: translateY(-1px);
+}
+
+button:active {
+    transform: translateY(0);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+input[type="text"],
+input[type="number"],
+#export-url,
+#delete-range {
+    padding: 0.5rem 0.7rem;
+    font-size: 1rem;
+    box-sizing: border-box;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #0d1320;
+    color: var(--text);
+    transition:
+        border-color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+#export-url:focus,
+#delete-range:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2);
+}
+
+input[type="text"] {
+    width: 70%;
+    max-width: 340px;
+}
+
+input[type="number"] {
+    width: 5.2rem;
+}
+
+#export-url,
+#delete-range {
+    width: 100%;
+    margin-top: 0.55rem;
+}
+
+pre {
+    background: #0d1320;
+    padding: 0.75rem;
+    min-height: 3rem;
+    white-space: pre;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+    color: var(--muted);
+    box-shadow: var(--shadow);
+    max-height: 260px;
+    overflow: auto;
+}
+
+hr {
+    border: none;
+    height: 1px;
+    background: var(--border);
+    margin: 2rem 0 1.2rem;
+}
+
+.top-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 0.75rem 0.9rem;
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+}
+
+.history-mode-label {
+    margin-right: 0.5rem;
+    color: var(--muted);
+}
+
+.mode-btn.active,
+.raw-toggle-btn.active {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+    box-shadow: 0 6px 18px rgba(34, 211, 238, 0.25);
+}
+
+.raw-toggle {
+    margin-top: 0.4rem;
+    font-size: 0.95rem;
+    color: var(--muted);
+}
+
+.raw-toggle-btn {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.85rem;
+}
+
+.stat-panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+    margin: 1rem 0;
+}
+
+.stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.8rem;
+    box-shadow: var(--shadow);
+}
+
+.stat strong {
+    font-size: 1.2rem;
+    color: var(--accent-strong);
+}
+
+#existing-users div {
+    color: var(--text);
+}
