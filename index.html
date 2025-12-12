@@ -137,6 +137,15 @@
 
             const THEME_KEY = "db-wallet:theme";
 
+            function getStoredTheme() {
+                try {
+                    const stored = localStorage.getItem(THEME_KEY);
+                    return stored && THEMES[stored] ? stored : null;
+                } catch (e) {
+                    return null;
+                }
+            }
+
             function applyTheme(name) {
                 const theme = THEMES[name];
                 if (!theme) return;
@@ -172,17 +181,15 @@
                     container.appendChild(btn);
                 });
 
-                const stored = localStorage.getItem(THEME_KEY);
-                if (stored && THEMES[stored]) {
+                const stored = getStoredTheme();
+                if (stored) {
                     applyTheme(stored);
                 }
             }
 
             (function applyStoredTheme() {
-                const stored = localStorage.getItem(THEME_KEY);
-                if (stored && THEMES[stored]) {
-                    applyTheme(stored);
-                }
+                const stored = getStoredTheme();
+                if (stored) applyTheme(stored);
             })();
 
             const STORAGE_PREFIX = "db-wallet:";
@@ -456,6 +463,14 @@
 
                                 localStorage.setItem(storageKey, json);
                                 localStorage.setItem(userId, json);
+
+                                const importedTheme =
+                                    typeof data.theme === "string"
+                                        ? data.theme
+                                        : "";
+                                if (importedTheme && THEMES[importedTheme]) {
+                                    applyTheme(importedTheme);
+                                }
 
                                 renderExistingUsers();
                                 window.location.href = "wallet.html#" + userId;
