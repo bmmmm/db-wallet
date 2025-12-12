@@ -231,8 +231,8 @@
                         container.appendChild(btn);
                     });
 
-                    const stored = localStorage.getItem(THEME_KEY);
-                    if (stored && THEMES[stored]) {
+                    const stored = getStoredTheme();
+                    if (stored) {
                         applyTheme(stored);
                     }
                 }
@@ -399,12 +399,35 @@
 
                 function getAllWallets() {
                     const all = {};
+                    const seenUserIds = new Set();
+
                     for (let i = 0; i < localStorage.length; i++) {
                         const key = localStorage.key(i);
                         if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-                        const userId = key.slice(STORAGE_PREFIX.length);
+
+                        const raw = localStorage.getItem(key);
+                        if (!raw) continue;
+
+                        const obj = safeParse(raw);
+                        if (
+                            !obj ||
+                            typeof obj !== "object" ||
+                            !Array.isArray(obj.events)
+                        ) {
+                            continue; // skip non-wallet keys like registry/theme
+                        }
+
+                        const userId =
+                            typeof obj.userId === "string"
+                                ? obj.userId
+                                : key.slice(STORAGE_PREFIX.length);
+                        if (!userId) continue;
+
+                        if (seenUserIds.has(userId)) continue;
+                        seenUserIds.add(userId);
                         all[userId] = loadWallet(userId);
                     }
+
                     return all;
                 }
 

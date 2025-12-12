@@ -214,14 +214,18 @@
                         if (
                             obj &&
                             typeof obj === "object" &&
-                            typeof obj.userId === "string" &&
                             Array.isArray(obj.events)
                         ) {
-                            if (!seenUserIds.has(obj.userId)) {
-                                seenUserIds.add(obj.userId);
+                            const userId =
+                                typeof obj.userId === "string"
+                                    ? obj.userId
+                                    : key.slice(STORAGE_PREFIX.length);
+                            if (!userId) continue;
+                            if (!seenUserIds.has(userId)) {
+                                seenUserIds.add(userId);
                                 entries.push({
                                     key,
-                                    userId: obj.userId,
+                                    userId,
                                     wallet: obj,
                                 });
                             }
