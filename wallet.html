@@ -106,9 +106,10 @@
     Bearbeitungsfunktionen anzeigen
   </label>
   <div id="log-edit-group">
-    <label for="delete-range">Logeinträge löschen (IDs, z. B. 1,3,5-7):</label>
+    <label for="delete-range">Logeinträge bearbeiten (IDs, z. B. 1,3,5-7):</label>
     <input id="delete-range" type="text" placeholder="IDs aus der Historie-Ansicht eingeben …">
     <br>
+    <button id="btn-edit-entry">Ausgewählten Eintrag bearbeiten ✏️</button>
     <button id="btn-selection-delete">Ausgewählte Einträge löschen 🧹</button>
     <button id="btn-reset">Alle Daten für diesen User löschen 🗑️</button>
   </div>
@@ -151,6 +152,22 @@
       out += chars[Math.floor(Math.random() * chars.length)];
     }
     return out;
+  }
+
+  function todayDateStr() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function dateStrFromTimestamp(ts) {
+    const d = new Date(ts);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
   }
 
   function getUserIdFromHash() {
@@ -371,6 +388,7 @@
     const btnModeDiagram = document.getElementById("mode-diagram");
     const btnModeLog = document.getElementById("mode-log");
     const btnModeRaw = document.getElementById("mode-raw");
+    const btnEditEntry = document.getElementById("btn-edit-entry");
     const btnSelectionDelete = document.getElementById("btn-selection-delete");
     const btnRawCurrent = document.getElementById("raw-scope-current");
     const btnRawAll = document.getElementById("raw-scope-all");
@@ -536,6 +554,14 @@
         payOptions.style.display = "inline-block";
       } else {
         payOptions.style.display = "none";
+        // Beim Ausblenden auch Datumsauswahl zurücksetzen
+        if (payDateInput) {
+          payDateInput.style.display = "none";
+          payDateInput.value = "";
+        }
+        if (btnPayDate) {
+          btnPayDate.textContent = "Datum wählen 📅";
+        }
       }
     });
 
@@ -557,6 +583,8 @@
         // Datumsauswahl anzeigen, wenn sie noch nicht sichtbar ist
         if (payDateInput.style.display === "none" || payDateInput.style.display === "") {
           payDateInput.style.display = "inline-block";
+          payDateInput.value = todayDateStr();
+          btnPayDate.textContent = "Datum buchen 💰";
           payDateInput.focus();
           return;
         }
@@ -581,6 +609,7 @@
         if (payOptions) {
           payOptions.style.display = "none";
         }
+        btnPayDate.textContent = "Datum wählen 📅";
         refreshSummary();
       });
     }
@@ -685,6 +714,111 @@
       elDeleteRange.value = "";
       refreshSummary();
     });
+
+    if (btnEditEntry) {
+      btnEditEntry.addEventListener("click", () => {
+        const summary = computeSummary(wallet);
+        const maxIndex = summary.eventsSorted.length;
+        if (maxIndex === 0) {
+          alert(`Keine Logeinträge für "${userId}" vorhanden.`);
+          clearExport();
+          elDeleteRange.value = "";
+          return;
+        }
+
+        const input = elDeleteRange.value.trim();
+        const indices = parseDeleteRange(input, maxIndex);
+
+        if (!indices.size) {
+          alert("Bitte genau eine ID angeben, die bearbeitet werden soll.");
+          clearExport();
+          elDeleteRange.value = "";
+          return;
+        }
+
+        if (indices.size > 1) {
+          alert("Bearbeitung funktioniert nur mit genau einer ID.");
+          clearExport();
+          elDeleteRange.value = "";
+          return;
+        }
+
+        const targetIndex = Array.from(indices)[0]; // 1-basiert
+        const targetEvent = summary.eventsSorted[targetIndex - 1];
+        if (!targetEvent) {
+          alert("Die ausgewählte ID konnte keinem Logeintrag zugeordnet werden.");
+          clearExport();
+          elDeleteRange.value = "";
+          return;
+        }
+
+        const currentDateStr = dateStrFromTimestamp(targetEvent.ts);
+        const newDateStr = prompt(
+          `Neues Datum für Eintrag #${targetIndex} (YYYY-MM-DD):`,
+          currentDateStr
+        );
+        if (newDateStr === null) {
+          // Abgebrochen
+          clearExport();
+          elDeleteRange.value = "";
+          return;
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDateStr)) {
+          alert("Ungültiges Datumsformat. Erwartet wird YYYY-MM-DD.");
+          clearExport();
+          elDeleteRange.value = "";
+          return;
+        }
+        const testDate = new Date(newDateStr + "T12:00:00");
+        if (isNaN(testDate.getTime())) {
+          alert("Ungültiges Datum.");
+          clearExport();
+          elDeleteRange.value = "";
+          return;
+        }
+
+        let newAmount = targetEvent.n;
+        if (targetEvent.t !== "p") {
+          const defaultAmount = typeof targetEvent.n === "number" ? targetEvent.n : 1;
+          const amountStr = prompt(
+            `Neue Menge für Eintrag #${targetIndex}:`,
+            String(defaultAmount)
+          );
+          if (amountStr === null) {
+            clearExport();
+            elDeleteRange.value = "";
+            return;
+          }
+          const parsed = parseInt(amountStr, 10);
+          if (isNaN(parsed) || parsed <= 0) {
+            alert("Ungültige Menge.");
+            clearExport();
+            elDeleteRange.value = "";
+            return;
+          }
+          newAmount = parsed;
+        }
+
+        const newTs = testDate.getTime();
+        const targetId = targetEvent.id;
+
+        wallet.events = wallet.events.map(e => {
+          if (e.id === targetId) {
+            return {
+              ...e,
+              ts: newTs,
+              n: e.t === "p" ? undefined : newAmount
+            };
+          }
+          return e;
+        });
+
+        saveWallet(wallet);
+        clearExport();
+        elDeleteRange.value = "";
+        refreshSummary();
+      });
+    }
 
 
     // Initiale Anzeige (setzt auch Sichtbarkeit der Raw-/Log-Controls)
