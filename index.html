@@ -43,7 +43,7 @@
 <section>
   <h2>Neuen Nutzer anlegen</h2>
   <p>Nutzername eingeben oder leer lassen, um einen zufälligen Namen zu erhalten.</p>
-  <input id="username" type="text" placeholder="z. B. peter, kueche, clubraum …" />
+  <input id="username" type="text" placeholder="z. B. peter, kueche, clubraum …" />
   <button id="btn-start">Weiter</button>
 </section>
 
@@ -82,90 +82,36 @@
     return o;
   }
 
-  const REGISTRY_KEY = "db-wallet:registry";
-
-  function loadRegistry() {
-    try {
-      const raw = localStorage.getItem(REGISTRY_KEY);
-      if (!raw) return {};
-      const obj = JSON.parse(raw);
-      return obj && typeof obj === "object" ? obj : {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  function saveRegistry(reg) {
-    try {
-      localStorage.setItem(REGISTRY_KEY, JSON.stringify(reg));
-    } catch (e) {
-      // ignore registry write errors
-    }
-  }
+  const STORAGE_PREFIX = "db-wallet:";
 
   // Alle Wallet-ähnlichen Objekte aus localStorage sammeln
-  // bevorzugt über die Registry, mit Fallback auf Voll-Scan
   function collectWalletEntries() {
     const entries = [];
     const seenUserIds = new Set();
 
-    // 1. Registry nutzen, falls vorhanden
-    const reg = loadRegistry();
-    const regUserIds = Object.keys(reg);
-    if (regUserIds.length > 0) {
-      regUserIds.forEach(userId => {
-        const info = reg[userId] || {};
-        const storageKey = info.storageKey || ("db-wallet:" + userId);
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
 
-        let raw = localStorage.getItem(storageKey);
-        if (!raw) {
-          // Fallback: alter Key nur mit userId
-          raw = localStorage.getItem(userId);
-        }
-        if (!raw) return;
+      if (!key.startsWith(STORAGE_PREFIX)) continue;
 
-        try {
-          const obj = JSON.parse(raw);
-          if (
-            obj &&
-            typeof obj === "object" &&
-            typeof obj.userId === "string" &&
-            Array.isArray(obj.events)
-          ) {
-            if (!seenUserIds.has(obj.userId)) {
-              seenUserIds.add(obj.userId);
-              entries.push({ key: storageKey, userId: obj.userId, wallet: obj });
-            }
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const obj = JSON.parse(raw);
+        if (
+          obj &&
+          typeof obj === "object" &&
+          typeof obj.userId === "string" &&
+          Array.isArray(obj.events)
+        ) {
+          if (!seenUserIds.has(obj.userId)) {
+            seenUserIds.add(obj.userId);
+            entries.push({ key, userId: obj.userId, wallet: obj });
           }
-        } catch (e) {
-          // ignorieren
         }
-      });
-    }
-
-    // 2. Fallback: Voll-Scan, wenn Registry leer ist oder nichts brauchbares liefert
-    if (!entries.length) {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw) continue;
-          const obj = JSON.parse(raw);
-          if (
-            obj &&
-            typeof obj === "object" &&
-            typeof obj.userId === "string" &&
-            Array.isArray(obj.events)
-          ) {
-            if (!seenUserIds.has(obj.userId)) {
-              seenUserIds.add(obj.userId);
-              entries.push({ key, userId: obj.userId, wallet: obj });
-            }
-          }
-        } catch (e) {
-          // Ignorieren, wenn kein valides JSON
-        }
+      } catch (e) {
+        // ignorieren
       }
     }
 
@@ -279,25 +225,12 @@
             };
 
             const json = JSON.stringify(wallet);
-            const storageKey = "db-wallet:" + userId;
+            const storageKey = STORAGE_PREFIX + userId;
 
-            // Unter mehreren Keys ablegen, um kompatibel zu bleiben
             localStorage.setItem(storageKey, json);
             localStorage.setItem(userId, json);
 
-            // Registry aktualisieren
-            const reg = loadRegistry();
-            reg[userId] = {
-              userId,
-              storageKey,
-              lastUpdated: Date.now()
-            };
-            saveRegistry(reg);
-
-            // Liste aktualisieren
             renderExistingUsers();
-
-            // Direkt ins Wallet wechseln
             window.location.href = "wallet.html#" + userId;
           } catch (err) {
             alert("Import fehlgeschlagen: " + (err.message || err));
@@ -323,7 +256,7 @@
       });
     }
 
-    // Beim Laden einmal versuchen, vorhandene Nutzer:innen zu finden
+    // beim Laden direkt versuchen, Wallets zu finden
     renderExistingUsers();
   })();
 </script>
