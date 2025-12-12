@@ -75,6 +75,11 @@
 <button id="btn-drink">+ Trinken 🥤</button>
 <button id="btn-minus">– Zurücknehmen ↩️</button>
 <button id="btn-pay">Bezahlt 💸</button>
+<span id="pay-options" style="display:none;">
+  <button id="btn-pay-today">heute buchen 💰</button>
+  <button id="btn-pay-date">Datum wählen 📅</button>
+  <input id="pay-date" type="date" style="display:none;">
+</span>
 
 <br><br>
 
@@ -104,7 +109,7 @@
     <label for="delete-range">Logeinträge löschen (IDs, z. B. 1,3,5-7):</label>
     <input id="delete-range" type="text" placeholder="IDs aus der Historie-Ansicht eingeben …">
     <br>
-    <button id="btn-delete-range">Ausgewählte Logeinträge löschen 🧹</button>
+    <button id="btn-selection-delete">Ausgewählte Einträge löschen 🧹</button>
     <button id="btn-reset">Alle Daten für diesen User löschen 🗑️</button>
   </div>
 </div>
@@ -357,12 +362,16 @@
     const btnDrink = document.getElementById("btn-drink");
     const btnMinus = document.getElementById("btn-minus");
     const btnPay = document.getElementById("btn-pay");
+    const payOptions = document.getElementById("pay-options");
+    const btnPayToday = document.getElementById("btn-pay-today");
+    const btnPayDate = document.getElementById("btn-pay-date");
+    const payDateInput = document.getElementById("pay-date");
     const btnExport = document.getElementById("btn-export");
     const btnReset = document.getElementById("btn-reset");
     const btnModeDiagram = document.getElementById("mode-diagram");
     const btnModeLog = document.getElementById("mode-log");
     const btnModeRaw = document.getElementById("mode-raw");
-    const btnDeleteRange = document.getElementById("btn-delete-range");
+    const btnSelectionDelete = document.getElementById("btn-selection-delete");
     const btnRawCurrent = document.getElementById("raw-scope-current");
     const btnRawAll = document.getElementById("raw-scope-all");
 
@@ -521,12 +530,60 @@
     });
 
     btnPay.addEventListener("click", () => {
-      wallet.events.push(newEvent(wallet, "p"));
-      saveWallet(wallet);
-      resetAmount();
-      clearExport();
-      refreshSummary();
+      if (!payOptions) return;
+      // Toggle Sichtbarkeit der Zahlungsoptionen
+      if (payOptions.style.display === "none" || payOptions.style.display === "") {
+        payOptions.style.display = "inline-block";
+      } else {
+        payOptions.style.display = "none";
+      }
     });
+
+    if (btnPayToday) {
+      btnPayToday.addEventListener("click", () => {
+        wallet.events.push(newEvent(wallet, "p"));
+        saveWallet(wallet);
+        resetAmount();
+        clearExport();
+        if (payOptions) {
+          payOptions.style.display = "none";
+        }
+        refreshSummary();
+      });
+    }
+
+    if (btnPayDate && payDateInput) {
+      btnPayDate.addEventListener("click", () => {
+        // Datumsauswahl anzeigen, wenn sie noch nicht sichtbar ist
+        if (payDateInput.style.display === "none" || payDateInput.style.display === "") {
+          payDateInput.style.display = "inline-block";
+          payDateInput.focus();
+          return;
+        }
+
+        const dateStr = payDateInput.value;
+        if (!dateStr) {
+          alert("Bitte zuerst ein Datum auswählen.");
+          return;
+        }
+
+        // Datum in Timestamp umwandeln (lokales Datum, mittags)
+        const ts = new Date(dateStr + "T12:00:00").getTime();
+        const payEvent = newEvent(wallet, "p");
+        payEvent.ts = ts;
+
+        wallet.events.push(payEvent);
+        saveWallet(wallet);
+        resetAmount();
+        clearExport();
+        payDateInput.value = "";
+        payDateInput.style.display = "none";
+        if (payOptions) {
+          payOptions.style.display = "none";
+        }
+        refreshSummary();
+      });
+    }
 
     btnExport.addEventListener("click", () => {
       const payload = JSON.stringify({
@@ -577,12 +634,13 @@
     btnRawCurrent.addEventListener("click", () => setRawScope("current"));
     btnRawAll.addEventListener("click", () => setRawScope("all"));
 
-    btnDeleteRange.addEventListener("click", () => {
+    btnSelectionDelete.addEventListener("click", () => {
       const summary = computeSummary(wallet);
       const maxIndex = summary.eventsSorted.length;
       if (maxIndex === 0) {
         alert(`Keine Logeinträge für "${userId}" vorhanden.`);
         clearExport();
+        elDeleteRange.value = "";
         return;
       }
 
@@ -592,6 +650,7 @@
       if (!indices.size) {
         alert("Keine gültigen IDs im Eingabefeld gefunden.");
         clearExport();
+        elDeleteRange.value = "";
         return;
       }
 
@@ -609,6 +668,7 @@
       if (!idsToDelete.size) {
         alert("Keine passenden Logeinträge gefunden.");
         clearExport();
+        elDeleteRange.value = "";
         return;
       }
 
@@ -622,8 +682,10 @@
       wallet.events = wallet.events.filter(e => !idsToDelete.has(e.id));
       saveWallet(wallet);
       clearExport();
+      elDeleteRange.value = "";
       refreshSummary();
     });
+
 
     // Initiale Anzeige (setzt auch Sichtbarkeit der Raw-/Log-Controls)
     setHistoryMode(historyMode);
