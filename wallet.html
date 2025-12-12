@@ -343,6 +343,7 @@
     const elHistory = document.getElementById("history");
     const elDeleteRange = document.getElementById("delete-range");
     const logEditGroup = document.getElementById("log-edit-group");
+    const rawToggle = document.querySelector(".raw-toggle");
 
     const btnHome = document.getElementById("btn-home");
     const btnDrink = document.getElementById("btn-drink");
@@ -382,9 +383,12 @@
       btnModeLog.classList.toggle("active", mode === "log");
       btnModeRaw.classList.toggle("active", mode === "raw");
 
-      // Log-spezifische Steuerelemente nur im Historie-Modus anzeigen
+      // Raw-Controls (Scope + Log-Bearbeitung) nur im Raw-Log-Modus anzeigen
+      if (rawToggle) {
+        rawToggle.style.display = mode === "raw" ? "block" : "none";
+      }
       if (logEditGroup) {
-        logEditGroup.style.display = mode === "log" ? "block" : "none";
+        logEditGroup.style.display = mode === "raw" ? "block" : "none";
       }
 
       // Beim Wechsel auf Diagramm oder Historie immer auf "aktuellen User" für Raw zurücksetzen
@@ -596,8 +600,8 @@
       refreshSummary();
     });
 
-    // Initiale Anzeige
-    refreshSummary();
+    // Initiale Anzeige (setzt auch Sichtbarkeit der Raw-/Log-Controls)
+    setHistoryMode(historyMode);
   });
 })();
 </script>
