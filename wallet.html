@@ -63,6 +63,7 @@
 </div>
 <div>Gesamt getrunken: <strong id="total">0</strong></div>
 <div>Offen seit letzter Zahlung: <strong id="unpaid">0</strong></div>
+<div>Guthaben: <strong id="credit">0</strong></div>
 
 <br>
 
@@ -375,6 +376,7 @@
     const elUid = document.getElementById("uid");
     const elTotal = document.getElementById("total");
     const elUnpaid = document.getElementById("unpaid");
+    const elCredit = document.getElementById("credit");
     const elAmount = document.getElementById("amount");
     const elExportUrl = document.getElementById("export-url");
     const elHistory = document.getElementById("history");
@@ -490,6 +492,9 @@
       const summary = computeSummary(wallet);
       elTotal.textContent = summary.total;
       elUnpaid.textContent = summary.unpaid;
+      if (elCredit) {
+        elCredit.textContent = summary.credit;
+      }
 
       if (historyMode === "diagram") {
         if (!summary.perDay.length) {
@@ -830,7 +835,22 @@
           elDeleteRange.value = "";
           return;
         }
-        const testDate = new Date(newDateStr + "T12:00:00");
+
+        // Datum mit aktueller Uhrzeit kombinieren
+        const now = new Date();
+        const parts = newDateStr.split("-");
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1; // 0-basiert
+        const day = parseInt(parts[2], 10);
+        const testDate = new Date(
+          year,
+          month,
+          day,
+          now.getHours(),
+          now.getMinutes(),
+          now.getSeconds(),
+          now.getMilliseconds()
+        );
         if (isNaN(testDate.getTime())) {
           alert("Ungültiges Datum.");
           clearExport();
