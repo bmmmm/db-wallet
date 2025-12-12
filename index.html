@@ -11,33 +11,67 @@
       padding: 0 1rem;
     }
     h1 { font-size: 1.6rem; margin-bottom: 1rem; }
-    input {
-      width: 100%; padding: .5rem; font-size: 1rem;
-      margin-bottom: .5rem; box-sizing: border-box;
-    }
+    h2 { font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: .5rem; }
     button {
-      padding: .5rem .9rem; font-size: 1rem; cursor: pointer;
+      padding: .5rem .9rem;
+      font-size: 1rem;
+      cursor: pointer;
+      margin-top: .3rem;
+      margin-right: .3rem;
     }
-    small { color: #666; }
+    input[type="text"] {
+      padding: .4rem .5rem;
+      font-size: 1rem;
+      width: 70%;
+      max-width: 320px;
+      box-sizing: border-box;
+    }
+    pre {
+      white-space: pre-wrap;
+      background: #f5f5f5;
+      padding: .5rem;
+      max-height: 220px;
+      overflow: auto;
+      font-size: .85rem;
+    }
   </style>
 </head>
 <body>
 
-<h1>Willkommen im db-wallet</h1>
+<h1>db-wallet</h1>
 
-<p>Gib deinen gewünschten Namen ein. Alle Daten bleiben lokal in deinem Browser.</p>
+<section>
+  <h2>Neuen Nutzer anlegen</h2>
+  <p>Nutzername eingeben oder leer lassen, um einen zufälligen Namen zu erhalten.</p>
+  <input id="username" type="text" placeholder="z. B. peter, kueche, clubraum …" />
+  <button id="btn-start">Weiter</button>
+</section>
 
-<input id="username" type="text" placeholder="z. B. bartosz, kueche, clubraum …" />
-<small>Nur Buchstaben, Zahlen, '-', '_'. Leerzeichen werden '-'</small>
-<br><br>
-<button id="btn-start">Weiter</button>
+<hr>
+
+<section>
+  <h2>Vorhandene Nutzer:innen</h2>
+  <div id="existing-users"></div>
+  <br />
+  <button id="btn-search-users">Nach lokalen Nutzer:innen suchen 🔍</button>
+</section>
+
+<hr>
+
+<section>
+  <h2>Import &amp; Rohdaten</h2>
+  <button id="btn-import-json">JSON importieren 📄</button>
+  <input id="file-import" type="file" accept="application/json" style="display:none;" />
+  <button id="btn-raw-all">Alle Raw-Daten anzeigen 🧾</button>
+  <pre id="raw-output"></pre>
+</section>
 
 <script>
   function normalize(name) {
-    let n = name.trim().toLowerCase();
+    let n = String(name || "").trim().toLowerCase();
     n = n.replace(/\s+/g, "-");
     n = n.replace(/[^a-z0-9_-]/g, "");
-    if (n.startsWith("import:")) n = "user-" + n;
+    if (n.startsWith("import:")) n = "user-" + n.slice("import:".length);
     return n;
   }
 
@@ -48,6 +82,139 @@
     return o;
   }
 
+  const REGISTRY_KEY = "db-wallet:registry";
+
+  function loadRegistry() {
+    try {
+      const raw = localStorage.getItem(REGISTRY_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === "object" ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveRegistry(reg) {
+    try {
+      localStorage.setItem(REGISTRY_KEY, JSON.stringify(reg));
+    } catch (e) {
+      // ignore registry write errors
+    }
+  }
+
+  // Alle Wallet-ähnlichen Objekte aus localStorage sammeln
+  // bevorzugt über die Registry, mit Fallback auf Voll-Scan
+  function collectWalletEntries() {
+    const entries = [];
+    const seenUserIds = new Set();
+
+    // 1. Registry nutzen, falls vorhanden
+    const reg = loadRegistry();
+    const regUserIds = Object.keys(reg);
+    if (regUserIds.length > 0) {
+      regUserIds.forEach(userId => {
+        const info = reg[userId] || {};
+        const storageKey = info.storageKey || ("db-wallet:" + userId);
+
+        let raw = localStorage.getItem(storageKey);
+        if (!raw) {
+          // Fallback: alter Key nur mit userId
+          raw = localStorage.getItem(userId);
+        }
+        if (!raw) return;
+
+        try {
+          const obj = JSON.parse(raw);
+          if (
+            obj &&
+            typeof obj === "object" &&
+            typeof obj.userId === "string" &&
+            Array.isArray(obj.events)
+          ) {
+            if (!seenUserIds.has(obj.userId)) {
+              seenUserIds.add(obj.userId);
+              entries.push({ key: storageKey, userId: obj.userId, wallet: obj });
+            }
+          }
+        } catch (e) {
+          // ignorieren
+        }
+      });
+    }
+
+    // 2. Fallback: Voll-Scan, wenn Registry leer ist oder nichts brauchbares liefert
+    if (!entries.length) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          const obj = JSON.parse(raw);
+          if (
+            obj &&
+            typeof obj === "object" &&
+            typeof obj.userId === "string" &&
+            Array.isArray(obj.events)
+          ) {
+            if (!seenUserIds.has(obj.userId)) {
+              seenUserIds.add(obj.userId);
+              entries.push({ key, userId: obj.userId, wallet: obj });
+            }
+          }
+        } catch (e) {
+          // Ignorieren, wenn kein valides JSON
+        }
+      }
+    }
+
+    entries.sort((a, b) => a.userId.localeCompare(b.userId));
+    return entries;
+  }
+
+  function renderExistingUsers() {
+    const container = document.getElementById("existing-users");
+    if (!container) return;
+
+    const entries = collectWalletEntries();
+    container.innerHTML = "";
+
+    if (!entries.length) {
+      container.textContent = "Noch keine Nutzer:innen gespeichert.";
+      return;
+    }
+
+    const list = document.createElement("div");
+    entries.forEach((entry, index) => {
+      const label = document.createElement("label");
+      label.style.display = "block";
+
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "existing-user";
+      radio.value = entry.userId;
+      if (index === 0) radio.checked = true;
+
+      label.appendChild(radio);
+      label.appendChild(document.createTextNode(" " + entry.userId));
+      list.appendChild(label);
+    });
+
+    container.appendChild(list);
+
+    const btnOpen = document.createElement("button");
+    btnOpen.textContent = "Ausgewählten Nutzer öffnen";
+    btnOpen.addEventListener("click", () => {
+      const selected = container.querySelector('input[name="existing-user"]:checked');
+      if (!selected) return;
+      window.location.href = "wallet.html#" + selected.value;
+    });
+
+    container.appendChild(document.createElement("br"));
+    container.appendChild(btnOpen);
+  }
+
   function start() {
     const raw = document.getElementById("username").value;
     let u = normalize(raw);
@@ -55,10 +222,110 @@
     window.location.href = "wallet.html#" + u;
   }
 
-  document.getElementById("btn-start").onclick = start;
-  document.getElementById("username").addEventListener("keydown", e => {
-    if (e.key === "Enter") start();
-  });
+  (function init() {
+    const inputUsername = document.getElementById("username");
+    const btnStart = document.getElementById("btn-start");
+    const btnSearchUsers = document.getElementById("btn-search-users");
+    const btnImportJson = document.getElementById("btn-import-json");
+    const fileImport = document.getElementById("file-import");
+    const btnRawAll = document.getElementById("btn-raw-all");
+    const rawOutput = document.getElementById("raw-output");
+
+    if (btnStart) {
+      btnStart.onclick = start;
+    }
+    if (inputUsername) {
+      inputUsername.addEventListener("keydown", e => {
+        if (e.key === "Enter") start();
+      });
+    }
+    if (btnSearchUsers) {
+      btnSearchUsers.addEventListener("click", () => {
+        renderExistingUsers();
+      });
+    }
+
+    if (btnImportJson && fileImport) {
+      btnImportJson.addEventListener("click", () => {
+        fileImport.value = "";
+        fileImport.click();
+      });
+
+      fileImport.addEventListener("change", e => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const text = ev.target.result;
+            const data = JSON.parse(text);
+
+            if (!data || typeof data !== "object") {
+              throw new Error("Ungültiges JSON-Format.");
+            }
+
+            let userId = data.userId ? String(data.userId).trim() : "";
+            userId = normalize(userId);
+            if (!userId) {
+              userId = "user-" + randomId();
+            }
+
+            const wallet = {
+              userId,
+              deviceId: data.deviceId || randomId(8),
+              v: data.v || 1,
+              events: Array.isArray(data.events) ? data.events : []
+            };
+
+            const json = JSON.stringify(wallet);
+            const storageKey = "db-wallet:" + userId;
+
+            // Unter mehreren Keys ablegen, um kompatibel zu bleiben
+            localStorage.setItem(storageKey, json);
+            localStorage.setItem(userId, json);
+
+            // Registry aktualisieren
+            const reg = loadRegistry();
+            reg[userId] = {
+              userId,
+              storageKey,
+              lastUpdated: Date.now()
+            };
+            saveRegistry(reg);
+
+            // Liste aktualisieren
+            renderExistingUsers();
+
+            // Direkt ins Wallet wechseln
+            window.location.href = "wallet.html#" + userId;
+          } catch (err) {
+            alert("Import fehlgeschlagen: " + (err.message || err));
+          }
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    if (btnRawAll && rawOutput) {
+      btnRawAll.addEventListener("click", () => {
+        const entries = collectWalletEntries();
+        if (!entries.length) {
+          rawOutput.textContent = "Keine Wallet-Daten im lokalen Speicher gefunden.";
+          return;
+        }
+        const all = entries.map(e => ({
+          storageKey: e.key,
+          userId: e.userId,
+          wallet: e.wallet
+        }));
+        rawOutput.textContent = JSON.stringify(all, null, 2);
+      });
+    }
+
+    // Beim Laden einmal versuchen, vorhandene Nutzer:innen zu finden
+    renderExistingUsers();
+  })();
 </script>
 
 </body>

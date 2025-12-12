@@ -135,7 +135,8 @@
 
 <script>
 (function () {
-  const STORAGE_PREFIX = "wallet:";
+  const STORAGE_PREFIX = "db-wallet:";
+  const REGISTRY_KEY = "db-wallet:registry";
   let historyMode = "diagram"; // "diagram" | "log" | "raw"
   let rawScope = "current";   // "current" | "all"
 
@@ -160,6 +161,25 @@
       out += chars[Math.floor(Math.random() * chars.length)];
     }
     return out;
+  }
+
+  function loadRegistry() {
+    try {
+      const raw = localStorage.getItem(REGISTRY_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === "object" ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveRegistry(reg) {
+    try {
+      localStorage.setItem(REGISTRY_KEY, JSON.stringify(reg));
+    } catch (e) {
+      // ignore registry write errors
+    }
   }
 
   function todayDateStr() {
@@ -202,7 +222,25 @@
   }
 
   function saveWallet(wallet) {
-    localStorage.setItem(STORAGE_PREFIX + wallet.userId, JSON.stringify(wallet));
+    if (!wallet || !wallet.userId) return;
+
+    const storageKey = STORAGE_PREFIX + wallet.userId;
+    const json = JSON.stringify(wallet);
+
+    // Hauptspeicherort
+    localStorage.setItem(storageKey, json);
+
+    // Legacy-Key für mögliche ältere Versionen (nur userId)
+    localStorage.setItem(wallet.userId, json);
+
+    // Registry aktualisieren
+    const reg = loadRegistry();
+    reg[wallet.userId] = {
+      userId: wallet.userId,
+      storageKey,
+      lastUpdated: Date.now()
+    };
+    saveRegistry(reg);
   }
 
   function getAllWallets() {
@@ -413,6 +451,7 @@
 
     const userId = ensureUserId();
     let wallet = loadWallet(userId);
+    saveWallet(wallet);
 
     elUid.textContent = userId;
     elExportUrl.value = ""; // initial leer
@@ -443,6 +482,9 @@
       }
       if (btnMinus) {
         btnMinus.style.display = "inline-block";
+      }
+      if (btnDrink) {
+        btnDrink.style.display = "inline-block";
       }
     }
 
@@ -635,9 +677,10 @@
       // Toggle Sichtbarkeit der Zahlungsoptionen
       if (payOptions.style.display === "none" || payOptions.style.display === "") {
         payOptions.style.display = "inline-block";
-        // Während des Zahlungsvorgangs Bezahlen- und Minus-Button ausblenden
+        // Während des Zahlungsvorgangs Bezahlen-, Minus- und Trinken-Button ausblenden
         if (btnPay) btnPay.style.display = "none";
         if (btnMinus) btnMinus.style.display = "none";
+        if (btnDrink) btnDrink.style.display = "none";
       } else {
         // Zahlungsvorgang abbrechen/zuklappen -> UI zurücksetzen
         resetPayUi();
