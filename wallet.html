@@ -95,13 +95,19 @@
 <br>
 
 <!-- Log-Bearbeitung -->
-<div id="log-edit-group">
-  <label for="delete-range">Logeinträge löschen (IDs, z. B. 1,3,5-7):</label>
-  <input id="delete-range" type="text" placeholder="IDs aus der Historie-Ansicht eingeben …">
-  <br>
-  <button id="btn-delete-range">Ausgewählte Logeinträge löschen 🧹</button>
+<div id="log-tools">
+  <label>
+    <input type="checkbox" id="log-edit-toggle">
+    Bearbeitungsfunktionen anzeigen
+  </label>
+  <div id="log-edit-group">
+    <label for="delete-range">Logeinträge löschen (IDs, z. B. 1,3,5-7):</label>
+    <input id="delete-range" type="text" placeholder="IDs aus der Historie-Ansicht eingeben …">
+    <br>
+    <button id="btn-delete-range">Ausgewählte Logeinträge löschen 🧹</button>
+    <button id="btn-reset">Alle Daten für diesen User löschen 🗑️</button>
+  </div>
 </div>
-<button id="btn-reset">Alle Daten für diesen User löschen 🗑️</button>
 
 <br><br>
 
@@ -342,8 +348,10 @@
     const elExportUrl = document.getElementById("export-url");
     const elHistory = document.getElementById("history");
     const elDeleteRange = document.getElementById("delete-range");
+    const logTools = document.getElementById("log-tools");
     const logEditGroup = document.getElementById("log-edit-group");
     const rawToggle = document.querySelector(".raw-toggle");
+    const logEditToggle = document.getElementById("log-edit-toggle");
 
     const btnHome = document.getElementById("btn-home");
     const btnDrink = document.getElementById("btn-drink");
@@ -383,12 +391,22 @@
       btnModeLog.classList.toggle("active", mode === "log");
       btnModeRaw.classList.toggle("active", mode === "raw");
 
-      // Raw-Controls (Scope + Log-Bearbeitung) nur im Raw-Log-Modus anzeigen
+      // Raw-Scope-Toggle nur im Raw-Log-Modus anzeigen
       if (rawToggle) {
         rawToggle.style.display = mode === "raw" ? "block" : "none";
       }
-      if (logEditGroup) {
-        logEditGroup.style.display = mode === "raw" ? "block" : "none";
+
+      // Log-Bearbeitungsgruppe nur im Historie-Modus sichtbar,
+      // Edit-Funktionen erst bei aktivierter Checkbox
+      if (logTools) {
+        if (mode === "log") {
+          logTools.style.display = "block";
+          if (logEditGroup && logEditToggle) {
+            logEditGroup.style.display = logEditToggle.checked ? "block" : "none";
+          }
+        } else {
+          logTools.style.display = "none";
+        }
       }
 
       // Beim Wechsel auf Diagramm oder Historie immer auf "aktuellen User" für Raw zurücksetzen
@@ -397,6 +415,13 @@
       }
 
       refreshSummary();
+    }
+    if (logEditToggle) {
+      logEditToggle.addEventListener("change", () => {
+        if (historyMode === "log" && logEditGroup) {
+          logEditGroup.style.display = logEditToggle.checked ? "block" : "none";
+        }
+      });
     }
 
     function setRawScope(scope) {
