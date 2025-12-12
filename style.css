@@ -1,13 +1,13 @@
 :root {
-    --bg: #0b0f16;
-    --panel: #0f1724;
-    --border: #1f2a3a;
-    --accent: #7dd3fc;
-    --accent-strong: #22d3ee;
-    --text: #e5e7eb;
-    --muted: #9ca3af;
-    --danger: #f87171;
-    --shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+    --bg: #0d1118;
+    --panel: #111827;
+    --border: #1c2434;
+    --accent: #9ec5ff;
+    --accent-strong: #7fb8ff;
+    --text: #e8ecf4;
+    --muted: #b5becd;
+    --danger: #ef9a9a;
+    --shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
     font-family:
         "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas,
         "Liberation Mono", "Courier New", monospace;
@@ -15,12 +15,12 @@
     background:
         radial-gradient(
             circle at 18% 15%,
-            rgba(34, 211, 238, 0.1),
+            rgba(158, 197, 255, 0.1),
             transparent 35%
         ),
         radial-gradient(
             circle at 80% 0%,
-            rgba(125, 211, 252, 0.14),
+            rgba(127, 184, 255, 0.14),
             transparent 35%
         ),
         var(--bg);
