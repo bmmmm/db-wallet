@@ -151,18 +151,28 @@
       radio.type = "radio";
       radio.name = "existing-user";
       radio.value = entry.userId;
+      radio.title = "Diesen Nutzer öffnen";
       if (index === 0) radio.checked = true;
+
+      const radioLabel = document.createElement("span");
+      radioLabel.textContent = "öffnen";
 
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.className = "user-delete-checkbox";
       checkbox.value = entry.userId;
+      checkbox.title = "Diesen Nutzer zum Löschen markieren";
+
+      const checkboxLabel = document.createElement("span");
+      checkboxLabel.textContent = "löschen";
 
       const label = document.createElement("span");
       label.textContent = entry.userId;
 
       row.appendChild(radio);
+      row.appendChild(radioLabel);
       row.appendChild(checkbox);
+      row.appendChild(checkboxLabel);
       row.appendChild(label);
 
       list.appendChild(row);
