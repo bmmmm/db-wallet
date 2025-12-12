@@ -161,7 +161,8 @@ hr {
 }
 
 .mode-btn.active,
-.raw-toggle-btn.active {
+.raw-toggle-btn.active,
+.theme-btn.active {
     border-color: var(--accent);
     color: var(--accent-strong);
     box-shadow: 0 6px 18px rgba(34, 211, 238, 0.25);
@@ -200,4 +201,21 @@ hr {
 
 #existing-users div {
     color: var(--text);
+}
+
+.theme-note {
+    color: var(--muted);
+    margin: 0.1rem 0 0.75rem;
+    font-size: 0.95rem;
+}
+
+.theme-buttons {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.theme-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.95rem;
 }

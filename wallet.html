@@ -4,7 +4,6 @@
         <meta charset="utf-8" />
         <title>db-wallet – Getränke</title>
         <link rel="stylesheet" href="style.css" />
-
     </head>
     <body>
         <h1>dein Getränke-Wallet 🥤</h1>
@@ -114,8 +113,127 @@
 
         <pre id="history">Noch keine Drinks geloggt. ✨</pre>
 
+        <hr />
+
+        <section id="theme-section">
+            <h2>Theme auswählen</h2>
+            <p class="theme-note">
+                Fünf dunkle Pastell-Themes, wähle per Name: Nord Glow, Cyan
+                Mist, Lilac Carbon, Teal Ember, Slate Sunrise.
+            </p>
+            <div class="theme-buttons" id="theme-buttons"></div>
+        </section>
+
         <script>
             (function () {
+                const THEMES = {
+                    "Nord Glow": {
+                        bg: "#111827",
+                        panel: "#162131",
+                        border: "#1f2c40",
+                        accent: "#9cd6ff",
+                        "accent-strong": "#7bc3ff",
+                        text: "#e9f0fb",
+                        muted: "#bfc9dc",
+                        danger: "#f19da0",
+                    },
+                    "Cyan Mist": {
+                        bg: "#0f1b24",
+                        panel: "#142330",
+                        border: "#1c3042",
+                        accent: "#8be5ff",
+                        "accent-strong": "#68d2ff",
+                        text: "#e6f5ff",
+                        muted: "#b8c9d9",
+                        danger: "#ffb0b8",
+                    },
+                    "Lilac Carbon": {
+                        bg: "#121322",
+                        panel: "#181a2b",
+                        border: "#242842",
+                        accent: "#c7b6ff",
+                        "accent-strong": "#b59bff",
+                        text: "#f0edff",
+                        muted: "#c5c2d8",
+                        danger: "#f7a3c0",
+                    },
+                    "Teal Ember": {
+                        bg: "#10201f",
+                        panel: "#142826",
+                        border: "#1b3531",
+                        accent: "#8df0d1",
+                        "accent-strong": "#6be8c0",
+                        text: "#e9fff8",
+                        muted: "#b5d6cb",
+                        danger: "#ffb3a4",
+                    },
+                    "Slate Sunrise": {
+                        bg: "#141b24",
+                        panel: "#1a2430",
+                        border: "#243244",
+                        accent: "#f2c18f",
+                        "accent-strong": "#f0ae69",
+                        text: "#f7f1e7",
+                        muted: "#d2c7ba",
+                        danger: "#ffb4a2",
+                    },
+                };
+
+                const THEME_KEY = "db-wallet:theme";
+
+                function applyTheme(name) {
+                    const theme = THEMES[name];
+                    if (!theme) return;
+                    const root = document.documentElement;
+                    Object.entries(theme).forEach(([token, value]) => {
+                        root.style.setProperty(`--${token}`, value);
+                    });
+                    try {
+                        localStorage.setItem(THEME_KEY, name);
+                    } catch (e) {
+                        // ignore storage issues
+                    }
+                    highlightActiveTheme(name);
+                }
+
+                function highlightActiveTheme(name) {
+                    const buttons = document.querySelectorAll(".theme-btn");
+                    buttons.forEach((btn) => {
+                        btn.classList.toggle(
+                            "active",
+                            btn.dataset.theme === name,
+                        );
+                    });
+                }
+
+                function initThemeSelector() {
+                    const container = document.getElementById("theme-buttons");
+                    if (!container) return;
+
+                    Object.keys(THEMES).forEach((themeName) => {
+                        const btn = document.createElement("button");
+                        btn.className = "theme-btn";
+                        btn.dataset.theme = themeName;
+                        btn.textContent = themeName;
+                        btn.addEventListener("click", () =>
+                            applyTheme(themeName),
+                        );
+                        container.appendChild(btn);
+                    });
+
+                    const stored = localStorage.getItem(THEME_KEY);
+                    if (stored && THEMES[stored]) {
+                        applyTheme(stored);
+                    }
+                }
+
+                (function applyStoredTheme() {
+                    const stored = localStorage.getItem(THEME_KEY);
+                    if (stored && THEMES[stored]) {
+                        applyTheme(stored);
+                    }
+                })();
+
                 const helpers = (() => {
                     const STORAGE_PREFIX = "db-wallet:";
                     const REGISTRY_KEY = "db-wallet:registry";
@@ -505,6 +623,8 @@
                     const btnRawCurrent =
                         document.getElementById("raw-scope-current");
                     const btnRawAll = document.getElementById("raw-scope-all");
+
+                    initThemeSelector();
 
                     const userId = ensureUserId();
                     let wallet = loadWallet(userId);
