@@ -60,6 +60,7 @@
 <div class="top-row">
   <div>User: <strong id="uid"></strong></div>
   <button id="btn-home">Zur Startseite 🏠</button>
+  <button id="btn-info">Info ℹ️</button>
 </div>
 <div>Gesamt getrunken: <strong id="total">0</strong></div>
 <div>Offen seit letzter Zahlung: <strong id="unpaid">0</strong></div>
@@ -122,7 +123,11 @@
 <br><br>
 
 <!-- Export-Bereich -->
-<button id="btn-export">Export-Link erzeugen 🔗</button>
+<button id="btn-export">Export</button>
+<span id="export-options" style="display:none;">
+  <button id="btn-export-link">Export-Link erzeugen 🔗</button>
+  <button id="btn-export-json">Als JSON herunterladen 📄</button>
+</span>
 <input id="export-url" readonly placeholder="Hier erscheint dein Export-Link">
 
 <br><br>
@@ -387,6 +392,7 @@
     const logEditToggle = document.getElementById("log-edit-toggle");
 
     const btnHome = document.getElementById("btn-home");
+    const btnInfo = document.getElementById("btn-info");
     const btnDrink = document.getElementById("btn-drink");
     const btnMinus = document.getElementById("btn-minus");
     const btnPay = document.getElementById("btn-pay");
@@ -395,6 +401,9 @@
     const btnPayDate = document.getElementById("btn-pay-date");
     const payDateInput = document.getElementById("pay-date");
     const btnExport = document.getElementById("btn-export");
+    const exportOptions = document.getElementById("export-options");
+    const btnExportLink = document.getElementById("btn-export-link");
+    const btnExportJson = document.getElementById("btn-export-json");
     const btnReset = document.getElementById("btn-reset");
     const btnModeDiagram = document.getElementById("mode-diagram");
     const btnModeLog = document.getElementById("mode-log");
@@ -532,6 +541,11 @@
     btnHome.addEventListener("click", () => {
       window.location.href = "index.html";
     });
+    if (btnInfo) {
+      btnInfo.addEventListener("click", () => {
+        window.open("https://github.com/bmmmm/db-wallet", "_blank");
+      });
+    }
 
     btnDrink.addEventListener("click", () => {
       const n = getAmount();
@@ -545,21 +559,61 @@
     btnMinus.addEventListener("click", () => {
       const summaryBefore = computeSummary(wallet);
       const requested = getAmount();
-      const maxCancelable = summaryBefore.unpaid;
-      const effective = Math.min(requested, maxCancelable);
+      const unpaid = summaryBefore.unpaid;
+      const credit = summaryBefore.credit;
+      const total = summaryBefore.total;
 
-      if (effective <= 0) {
-        alert("Keine offenen Drinks zum Zurücknehmen 🤷‍♂️");
+      // 1. Priorität: offene Getränke korrigieren
+      if (unpaid > 0) {
+        const effective = Math.min(requested, unpaid);
+        if (effective <= 0) {
+          alert("Keine offenen Drinks zum Zurücknehmen 🤷‍♂️");
+          resetAmount();
+          clearExport();
+          return;
+        }
+
+        wallet.events.push(newEvent(wallet, "s", effective));
+        saveWallet(wallet);
         resetAmount();
         clearExport();
+        refreshSummary();
         return;
       }
 
-      wallet.events.push(newEvent(wallet, "s", effective));
-      saveWallet(wallet);
+      // 2. Falls keine offenen Drinks, aber Guthaben UND bereits getrunkene Drinks vorhanden:
+      //    Dann kann eine Korrektur genutzt werden, um getrunkene Drinks wieder ins Guthaben zu schieben.
+      if (credit > 0 && total > 0) {
+        const effective = Math.min(requested, total);
+        if (effective <= 0) {
+          alert(
+            "Es gibt keine getrunkenen Getränke, die korrigiert werden können.\n" +
+            "Neue Drinks werden zuerst vom Guthaben abgezogen."
+          );
+          resetAmount();
+          clearExport();
+          return;
+        }
+
+        wallet.events.push(newEvent(wallet, "s", effective));
+        saveWallet(wallet);
+        resetAmount();
+        clearExport();
+        refreshSummary();
+        return;
+      }
+
+      // 3. Weder offene Drinks noch sinnvolle Korrektur bei Guthaben möglich
+      if (credit > 0) {
+        alert(
+          `Du hast Guthaben von ${credit} Getränk(en), aber keine getrunkenen Getränke zum Zurücknehmen.\n` +
+          "Neue Drinks werden zuerst vom Guthaben abgezogen."
+        );
+      } else {
+        alert("Keine Drinks zum Zurücknehmen 🤷‍♂️");
+      }
       resetAmount();
       clearExport();
-      refreshSummary();
     });
 
     btnPay.addEventListener("click", () => {
@@ -681,22 +735,59 @@
     }
 
     btnExport.addEventListener("click", () => {
-      const payload = JSON.stringify({
-        userId: wallet.userId,
-        v: wallet.v,
-        events: wallet.events
-      });
-      const token = base64UrlEncode(payload);
-      const url =
-        window.location.origin +
-        window.location.pathname +
-        "#import:" +
-        token;
-
-      elExportUrl.value = url;
-      elExportUrl.focus();
-      elExportUrl.select();
+      if (!exportOptions) return;
+      // Export-Optionen ein-/ausblenden
+      if (exportOptions.style.display === "none" || exportOptions.style.display === "") {
+        exportOptions.style.display = "inline-block";
+      } else {
+        exportOptions.style.display = "none";
+        // Beim Ausblenden das Exportfeld leeren
+        clearExport();
+      }
     });
+
+    if (btnExportLink) {
+      btnExportLink.addEventListener("click", () => {
+        const payload = JSON.stringify({
+          userId: wallet.userId,
+          v: wallet.v,
+          events: wallet.events
+        });
+        const token = base64UrlEncode(payload);
+        const url =
+          window.location.origin +
+          window.location.pathname +
+          "#import:" +
+          token;
+
+        elExportUrl.value = url;
+        elExportUrl.focus();
+        elExportUrl.select();
+      });
+    }
+
+    if (btnExportJson) {
+      btnExportJson.addEventListener("click", () => {
+        const data = {
+          userId: wallet.userId,
+          deviceId: wallet.deviceId,
+          v: wallet.v,
+          events: wallet.events
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json"
+        });
+        const a = document.createElement("a");
+        const date = todayDateStr();
+        const safeUserId = String(wallet.userId || "user").replace(/[^a-zA-Z0-9_-]/g, "_");
+        a.href = URL.createObjectURL(blob);
+        a.download = `db-wallet-${safeUserId}-${date}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+      });
+    }
 
     elExportUrl.addEventListener("focus", () => {
       elExportUrl.select();
