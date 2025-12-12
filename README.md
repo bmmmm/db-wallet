@@ -6,7 +6,7 @@ Alle Daten liegen lokal im Browser und lassen sich per Export-Link oder JSON tei
 ---
 
 ## Schnellstart
-- Startseite `index.html` öffnen, Nutzername eingeben (oder leer lassen für Zufall) → weiter zu `wallet.html#<name>`.
+- Startseite `index.html` öffnen, Namen für die Nutzer:in eingeben (oder leer lassen für Zufall) → weiter zu `wallet.html#<name>`.
 - Mobile ready: Layout stapelt Buttons, Felder passen sich an.
 - Themes wählbar am Seitenende (5 dunkle Pastell-Schemes), Auswahl wird gespeichert.
 
@@ -18,7 +18,7 @@ Alle Daten liegen lokal im Browser und lassen sich per Export-Link oder JSON tei
 - 💸 Bezahlen: Offene Getränke ausgleichen; Zahlungen sichtbar im Log.
 - 💰 Guthaben: Gutschriften aufladen und abbauen wie Vorrat.
 - 🧾 Historie: Diagramm, chronologischer Log mit ID-Ranges (`1,3,5-7`), Raw-Daten pro User/alle.
-- 🧹 Verwaltung: Einträge bearbeiten/löschen, Nutzer einzeln oder gesammelt löschen (inkl. „Nuke All“).
+- 🧹 Verwaltung: Einträge bearbeiten/löschen, Nutzer:innen einzeln oder gesammelt löschen (inkl. „Nuke All“).
 - 🔄 Import/Export: Link (auto-merge) oder JSON-Datei auf der Startseite hochladen/erzeugen.
 
 ---
@@ -27,7 +27,7 @@ Alle Daten liegen lokal im Browser und lassen sich per Export-Link oder JSON tei
 
 | Datei | Zweck |
 |-------|-------|
-| [`index.html`](./index.html) | Startseite, Nutzerwahl, Import/Export, Theme-Wahl |
+| [`index.html`](./index.html) | Startseite, Nutzer:innenwahl, Import/Export, Theme-Wahl |
 | [`wallet.html`](./wallet.html) | Drinks, Guthaben, Zahlungen, Historie/Raw, Theme-Wahl |
 | [`colors.html`](./colors.html) | Vorschau aller 5 Themes mit Farbbalken & UI-Beispielen |
 | [`colors.css`](./colors.css) | Styles für die Theme-Vorschau |

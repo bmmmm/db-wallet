@@ -11,10 +11,10 @@
         <button id="btn-info">Info ℹ️</button>
 
         <section>
-            <h2>Neuen Nutzer anlegen</h2>
+            <h2>Neue:n Nutzer:in anlegen</h2>
             <p>
-                Nutzername eingeben oder leer lassen, um einen zufälligen Namen
-                zu erhalten.
+                Nutzer:innen-Namen eingeben oder leer lassen, um einen
+                zufälligen Namen zu erhalten.
             </p>
             <input
                 id="username"
@@ -47,7 +47,9 @@
                 style="display: none"
             />
             <button id="btn-raw-all">Alle Raw-Daten anzeigen 🧾</button>
-            <button id="btn-nuke-all">Alle lokalen Nutzer löschen 💣</button>
+            <button id="btn-nuke-all">
+                Alle lokalen Nutzer:innen löschen 💣
+            </button>
             <pre id="raw-output"></pre>
         </section>
 
@@ -265,7 +267,7 @@
                     radio.type = "radio";
                     radio.name = "existing-user";
                     radio.value = entry.userId;
-                    radio.title = "Diesen Nutzer öffnen";
+                    radio.title = "Diese:n Nutzer:in öffnen";
                     if (index === 0) radio.checked = true;
 
                     const radioLabel = document.createElement("span");
@@ -275,7 +277,7 @@
                     checkbox.type = "checkbox";
                     checkbox.className = "user-delete-checkbox";
                     checkbox.value = entry.userId;
-                    checkbox.title = "Diesen Nutzer zum Löschen markieren";
+                    checkbox.title = "Diese:n Nutzer:in zum Löschen markieren";
 
                     const checkboxLabel = document.createElement("span");
                     checkboxLabel.textContent = "löschen";
@@ -295,7 +297,7 @@
                 container.appendChild(list);
 
                 const btnOpen = document.createElement("button");
-                btnOpen.textContent = "Ausgewählten Nutzer öffnen";
+                btnOpen.textContent = "Ausgewählte:n Nutzer:in öffnen";
                 btnOpen.addEventListener("click", () => {
                     const selected = container.querySelector(
                         'input[name="existing-user"]:checked',
@@ -305,7 +307,7 @@
                 });
 
                 const btnDelete = document.createElement("button");
-                btnDelete.textContent = "Ausgewählte Nutzer löschen 🗑️";
+                btnDelete.textContent = "Ausgewählte Nutzer:innen löschen 🗑️";
                 btnDelete.addEventListener("click", () => {
                     const checkboxes = container.querySelectorAll(
                         ".user-delete-checkbox:checked",
@@ -317,8 +319,8 @@
                     );
                     const confirmMsg =
                         usersToDelete.length === 1
-                            ? `Soll der Nutzer "${usersToDelete[0]}" wirklich gelöscht werden?`
-                            : `Sollen die folgenden ${usersToDelete.length} Nutzer wirklich gelöscht werden?\n\n` +
+                            ? `Soll Nutzer:in "${usersToDelete[0]}" wirklich gelöscht werden?`
+                            : `Sollen die folgenden ${usersToDelete.length} Nutzer:innen wirklich gelöscht werden?\n\n` +
                               usersToDelete.join(", ");
 
                     if (!window.confirm(confirmMsg)) {
@@ -384,15 +386,17 @@
                     btnNukeAll.addEventListener("click", () => {
                         const entries = collectWalletEntries();
                         if (!entries.length) {
-                            alert("Es wurden keine lokalen Nutzer gefunden.");
+                            alert(
+                                "Es wurden keine lokalen Nutzer:innen gefunden.",
+                            );
                             return;
                         }
 
                         const userIds = entries.map((e) => e.userId);
                         const confirmMsg =
                             userIds.length === 1
-                                ? `Soll der lokale Nutzer "${userIds[0]}" wirklich vollständig gelöscht werden?`
-                                : `Sollen die folgenden ${userIds.length} lokalen Nutzer wirklich vollständig gelöscht werden?\n\n` +
+                                ? `Soll die lokale Nutzer:in "${userIds[0]}" wirklich vollständig gelöscht werden?`
+                                : `Sollen die folgenden ${userIds.length} lokalen Nutzer:innen wirklich vollständig gelöscht werden?\n\n` +
                                   userIds.join(", ");
 
                         if (!window.confirm(confirmMsg)) {
@@ -417,7 +421,9 @@
                             rawOutput.textContent = "";
                         }
                         renderExistingUsers();
-                        alert("Alle lokalen db-wallet-Nutzer wurden gelöscht.");
+                        alert(
+                            "Alle lokalen db-wallet-Nutzer:innen wurden gelöscht.",
+                        );
                     });
                 }
 
