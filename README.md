@@ -14,7 +14,7 @@ Alle Daten liegen lokal im Browser und lassen sich per Export-Link oder JSON tei
    `wallet.html#peter` ist nur ein Beispiel zur Orientierung.
 3. Optional: Theme am Seitenende wählen; Auswahl wird gespeichert.
 4. Optional: In `wallet.html` → Export → „QR-Code (kurz) anzeigen“ (kompakt, minuten-genau, merge-fähig).  
-   Tipp: QR-Code antippen → PNG downloaden.
+   Tipp: QR-Code antippen → PNG downloaden; der Link unter dem QR ist zum Kopieren markiert.
 
 ## Funktionen
 - 🥤 Buchen: Getränke hinzufügen, Tagesstatistik inkl. Diagramm/Log/Raw.
@@ -32,9 +32,12 @@ Alle Daten liegen lokal im Browser und lassen sich per Export-Link oder JSON tei
 |-------|-------|
 | [`index.html`](./index.html) | Startseite, Nutzer:innenwahl, Import/Export, Theme-Wahl |
 | [`wallet.html`](./wallet.html) | Drinks, Guthaben, Zahlungen, Historie/Raw, Theme-Wahl |
+| [`themes.css`](./themes.css) | Theme-Paletten (CSS-Variablen) |
 | [`colors.html`](./colors.html) | Vorschau aller 5 Themes mit Farbbalken & UI-Beispielen |
 | [`colors.css`](./colors.css) | Styles für die Theme-Vorschau |
-| [`style.css`](./style.css) | Basis-UI, responsive Layout, Theme-Variablen |
+| [`style.css`](./style.css) | Basis-UI, responsive Layout |
+| [`qrcodegen.js`](./qrcodegen.js) | QR-Code-Generator (Nayuki) |
+| [`migration.js`](./migration.js) | Migration v1 → v2 (für QR-Export) |
 
 ## Deployment (Beispiel)
 So läuft das GitHub‑Pages‑Setup im Original‑Repo; für Forks einfach anpassen:

@@ -123,6 +123,13 @@
             <div id="qr-box" class="qr-box" style="display: none">
                 <div class="qr-hint" id="qr-hint"></div>
                 <canvas id="qr-canvas"></canvas>
+                <input
+                    id="qr-url"
+                    type="text"
+                    readonly
+                    inputmode="none"
+                    aria-label="QR-Code Link"
+                />
             </div>
         </div>
 
@@ -549,6 +556,67 @@
                     if (!obj.walletId) obj.walletId = randomWalletId();
                     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
                     obj.userId = userId;
+                    if (Array.isArray(obj.events)) {
+                        const normalizedEvents = [];
+                        for (const ev of obj.events) {
+                            if (!ev || typeof ev !== "object") continue;
+                            if (
+                                typeof ev.id !== "string" ||
+                                !ev.id ||
+                                typeof ev.t !== "string" ||
+                                !ev.t
+                            ) {
+                                continue;
+                            }
+
+                            if (
+                                typeof ev.ts !== "number" ||
+                                !Number.isFinite(ev.ts)
+                            ) {
+                                const parsedTs =
+                                    typeof ev.ts === "string" &&
+                                    ev.ts.trim() !== ""
+                                        ? Number(ev.ts)
+                                        : NaN;
+                                if (Number.isFinite(parsedTs)) {
+                                    ev.ts = parsedTs;
+                                } else {
+                                    continue;
+                                }
+                            }
+
+                            if (ev.t === "p") {
+                                if ("n" in ev) delete ev.n;
+                            } else if (
+                                ev.t === "d" ||
+                                ev.t === "s" ||
+                                ev.t === "g"
+                            ) {
+                                let rawN = 1;
+                                if (
+                                    typeof ev.n === "number" &&
+                                    Number.isFinite(ev.n)
+                                ) {
+                                    rawN = Math.round(ev.n);
+                                } else if (
+                                    typeof ev.n === "string" &&
+                                    ev.n.trim() !== ""
+                                ) {
+                                    const parsedN = parseInt(ev.n, 10);
+                                    if (
+                                        typeof parsedN === "number" &&
+                                        Number.isFinite(parsedN)
+                                    ) {
+                                        rawN = parsedN;
+                                    }
+                                }
+                                ev.n = rawN > 0 ? rawN : 1;
+                            }
+
+                            normalizedEvents.push(ev);
+                        }
+                        obj.events = normalizedEvents;
+                    }
                     const storedV =
                         typeof obj.v === "number" && Number.isFinite(obj.v)
                             ? obj.v
@@ -912,7 +980,7 @@
                             t,
                             ts: tsMin * 60000 + withinMinute,
                         };
-                        if (t !== "p" && amount !== 1) {
+                        if (t !== "p") {
                             ev.n = amount;
                         }
                         events.push(ev);
@@ -1221,12 +1289,18 @@
                         const day = perDayMap.get(key);
 
                         if (e.t === "d") {
-                            const n = e.n || 0;
+                            const n =
+                                typeof e.n === "number" && isFinite(e.n)
+                                    ? Math.max(1, Math.round(e.n))
+                                    : 1;
                             total += n;
                             day.drinks += n;
                             balance += n;
                         } else if (e.t === "s") {
-                            const n = e.n || 0;
+                            const n =
+                                typeof e.n === "number" && isFinite(e.n)
+                                    ? Math.max(1, Math.round(e.n))
+                                    : 1;
                             total -= n;
                             day.drinks -= n;
                             balance -= n;
@@ -1236,7 +1310,10 @@
                                 balance = 0;
                             }
                         } else if (e.t === "g") {
-                            const n = e.n || 0;
+                            const n =
+                                typeof e.n === "number" && isFinite(e.n)
+                                    ? Math.max(1, Math.round(e.n))
+                                    : 1;
                             // Gutschriften zählen nicht in die Tages-Drinkmenge
                             balance -= n;
                         }
@@ -1300,6 +1377,7 @@
                     const qrBox = document.getElementById("qr-box");
                     const qrHint = document.getElementById("qr-hint");
                     const qrCanvas = document.getElementById("qr-canvas");
+                    const qrUrl = document.getElementById("qr-url");
                     const elHistory = document.getElementById("history");
                     const elDeleteRange =
                         document.getElementById("delete-range");
@@ -1432,6 +1510,24 @@
                             qrCanvas.width = 0;
                             qrCanvas.height = 0;
                         }
+                        if (qrUrl) {
+                            qrUrl.value = "";
+                        }
+                    }
+
+                    function selectQrUrl() {
+                        if (!qrUrl || !qrUrl.value) return;
+                        if (document.activeElement !== qrUrl) {
+                            try {
+                                qrUrl.focus({ preventScroll: true });
+                            } catch (e) {
+                                qrUrl.focus();
+                            }
+                        }
+                        qrUrl.select();
+                        try {
+                            qrUrl.setSelectionRange(0, qrUrl.value.length);
+                        } catch (e) {}
                     }
 
                     function resetAmount() {
@@ -1571,10 +1667,14 @@
 
                         if (qrBox) qrBox.style.display = "flex";
                         if (qrHint) {
-                            qrHint.textContent = `Tippen zum Download • QR v${qr.version} (L) • ${url.length} Zeichen`;
+                            qrHint.textContent = `Tippen: QR=Download • Link=Kopieren • QR v${qr.version} (L) • ${url.length} Zeichen`;
                         }
                         lastQrUrl = url;
                         storeLastQrUrl(url);
+                        if (qrUrl) {
+                            qrUrl.value = url;
+                            selectQrUrl();
+                        }
                         if (elExportUrl) {
                             elExportUrl.value = "";
                             elExportUrl.style.display = "none";
@@ -1819,12 +1919,15 @@
                         const dateStr = `${y}-${m}-${day}`;
                         const timeStr = `${hh}:${mm}`;
                         let action = "";
-                        if (e.t === "d") action = `+${e.n || 0} Getränk(e)`;
-                        else if (e.t === "s")
-                            action = `-${e.n || 0} korrigiert`;
+                        const n =
+                            typeof e.n === "number" && isFinite(e.n)
+                                ? Math.max(1, Math.round(e.n))
+                                : 1;
+                        if (e.t === "d") action = `+${n} Getränk(e)`;
+                        else if (e.t === "s") action = `-${n} korrigiert`;
                         else if (e.t === "p") action = "Bezahlt";
                         else if (e.t === "g")
-                            action = `Gutschrift ${e.n || 0} Getränk(e)`;
+                            action = `Gutschrift ${n} Getränk(e)`;
                         return `#${index} | ${dateStr} ${timeStr} | ${action}`;
                     }
 
@@ -2106,6 +2209,10 @@
                     elExportUrl.addEventListener("click", () => {
                         elExportUrl.select();
                     });
+                    if (qrUrl) {
+                        qrUrl.addEventListener("focus", selectQrUrl);
+                        qrUrl.addEventListener("click", selectQrUrl);
+                    }
 
                     btnReset.addEventListener("click", () => {
                         if (

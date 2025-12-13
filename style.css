@@ -250,6 +250,12 @@ hr {
     cursor: pointer;
 }
 
+#qr-url {
+    width: 100%;
+    max-width: 360px;
+    cursor: copy;
+}
+
 .wallet-actions {
     display: flex;
     flex-direction: column;
