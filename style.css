@@ -222,6 +222,34 @@ hr {
     margin-top: 1rem;
 }
 
+.qr-box {
+    margin-top: 0.8rem;
+    padding: 0.75rem;
+    background: #0d1320;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.qr-hint {
+    color: var(--muted);
+    font-size: 0.92rem;
+    text-align: center;
+}
+
+.qr-box canvas {
+    width: 100%;
+    max-width: 360px;
+    height: auto;
+    border-radius: 10px;
+    background: #ffffff;
+    cursor: pointer;
+}
+
 .wallet-actions {
     display: flex;
     flex-direction: column;

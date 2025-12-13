@@ -292,14 +292,85 @@
             }
 
             function mergeEvents(localEvents, remoteEvents) {
-                const map = new Map();
+                const merged = [];
+                const seen = new Set();
+
+                const mergeEncoder = new TextEncoder();
+
+                function fnv1a64(bytes) {
+                    let hash = 0xcbf29ce484222325n;
+                    const prime = 0x100000001b3n;
+                    for (const b of bytes) {
+                        hash ^= BigInt(b);
+                        hash = (hash * prime) & 0xffffffffffffffffn;
+                    }
+                    return hash;
+                }
+
+                function hash53(str) {
+                    const bytes = mergeEncoder.encode(String(str || ""));
+                    const h64 = fnv1a64(bytes);
+                    const mask = (1n << 53n) - 1n;
+                    const h53 = Number(h64 & mask);
+                    return h53 > 0 ? h53 : 1;
+                }
+
+                function extractLegacyDeviceKey(id) {
+                    if (!id || typeof id !== "string") return "legacy";
+                    const idx = id.indexOf("-");
+                    if (idx <= 0) return "legacy";
+                    const raw = id.slice(0, idx);
+                    const cleaned = raw
+                        .replace(/[^a-z0-9_-]/gi, "")
+                        .slice(0, 16);
+                    return cleaned || "legacy";
+                }
+
+                function legacyIdToV2Id(legacyId) {
+                    if (!legacyId || typeof legacyId !== "string") return null;
+                    if (!legacyId.includes("-")) return null;
+                    const device = extractLegacyDeviceKey(legacyId);
+                    const seq = hash53(legacyId);
+                    return `${device}.${seq.toString(36)}`;
+                }
+
+                function addSeenId(id) {
+                    if (!id || typeof id !== "string") return;
+                    seen.add(id);
+                    const alias = legacyIdToV2Id(id);
+                    if (alias) seen.add(alias);
+                }
+
+                function addEvent(e) {
+                    merged.push(e);
+                    if (e && typeof e.id === "string" && e.id) {
+                        addSeenId(e.id);
+                    }
+                    if (e && typeof e.oid === "string" && e.oid) {
+                        addSeenId(e.oid);
+                    }
+                }
+
                 for (const e of localEvents || []) {
-                    if (e && e.id) map.set(e.id, e);
+                    if (e && typeof e.id === "string" && e.id) addEvent(e);
                 }
                 for (const e of remoteEvents || []) {
-                    if (e && e.id && !map.has(e.id)) map.set(e.id, e);
+                    if (!e || typeof e.id !== "string" || !e.id) continue;
+                    const aliasId = legacyIdToV2Id(e.id);
+                    const aliasOid = legacyIdToV2Id(e.oid);
+                    if (
+                        seen.has(e.id) ||
+                        (e.oid &&
+                            typeof e.oid === "string" &&
+                            seen.has(e.oid)) ||
+                        (aliasId && seen.has(aliasId)) ||
+                        (aliasOid && seen.has(aliasOid))
+                    ) {
+                        continue;
+                    }
+                    addEvent(e);
                 }
-                return Array.from(map.values());
+                return merged;
             }
 
             function findUserIdByWalletId(walletId) {
@@ -588,6 +659,32 @@
                                     ? data.events
                                     : [];
 
+                                const mergedSeq = {};
+                                function mergeSeq(source) {
+                                    if (
+                                        !source ||
+                                        typeof source !== "object" ||
+                                        Array.isArray(source)
+                                    ) {
+                                        return;
+                                    }
+                                    Object.entries(source).forEach(([k, v]) => {
+                                        const n =
+                                            typeof v === "number" && isFinite(v)
+                                                ? Math.floor(v)
+                                                : 0;
+                                        if (!k || n <= 0) return;
+                                        if (
+                                            typeof mergedSeq[k] !== "number" ||
+                                            n > mergedSeq[k]
+                                        ) {
+                                            mergedSeq[k] = n;
+                                        }
+                                    });
+                                }
+                                mergeSeq(existingObj && existingObj.seq);
+                                mergeSeq(data && data.seq);
+
                                 const wallet = {
                                     userId,
                                     walletId:
@@ -608,6 +705,7 @@
                                         data.v ||
                                         (existingObj && existingObj.v) ||
                                         1,
+                                    seq: mergedSeq,
                                     events: mergeEvents(
                                         existingEvents,
                                         importedEvents,

@@ -13,7 +13,8 @@ Alle Daten liegen lokal im Browser und lassen sich per Export-Link oder JSON tei
 2. Namen für die Nutzer:in eingeben (oder leer lassen für Zufall) → weiter zu `wallet.html#<name>`.  
    `wallet.html#peter` ist nur ein Beispiel zur Orientierung.
 3. Optional: Theme am Seitenende wählen; Auswahl wird gespeichert.
-4. Optional: In `wallet.html` → Export → „QR-Link (kurz)“ (kompakt, minuten-genau, merge-fähig).
+4. Optional: In `wallet.html` → Export → „QR-Code (kurz) anzeigen“ (kompakt, minuten-genau, merge-fähig).  
+   Tipp: QR-Code antippen → PNG downloaden.
 
 ## Funktionen
 - 🥤 Buchen: Getränke hinzufügen, Tagesstatistik inkl. Diagramm/Log/Raw.
@@ -22,7 +23,8 @@ Alle Daten liegen lokal im Browser und lassen sich per Export-Link oder JSON tei
 - 💰 Guthaben: Gutschriften aufladen und abbauen wie Vorrat.
 - 🧾 Historie: Diagramm, Log mit IDs/Ranges (z. B. `1,3,5-7` – Beispiel), Raw‑Daten pro Nutzer:in/alle.
 - 🧹 Verwaltung: Einträge bearbeiten/löschen, Nutzer:innen einzeln oder gesammelt löschen (inkl. „Nuke All“).
-- 🔄 Import/Export: Link (auto-merge), kompakter QR-Link oder JSON-Datei; Export enthält auch das aktive Theme und eine Wallet-ID gegen Namens-Kollisionen.
+- 🧬 Migration: v1‑Wallets können für robusten QR‑Export auf v2 migriert werden.
+- 🔄 Import/Export: Link (auto-merge), kompakter QR‑Code oder JSON-Datei; Export enthält auch das aktive Theme und eine Wallet-ID gegen Namens-Kollisionen.
 
 ## Dateien
 

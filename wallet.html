@@ -10,7 +10,13 @@
         <h1>dein Getränke-Wallet 🥤</h1>
 
         <div class="top-row">
-            <div>Nutzer:in: <strong id="uid"></strong></div>
+            <div>
+                <span id="wallet-version">v1</span> Nutzer:in:
+                <strong id="uid"></strong>
+            </div>
+            <button id="btn-migrate" style="display: none">
+                Auf v2 migrieren
+            </button>
             <button id="btn-home">Zur Startseite 🏠</button>
             <button id="btn-info">Info ℹ️</button>
         </div>
@@ -100,8 +106,10 @@
             <!-- Export-Bereich -->
             <button id="btn-export">Export</button>
             <span id="export-options" style="display: none">
-                <button id="btn-export-link">Export-Link erzeugen 🔗</button>
-                <button id="btn-export-link-qr">QR-Link (kurz) 📱</button>
+                <button id="btn-export-link">Export-Link (klassisch) 🔗</button>
+                <button id="btn-export-link-qr">
+                    QR-Code (kurz) anzeigen 📱
+                </button>
                 <button id="btn-export-json">Als JSON herunterladen 📄</button>
             </span>
             <input
@@ -109,6 +117,10 @@
                 readonly
                 placeholder="Hier erscheint dein Export-Link"
             />
+            <div id="qr-box" class="qr-box" style="display: none">
+                <div class="qr-hint" id="qr-hint"></div>
+                <canvas id="qr-canvas"></canvas>
+            </div>
         </div>
 
         <hr />
@@ -123,6 +135,8 @@
             <div class="theme-buttons" id="theme-buttons"></div>
         </section>
 
+        <script src="qrcodegen.js"></script>
+        <script src="migration.js"></script>
         <script>
             (function () {
                 const THEMES = {
@@ -444,8 +458,44 @@
                     if (!m) return null;
                     const deviceKey = m[1];
                     const seq = parseInt(m[2], 36);
-                    if (!deviceKey || isNaN(seq) || seq <= 0) return null;
+                    if (
+                        !deviceKey ||
+                        isNaN(seq) ||
+                        seq <= 0 ||
+                        seq > Number.MAX_SAFE_INTEGER
+                    ) {
+                        return null;
+                    }
                     return { deviceKey, seq };
+                }
+
+                function ensureDeviceSeq(wallet) {
+                    if (!wallet || typeof wallet !== "object") return;
+                    const deviceKey = getDeviceKey();
+                    if (!wallet.seq || typeof wallet.seq !== "object") {
+                        wallet.seq = {};
+                    }
+
+                    let maxSeq = 0;
+                    for (const e of wallet.events || []) {
+                        const parsed = parseCompactEventId(e && e.id);
+                        if (
+                            parsed &&
+                            parsed.deviceKey === deviceKey &&
+                            parsed.seq > maxSeq
+                        ) {
+                            maxSeq = parsed.seq;
+                        }
+                    }
+
+                    const current = wallet.seq[deviceKey];
+                    const currentNum =
+                        typeof current === "number" && Number.isFinite(current)
+                            ? Math.floor(current)
+                            : 0;
+                    if (currentNum <= maxSeq) {
+                        wallet.seq[deviceKey] = maxSeq + 1;
+                    }
                 }
 
                 function nextEventId(wallet) {
@@ -512,7 +562,7 @@
                             userId,
                             walletId: randomWalletId(),
                             deviceId: randomId(),
-                            v: 1,
+                            v: 2,
                             seq: {},
                             events: [],
                         };
@@ -523,7 +573,19 @@
                     if (!obj.walletId) obj.walletId = randomWalletId();
                     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
                     obj.userId = userId;
-                    obj.v = obj.v || 1;
+                    const storedV =
+                        typeof obj.v === "number" && Number.isFinite(obj.v)
+                            ? obj.v
+                            : 1;
+                    const allCompact = obj.events.every((e) => {
+                        const id = e && typeof e.id === "string" ? e.id : "";
+                        return !!parseCompactEventId(id);
+                    });
+                    if (allCompact) {
+                        obj.v = storedV < 2 ? 2 : storedV;
+                    } else {
+                        obj.v = 1;
+                    }
                     return obj;
                 }
 
@@ -583,15 +645,83 @@
                     return all;
                 }
 
+                const mergeEncoder = new TextEncoder();
+
+                function fnv1a64(bytes) {
+                    let hash = 0xcbf29ce484222325n;
+                    const prime = 0x100000001b3n;
+                    for (const b of bytes) {
+                        hash ^= BigInt(b);
+                        hash = (hash * prime) & 0xffffffffffffffffn;
+                    }
+                    return hash;
+                }
+
+                function hash53(str) {
+                    const bytes = mergeEncoder.encode(String(str || ""));
+                    const h64 = fnv1a64(bytes);
+                    const mask = (1n << 53n) - 1n;
+                    const h53 = Number(h64 & mask);
+                    return h53 > 0 ? h53 : 1;
+                }
+
+                function extractLegacyDeviceKey(id) {
+                    if (!id || typeof id !== "string") return "legacy";
+                    const idx = id.indexOf("-");
+                    if (idx <= 0) return "legacy";
+                    const raw = id.slice(0, idx);
+                    const cleaned = raw
+                        .replace(/[^a-z0-9_-]/gi, "")
+                        .slice(0, 16);
+                    return cleaned || "legacy";
+                }
+
+                function legacyIdToV2Id(legacyId) {
+                    if (!legacyId || typeof legacyId !== "string") return null;
+                    if (!legacyId.includes("-")) return null;
+                    const device = extractLegacyDeviceKey(legacyId);
+                    const seq = hash53(legacyId);
+                    return `${device}.${seq.toString(36)}`;
+                }
+
                 function mergeEvents(localEvents, remoteEvents) {
-                    const map = new Map();
+                    const merged = [];
+                    const seen = new Set();
+
+                    function addSeenId(id) {
+                        if (!id || typeof id !== "string") return;
+                        seen.add(id);
+                        const alias = legacyIdToV2Id(id);
+                        if (alias) seen.add(alias);
+                    }
+
+                    function addEvent(e) {
+                        merged.push(e);
+                        if (!e || typeof e !== "object") return;
+                        addSeenId(e.id);
+                        addSeenId(e.oid);
+                    }
+
                     for (const e of localEvents || []) {
-                        if (e && e.id) map.set(e.id, e);
+                        if (e && typeof e.id === "string" && e.id) addEvent(e);
                     }
                     for (const e of remoteEvents || []) {
-                        if (e && e.id && !map.has(e.id)) map.set(e.id, e);
+                        if (!e || typeof e.id !== "string" || !e.id) continue;
+                        const aliasId = legacyIdToV2Id(e.id);
+                        const aliasOid = legacyIdToV2Id(e.oid);
+                        if (
+                            seen.has(e.id) ||
+                            (e.oid &&
+                                typeof e.oid === "string" &&
+                                seen.has(e.oid)) ||
+                            (aliasId && seen.has(aliasId)) ||
+                            (aliasOid && seen.has(aliasOid))
+                        ) {
+                            continue;
+                        }
+                        addEvent(e);
                     }
-                    return Array.from(map.values());
+                    return merged;
                 }
 
                 function findUserIdByWalletId(walletId) {
@@ -648,30 +778,37 @@
                 }
 
                 function writeVarUint(value, out) {
-                    let n = value >>> 0;
+                    let n = Number(value);
+                    if (!isFinite(n) || n < 0 || n > Number.MAX_SAFE_INTEGER) {
+                        throw new Error("Invalid varint value");
+                    }
+                    n = Math.floor(n);
                     while (n >= 0x80) {
-                        out.push((n & 0x7f) | 0x80);
-                        n >>>= 7;
+                        out.push(n % 0x80 | 0x80);
+                        n = Math.floor(n / 0x80);
                     }
                     out.push(n);
                 }
 
                 function readVarUint(bytes, offset) {
                     let result = 0;
-                    let shift = 0;
+                    let multiplier = 1;
                     while (true) {
                         if (offset >= bytes.length) {
                             throw new Error("Truncated varint");
                         }
                         const b = bytes[offset++];
-                        result |= (b & 0x7f) << shift;
+                        result += (b & 0x7f) * multiplier;
+                        if (result > Number.MAX_SAFE_INTEGER) {
+                            throw new Error("Varint too large");
+                        }
                         if ((b & 0x80) === 0) break;
-                        shift += 7;
-                        if (shift > 35) {
+                        multiplier *= 0x80;
+                        if (multiplier > Number.MAX_SAFE_INTEGER) {
                             throw new Error("Varint too large");
                         }
                     }
-                    return [result >>> 0, offset];
+                    return [result, offset];
                 }
 
                 function themeIndexFromName(name) {
@@ -739,10 +876,18 @@
 
                     const events = [];
                     let tsMin = baseTsMin;
+                    let lastMinute = tsMin;
+                    let withinMinute = -1;
                     for (let i = 0; i < eventCount; i++) {
                         const [delta, o8] = readVarUint(bytes, offset);
                         offset = o8;
                         tsMin += delta;
+                        if (tsMin === lastMinute) {
+                            withinMinute = Math.min(withinMinute + 1, 59999);
+                        } else {
+                            lastMinute = tsMin;
+                            withinMinute = 0;
+                        }
 
                         const typeFlags = bytes[offset++];
                         const typeCode = typeFlags & 0x03;
@@ -788,7 +933,7 @@
                         const ev = {
                             id,
                             t,
-                            ts: tsMin * 60000,
+                            ts: tsMin * 60000 + withinMinute,
                         };
                         if (t !== "p" && amount !== 1) {
                             ev.n = amount;
@@ -866,6 +1011,7 @@
 
                         events.push({
                             tsMin,
+                            tsMs,
                             typeCode: typeCodeMap[t],
                             amount,
                             id,
@@ -875,6 +1021,7 @@
 
                     events.sort((a, b) => {
                         if (a.tsMin !== b.tsMin) return a.tsMin - b.tsMin;
+                        if (a.tsMs !== b.tsMs) return a.tsMs - b.tsMs;
                         return a.id.localeCompare(b.id);
                     });
 
@@ -976,8 +1123,19 @@
                             : null) ||
                         local.walletId ||
                         randomWalletId();
-                    local.v = remote.v || local.v || 1;
+                    local.v =
+                        typeof remote.v === "number" &&
+                        Number.isFinite(remote.v) &&
+                        remote.v > 0
+                            ? remote.v
+                            : local.v || 1;
                     local.events = mergedEvents;
+                    const allCompact = local.events.every((e) => {
+                        const id = e && typeof e.id === "string" ? e.id : "";
+                        return !!parseCompactEventId(id);
+                    });
+                    local.v = allCompact ? (local.v < 2 ? 2 : local.v) : 1;
+                    ensureDeviceSeq(local);
                     saveWallet(local);
                     applyImportedTheme(remote);
                     window.location.hash = "#" + userId;
@@ -1155,11 +1313,16 @@
 
                 document.addEventListener("DOMContentLoaded", async () => {
                     const elUid = document.getElementById("uid");
+                    const elWalletVersion =
+                        document.getElementById("wallet-version");
                     const elTotal = document.getElementById("total");
                     const elUnpaid = document.getElementById("unpaid");
                     const elCredit = document.getElementById("credit");
                     const elAmount = document.getElementById("amount");
                     const elExportUrl = document.getElementById("export-url");
+                    const qrBox = document.getElementById("qr-box");
+                    const qrHint = document.getElementById("qr-hint");
+                    const qrCanvas = document.getElementById("qr-canvas");
                     const elHistory = document.getElementById("history");
                     const elDeleteRange =
                         document.getElementById("delete-range");
@@ -1172,6 +1335,7 @@
 
                     const btnHome = document.getElementById("btn-home");
                     const btnInfo = document.getElementById("btn-info");
+                    const btnMigrate = document.getElementById("btn-migrate");
                     const btnDrink = document.getElementById("btn-drink");
                     const btnMinus = document.getElementById("btn-minus");
                     const btnPay = document.getElementById("btn-pay");
@@ -1208,7 +1372,10 @@
 
                     const userId = await ensureUserId();
                     let wallet = loadWallet(userId);
+                    ensureDeviceSeq(wallet);
                     saveWallet(wallet);
+
+                    let lastQrUrl = "";
 
                     let summaryCache = null;
                     let rawAllCache = null;
@@ -1228,13 +1395,292 @@
                     elUid.textContent = userId;
                     elExportUrl.value = ""; // initial leer
 
+                    function getWalletVersion() {
+                        return wallet && typeof wallet.v === "number"
+                            ? wallet.v
+                            : 1;
+                    }
+
+                    function needsMigration() {
+                        try {
+                            if (
+                                typeof window.dbWalletNeedsMigration ===
+                                "function"
+                            ) {
+                                return window.dbWalletNeedsMigration(wallet);
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+                        return getWalletVersion() < 2;
+                    }
+
+                    function updateHeaderUi() {
+                        if (elWalletVersion) {
+                            elWalletVersion.textContent = `v${getWalletVersion()}`;
+                        }
+                        if (btnMigrate) {
+                            btnMigrate.style.display = needsMigration()
+                                ? "inline-block"
+                                : "none";
+                        }
+                    }
+
+                    function clearQr() {
+                        lastQrUrl = "";
+                        if (qrBox) qrBox.style.display = "none";
+                        if (qrHint) qrHint.textContent = "";
+                        if (qrCanvas) {
+                            qrCanvas.width = 0;
+                            qrCanvas.height = 0;
+                        }
+                    }
+
                     function resetAmount() {
                         elAmount.value = "1";
                     }
 
                     function clearExport() {
                         elExportUrl.value = "";
+                        clearQr();
                     }
+
+                    function getBaseUrl() {
+                        const href = String(window.location.href || "");
+                        const idx = href.indexOf("#");
+                        return idx >= 0 ? href.slice(0, idx) : href;
+                    }
+
+                    function exportJsonData() {
+                        const theme = getStoredTheme();
+                        return {
+                            userId: wallet.userId,
+                            walletId: wallet.walletId,
+                            deviceId: wallet.deviceId,
+                            v: wallet.v,
+                            seq: wallet.seq,
+                            events: wallet.events,
+                            theme,
+                        };
+                    }
+
+                    function downloadJsonFile(data, filename) {
+                        const blob = new Blob([JSON.stringify(data, null, 2)], {
+                            type: "application/json",
+                        });
+                        const a = document.createElement("a");
+                        a.href = URL.createObjectURL(blob);
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(a.href);
+                    }
+
+                    function downloadCurrentWalletBackup(tag) {
+                        const date = todayDateStr();
+                        const safeUserId = String(
+                            wallet.userId || "user",
+                        ).replace(/[^a-zA-Z0-9_-]/g, "_");
+                        const suffix = tag ? `-${tag}` : "";
+                        downloadJsonFile(
+                            exportJsonData(),
+                            `db-wallet-${safeUserId}-${date}${suffix}.json`,
+                        );
+                    }
+
+                    function migrateWalletNow() {
+                        if (
+                            typeof window.dbWalletMigrateV1toV2 !== "function"
+                        ) {
+                            alert(
+                                "Migration ist nicht verfügbar (migration.js fehlt).",
+                            );
+                            return false;
+                        }
+                        wallet = window.dbWalletMigrateV1toV2(wallet);
+                        ensureDeviceSeq(wallet);
+                        saveWallet(wallet);
+                        invalidateCaches();
+                        clearExport();
+                        refreshSummary();
+                        updateHeaderUi();
+                        return true;
+                    }
+
+                    function runMigrationDialog(reason, force) {
+                        const header =
+                            reason ||
+                            "Dein Wallet ist noch v1. Für einen zuverlässigen QR-Export empfiehlt sich die Migration auf v2.";
+                        const text =
+                            header +
+                            "\n\n1 = Direkt migrieren\n2 = Lokal abspeichern & migrieren\n\nAbbrechen = kein QR-Export";
+                        while (true) {
+                            const choice = window.prompt(text, "1");
+                            if (choice === null) return false;
+                            const c = String(choice).trim();
+                            if (c === "1") return migrateWalletNow();
+                            if (c === "2") {
+                                downloadCurrentWalletBackup("backup");
+                                return migrateWalletNow();
+                            }
+                            if (!force) return false;
+                        }
+                    }
+
+                    function renderQrCode(url) {
+                        if (
+                            !window.qrcodegen ||
+                            !window.qrcodegen.QrCode ||
+                            !qrCanvas
+                        ) {
+                            throw new Error("QR library missing");
+                        }
+
+                        const ecc = window.qrcodegen.QrCode.Ecc.LOW;
+                        const qr = window.qrcodegen.QrCode.encodeText(url, ecc);
+                        const border = 4;
+                        const modules = qr.size + border * 2;
+                        const maxPx = Math.min(
+                            360,
+                            Math.max(220, window.innerWidth - 48),
+                        );
+                        const scale = Math.max(2, Math.floor(maxPx / modules));
+                        qr.drawCanvas(scale, border, qrCanvas);
+
+                        if (qrBox) qrBox.style.display = "flex";
+                        if (qrHint) {
+                            qrHint.textContent = `Tippen zum Download • QR v${qr.version} (L) • ${url.length} Zeichen`;
+                        }
+                        lastQrUrl = url;
+                    }
+
+                    function downloadQrPng(url) {
+                        if (!window.qrcodegen || !window.qrcodegen.QrCode)
+                            return;
+                        const ecc = window.qrcodegen.QrCode.Ecc.LOW;
+                        const qr = window.qrcodegen.QrCode.encodeText(url, ecc);
+                        const border = 4;
+                        const scale = 10;
+                        const canvas = document.createElement("canvas");
+                        qr.drawCanvas(scale, border, canvas);
+
+                        const date = todayDateStr();
+                        const safeUserId = String(
+                            wallet.userId || "user",
+                        ).replace(/[^a-zA-Z0-9_-]/g, "_");
+                        const filename = `db-wallet-${safeUserId}-${date}.png`;
+
+                        const saveBlob = (blob) => {
+                            const a = document.createElement("a");
+                            a.href = URL.createObjectURL(blob);
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(a.href);
+                        };
+
+                        if (canvas.toBlob) {
+                            canvas.toBlob((blob) => {
+                                if (blob) saveBlob(blob);
+                            }, "image/png");
+                        } else {
+                            const a = document.createElement("a");
+                            a.href = canvas.toDataURL("image/png");
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                        }
+                    }
+
+                    async function buildQrUrl() {
+                        const theme = getStoredTheme();
+                        const raw = encodeImportV2Bytes(wallet, theme);
+                        const base = getBaseUrl();
+
+                        try {
+                            const compressed = await gzipCompress(raw);
+                            const token = base64UrlEncodeBytes(compressed);
+                            return `${base}#i2:${token}`;
+                        } catch (e) {
+                            const token = base64UrlEncodeBytes(raw);
+                            return `${base}#i2u:${token}`;
+                        }
+                    }
+
+                    async function showQrExport() {
+                        clearQr();
+                        let attempts = 0;
+                        while (attempts < 2) {
+                            attempts++;
+                            let url = "";
+                            try {
+                                url = await buildQrUrl();
+                                elExportUrl.value = url;
+                                elExportUrl.focus();
+                                elExportUrl.select();
+                                renderQrCode(url);
+                                return;
+                            } catch (e) {
+                                clearQr();
+                                elExportUrl.value = url || elExportUrl.value;
+
+                                const msg = String(
+                                    e && e.message ? e.message : e || "",
+                                );
+                                if (msg.includes("QR library missing")) {
+                                    alert(
+                                        "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt). Du kannst den Export-Link trotzdem kopieren.",
+                                    );
+                                    return;
+                                }
+
+                                if (msg.includes("Data too long")) {
+                                    if (needsMigration()) {
+                                        const migrated = runMigrationDialog(
+                                            "Zu groß für QR-Export mit v1-Daten. Bitte migrieren.",
+                                            true,
+                                        );
+                                        if (!migrated) return;
+                                        continue;
+                                    }
+                                    alert(
+                                        "Zu groß für QR-Export. Nutze Export-Link oder JSON.",
+                                    );
+                                    return;
+                                }
+
+                                if (needsMigration()) {
+                                    const migrated = runMigrationDialog(
+                                        "QR-Export ist zu groß oder instabil mit v1-Daten. Bitte migrieren.",
+                                        true,
+                                    );
+                                    if (!migrated) return;
+                                    continue;
+                                }
+                                alert("QR-Code konnte nicht erzeugt werden.");
+                                return;
+                            }
+                        }
+                    }
+
+                    if (qrCanvas) {
+                        qrCanvas.addEventListener("click", () => {
+                            if (!lastQrUrl) return;
+                            downloadQrPng(lastQrUrl);
+                        });
+                    }
+
+                    if (btnMigrate) {
+                        btnMigrate.addEventListener("click", () => {
+                            if (!needsMigration()) return;
+                            runMigrationDialog("", false);
+                        });
+                    }
+
+                    updateHeaderUi();
 
                     function getAmount() {
                         const n = parseInt(elAmount.value, 10);
@@ -1590,78 +2036,22 @@
                                 theme,
                             });
                             const token = base64UrlEncode(payload);
-                            const url =
-                                window.location.origin +
-                                window.location.pathname +
-                                "#import:" +
-                                token;
+                            const url = getBaseUrl() + "#import:" + token;
 
                             elExportUrl.value = url;
                             elExportUrl.focus();
                             elExportUrl.select();
+                            clearQr();
                         });
                     }
 
                     if (btnExportLinkQr) {
-                        btnExportLinkQr.addEventListener("click", async () => {
-                            const theme = getStoredTheme();
-                            const raw = encodeImportV2Bytes(wallet, theme);
-
-                            let url = "";
-                            try {
-                                const compressed = await gzipCompress(raw);
-                                const token = base64UrlEncodeBytes(compressed);
-                                url =
-                                    window.location.origin +
-                                    window.location.pathname +
-                                    "#i2:" +
-                                    token;
-                            } catch (e) {
-                                const token = base64UrlEncodeBytes(raw);
-                                url =
-                                    window.location.origin +
-                                    window.location.pathname +
-                                    "#i2u:" +
-                                    token;
-                                alert(
-                                    "Hinweis: Ohne Kompression kann der QR-Link zu lang sein.\nFalls das scannen nicht klappt, nutze den klassischen Export-Link oder JSON.",
-                                );
-                            }
-
-                            elExportUrl.value = url;
-                            elExportUrl.focus();
-                            elExportUrl.select();
-                        });
+                        btnExportLinkQr.addEventListener("click", showQrExport);
                     }
 
                     if (btnExportJson) {
                         btnExportJson.addEventListener("click", () => {
-                            const theme = getStoredTheme();
-                            const data = {
-                                userId: wallet.userId,
-                                walletId: wallet.walletId,
-                                deviceId: wallet.deviceId,
-                                v: wallet.v,
-                                events: wallet.events,
-                                theme,
-                            };
-                            const blob = new Blob(
-                                [JSON.stringify(data, null, 2)],
-                                {
-                                    type: "application/json",
-                                },
-                            );
-                            const a = document.createElement("a");
-                            const date = todayDateStr();
-                            const safeUserId = String(
-                                wallet.userId || "user",
-                            ).replace(/[^a-zA-Z0-9_-]/g, "_");
-                            a.href = URL.createObjectURL(blob);
-                            a.download = `db-wallet-${safeUserId}-${date}.json`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(a.href);
+                            downloadCurrentWalletBackup("");
                         });
                     }
 
@@ -1685,16 +2075,17 @@
                             userId: wallet.userId,
                             walletId: wallet.walletId || randomWalletId(),
                             deviceId: wallet.deviceId || randomId(),
-                            v: 1,
+                            v: 2,
                             seq: {},
                             events: [],
                         };
                         saveWallet(wallet);
                         invalidateCaches();
-                        elExportUrl.value = "";
+                        clearExport();
                         elHistory.textContent = "Noch keine Drinks geloggt. ✨";
                         elDeleteRange.value = "";
                         resetAmount();
+                        updateHeaderUi();
                         refreshSummary();
                     });
 
