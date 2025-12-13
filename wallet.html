@@ -1944,13 +1944,16 @@
                                 elHistory.textContent =
                                     "Noch keine Drinks geloggt. ✨";
                             } else {
-                                const lines = summary.perDay.map((d) => {
-                                    const bar = "#".repeat(
-                                        Math.min(d.drinks, 50),
-                                    );
-                                    const paidMark = d.paid ? " 💰" : "";
-                                    return `${d.date}${paidMark} | ${bar}`;
-                                });
+                                const lines = summary.perDay
+                                    .slice()
+                                    .reverse()
+                                    .map((d) => {
+                                        const bar = "#".repeat(
+                                            Math.min(d.drinks, 50),
+                                        );
+                                        const paidMark = d.paid ? " 💰" : "";
+                                        return `${d.date}${paidMark} | ${bar}`;
+                                    });
                                 elHistory.textContent = lines.join("\n");
                             }
                         } else if (historyMode === "log") {
