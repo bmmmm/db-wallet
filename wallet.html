@@ -41,7 +41,9 @@
 
             <div class="action-buttons">
                 <button id="btn-drink">+ Trinken 🥤</button>
-                <button id="btn-minus">– Zurücknehmen ↩️</button>
+                <button id="btn-undo" title="Letzte Buchung rückgängig machen">
+                    ↩️ Rückgängig
+                </button>
                 <button id="btn-pay">Bezahlen 💸</button>
             </div>
             <div id="pay-options" class="pay-options" style="display: none">
@@ -1177,7 +1179,7 @@
                 function newEvent(wallet, type, n) {
                     return {
                         id: nextEventId(wallet),
-                        t: type, // 'd' = drink, 's' = subtract, 'p' = paid, 'g' = credit
+                        t: type, // 'd' = drink, 's' = Korrektur/Rückgängig, 'p' = bezahlt, 'g' = Guthaben
                         n: typeof n === "number" ? n : undefined,
                         ts: Date.now(),
                     };
@@ -1327,7 +1329,7 @@
                     const btnInfo = document.getElementById("btn-info");
                     const btnMigrate = document.getElementById("btn-migrate");
                     const btnDrink = document.getElementById("btn-drink");
-                    const btnMinus = document.getElementById("btn-minus");
+                    const btnUndo = document.getElementById("btn-undo");
                     const btnPay = document.getElementById("btn-pay");
                     const payOptions = document.getElementById("pay-options");
                     const btnPayToday =
@@ -1849,8 +1851,8 @@
                         if (btnPay) {
                             btnPay.style.display = "inline-block";
                         }
-                        if (btnMinus) {
-                            btnMinus.style.display = "inline-block";
+                        if (btnUndo) {
+                            btnUndo.style.display = "inline-block";
                         }
                         if (btnDrink) {
                             btnDrink.style.display = "inline-block";
@@ -1931,7 +1933,7 @@
                                 ? Math.max(1, Math.round(e.n))
                                 : 1;
                         if (e.t === "d") action = `+${n} Getränk(e)`;
-                        else if (e.t === "s") action = `-${n} korrigiert`;
+                        else if (e.t === "s") action = `↩️ ${n} zurückgenommen`;
                         else if (e.t === "p") action = "Bezahlt";
                         else if (e.t === "g")
                             action = `Gutschrift ${n} Getränk(e)`;
@@ -2023,76 +2025,54 @@
                         refreshSummary();
                     });
 
-                    btnMinus.addEventListener("click", () => {
+                    btnUndo.addEventListener("click", () => {
                         const summaryBefore = getSummary();
-                        const requested = getAmount();
-                        const unpaid = summaryBefore.unpaid;
-                        const credit = summaryBefore.credit;
-                        const total = summaryBefore.total;
+                        const events = summaryBefore.eventsSorted || [];
+                        const deviceKey = getDeviceKey();
 
-                        // 1. Priorität: offene Getränke korrigieren
-                        if (unpaid > 0) {
-                            const effective = Math.min(requested, unpaid);
-                            if (effective <= 0) {
-                                alert(
-                                    "Keine offenen Drinks zum Zurücknehmen 🤷‍♂️",
-                                );
-                                resetAmount();
-                                clearExport();
-                                return;
+                        function isUndoable(e) {
+                            return e && (e.t === "d" || e.t === "s");
+                        }
+
+                        let target = null;
+                        for (let i = events.length - 1; i >= 0; i--) {
+                            const e = events[i];
+                            if (!isUndoable(e)) continue;
+                            const parsed = parseCompactEventId(e.id);
+                            if (parsed && parsed.deviceKey === deviceKey) {
+                                target = e;
+                                break;
                             }
+                        }
+                        if (!target) {
+                            for (let i = events.length - 1; i >= 0; i--) {
+                                const e = events[i];
+                                if (isUndoable(e)) {
+                                    target = e;
+                                    break;
+                                }
+                            }
+                        }
 
-                            wallet.events.push(
-                                newEvent(wallet, "s", effective),
-                            );
-                            saveWallet(wallet);
-                            invalidateCaches();
+                        if (!target) {
+                            alert("Keine Buchung zum Rückgängig machen 🤷");
                             resetAmount();
                             clearExport();
-                            refreshSummary();
                             return;
                         }
 
-                        // 2. Falls keine offenen Drinks, aber Guthaben UND bereits getrunkene Drinks vorhanden:
-                        //    Dann kann eine Korrektur genutzt werden, um getrunkene Drinks wieder ins Guthaben zu schieben.
-                        if (credit > 0 && total > 0) {
-                            const effective = Math.min(
-                                requested,
-                                credit,
-                                total,
-                            );
-                            if (effective <= 0) {
-                                alert(
-                                    "Es gibt keine getrunkenen Getränke, die korrigiert werden können.\n" +
-                                        "Neue Drinks werden zuerst vom Guthaben abgezogen.",
-                                );
-                                resetAmount();
-                                clearExport();
-                                return;
-                            }
+                        const n =
+                            typeof target.n === "number" && isFinite(target.n)
+                                ? Math.max(1, Math.round(target.n))
+                                : 1;
+                        const inverseType = target.t === "d" ? "s" : "d";
 
-                            wallet.events.push(
-                                newEvent(wallet, "s", effective),
-                            );
-                            saveWallet(wallet);
-                            invalidateCaches();
-                            resetAmount();
-                            clearExport();
-                            refreshSummary();
-                            return;
-                        }
-
-                        // 3. Weder offene Drinks noch sinnvolle Korrektur bei Guthaben möglich
-                        if (credit > 0) {
-                            alert(
-                                `Du hast Guthaben von ${credit} Getränk(en), aber keine getrunkenen Getränke zum Zurücknehmen.\n` +
-                                    "Neue Drinks werden zuerst vom Guthaben abgezogen.",
-                            );
-                        } else {
-                            alert("Keine Drinks zum Zurücknehmen 🤷‍♂️");
-                        }
+                        wallet.events.push(newEvent(wallet, inverseType, n));
+                        saveWallet(wallet);
+                        invalidateCaches();
                         resetAmount();
                         clearExport();
+                        refreshSummary();
                     });
 
                     btnPay.addEventListener("click", () => {
@@ -2103,9 +2083,9 @@
                             payOptions.style.display === ""
                         ) {
                             payOptions.style.display = "flex";
-                            // Während des Zahlungsvorgangs Bezahlen-, Minus- und Trinken-Button ausblenden
+                            // Während des Zahlungsvorgangs Bezahlen-, Rückgängig- und Trinken-Button ausblenden
                             if (btnPay) btnPay.style.display = "none";
-                            if (btnMinus) btnMinus.style.display = "none";
+                            if (btnUndo) btnUndo.style.display = "none";
                             if (btnDrink) btnDrink.style.display = "none";
                         } else {
                             // Zahlungsvorgang abbrechen/zuklappen -> UI zurücksetzen
