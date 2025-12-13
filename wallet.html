@@ -4,7 +4,9 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>db-wallet – Getränke</title>
+        <link rel="icon" href="data:," />
         <link rel="stylesheet" href="style.css" />
+        <link rel="stylesheet" href="themes.css" />
     </head>
     <body>
         <h1>dein Getränke-Wallet 🥤</h1>
@@ -116,6 +118,7 @@
                 id="export-url"
                 readonly
                 placeholder="Hier erscheint dein Export-Link"
+                style="display: none"
             />
             <div id="qr-box" class="qr-box" style="display: none">
                 <div class="qr-hint" id="qr-hint"></div>
@@ -140,83 +143,53 @@
         <script src="migration.js"></script>
         <script>
             (function () {
-                const THEMES = {
-                    "Lilac Carbon": {
-                        bg: "#121322",
-                        panel: "#181a2b",
-                        border: "#242842",
-                        accent: "#c7b6ff",
-                        "accent-strong": "#b59bff",
-                        text: "#f0edff",
-                        muted: "#c5c2d8",
-                        danger: "#f7a3c0",
-                    },
-                    "Teal Ember": {
-                        bg: "#10201f",
-                        panel: "#142826",
-                        border: "#1b3531",
-                        accent: "#8df0d1",
-                        "accent-strong": "#6be8c0",
-                        text: "#e9fff8",
-                        muted: "#b5d6cb",
-                        danger: "#ffb3a4",
-                    },
-                    "Slate Sunrise": {
-                        bg: "#141b24",
-                        panel: "#1a2430",
-                        border: "#243244",
-                        accent: "#f2c18f",
-                        "accent-strong": "#f0ae69",
-                        text: "#f7f1e7",
-                        muted: "#d2c7ba",
-                        danger: "#ffb4a2",
-                    },
-                    "Paper Mint": {
-                        bg: "#f2f7f5",
-                        panel: "#e7f1ee",
-                        border: "#c9d9d2",
-                        accent: "#6dd5c6",
-                        "accent-strong": "#3fbfae",
-                        text: "#12201d",
-                        muted: "#486661",
-                        danger: "#d98286",
-                    },
-                    "Peach Cloud": {
-                        bg: "#faf3ee",
-                        panel: "#f2e7df",
-                        border: "#dccdc1",
-                        accent: "#f3b28d",
-                        "accent-strong": "#e69061",
-                        text: "#231913",
-                        muted: "#6a5348",
-                        danger: "#d86f6f",
-                    },
+                const THEME_KEY = "db-wallet:theme";
+                const SELECTABLE_THEME_NAMES = [
+                    "Lilac Carbon",
+                    "Teal Ember",
+                    "Slate Sunrise",
+                    "Paper Mint",
+                    "Peach Cloud",
+                ];
+                const LEGACY_THEME_ALIASES = {
+                    "Nord Glow": "Lilac Carbon",
+                    "Cyan Mist": "Teal Ember",
                 };
 
-                const THEME_KEY = "db-wallet:theme";
+                function canonicalThemeName(name) {
+                    const raw = String(name || "").trim();
+                    return LEGACY_THEME_ALIASES[raw] || raw;
+                }
+
+                function isSelectableThemeName(name) {
+                    return SELECTABLE_THEME_NAMES.includes(name);
+                }
 
                 function getStoredTheme() {
                     try {
                         const stored = localStorage.getItem(THEME_KEY);
-                        return stored && THEMES[stored] ? stored : null;
+                        const canonical = canonicalThemeName(stored);
+                        return isSelectableThemeName(canonical)
+                            ? canonical
+                            : null;
                     } catch (e) {
                         return null;
                     }
                 }
 
                 function applyTheme(name) {
-                    const theme = THEMES[name];
-                    if (!theme) return;
-                    const root = document.documentElement;
-                    Object.entries(theme).forEach(([token, value]) => {
-                        root.style.setProperty(`--${token}`, value);
-                    });
+                    const canonical = canonicalThemeName(name);
+                    if (!isSelectableThemeName(canonical)) return;
+                    document.documentElement.setAttribute(
+                        "data-theme",
+                        canonical,
+                    );
                     try {
-                        localStorage.setItem(THEME_KEY, name);
+                        localStorage.setItem(THEME_KEY, canonical);
                     } catch (e) {
                         // ignore storage issues
                     }
-                    highlightActiveTheme(name);
+                    highlightActiveTheme(canonical);
                 }
 
                 function highlightActiveTheme(name) {
@@ -233,7 +206,7 @@
                     const container = document.getElementById("theme-buttons");
                     if (!container) return;
 
-                    Object.keys(THEMES).forEach((themeName) => {
+                    SELECTABLE_THEME_NAMES.forEach((themeName) => {
                         const btn = document.createElement("button");
                         btn.className = "theme-btn";
                         btn.dataset.theme = themeName;
@@ -815,7 +788,8 @@
                 }
 
                 function themeIndexFromName(name) {
-                    const idx = THEME_NAMES.indexOf(name);
+                    const canonical = canonicalThemeName(name);
+                    const idx = THEME_NAMES.indexOf(canonical);
                     return idx >= 0 ? idx : 255;
                 }
 
@@ -1108,7 +1082,7 @@
                 }
 
                 function applyImportedTheme(remote) {
-                    if (remote && remote.theme && THEMES[remote.theme]) {
+                    if (remote && remote.theme) {
                         applyTheme(remote.theme);
                     }
                 }
@@ -1458,9 +1432,6 @@
                             qrCanvas.width = 0;
                             qrCanvas.height = 0;
                         }
-                        if (elExportUrl) {
-                            elExportUrl.style.display = "";
-                        }
                     }
 
                     function resetAmount() {
@@ -1469,6 +1440,7 @@
 
                     function clearExport() {
                         elExportUrl.value = "";
+                        elExportUrl.style.display = "none";
                         clearQr();
                     }
 
@@ -2111,6 +2083,7 @@
                             const url = getBaseUrl() + "#import:" + token;
 
                             elExportUrl.value = url;
+                            elExportUrl.style.display = "block";
                             elExportUrl.focus();
                             elExportUrl.select();
                             clearQr();
