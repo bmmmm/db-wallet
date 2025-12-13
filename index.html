@@ -7,6 +7,7 @@
         <link rel="icon" href="data:," />
         <link rel="stylesheet" href="style.css" />
         <link rel="stylesheet" href="themes.css" />
+        <script src="theme.js"></script>
     </head>
     <body>
         <h1>db-wallet</h1>
@@ -115,81 +116,6 @@
                 }
                 return base64UrlFromBinary(binary);
             }
-
-            const THEME_KEY = "db-wallet:theme";
-            const SELECTABLE_THEME_NAMES = [
-                "Lilac Carbon",
-                "Teal Ember",
-                "Slate Sunrise",
-                "Paper Mint",
-                "Peach Cloud",
-            ];
-            const LEGACY_THEME_ALIASES = {
-                "Nord Glow": "Lilac Carbon",
-                "Cyan Mist": "Teal Ember",
-            };
-
-            function canonicalThemeName(name) {
-                const raw = String(name || "").trim();
-                return LEGACY_THEME_ALIASES[raw] || raw;
-            }
-
-            function isSelectableThemeName(name) {
-                return SELECTABLE_THEME_NAMES.includes(name);
-            }
-
-            function getStoredTheme() {
-                try {
-                    const stored = localStorage.getItem(THEME_KEY);
-                    const canonical = canonicalThemeName(stored);
-                    return isSelectableThemeName(canonical) ? canonical : null;
-                } catch (e) {
-                    return null;
-                }
-            }
-
-            function applyTheme(name) {
-                const canonical = canonicalThemeName(name);
-                if (!isSelectableThemeName(canonical)) return;
-                document.documentElement.setAttribute("data-theme", canonical);
-                try {
-                    localStorage.setItem(THEME_KEY, canonical);
-                } catch (e) {
-                    // ignore storage issues
-                }
-                highlightActiveTheme(canonical);
-            }
-
-            function highlightActiveTheme(name) {
-                const buttons = document.querySelectorAll(".theme-btn");
-                buttons.forEach((btn) => {
-                    btn.classList.toggle("active", btn.dataset.theme === name);
-                });
-            }
-
-            function initThemeSelector() {
-                const container = document.getElementById("theme-buttons");
-                if (!container) return;
-
-                SELECTABLE_THEME_NAMES.forEach((name) => {
-                    const btn = document.createElement("button");
-                    btn.className = "theme-btn";
-                    btn.dataset.theme = name;
-                    btn.textContent = name;
-                    btn.addEventListener("click", () => applyTheme(name));
-                    container.appendChild(btn);
-                });
-
-                const stored = getStoredTheme();
-                if (stored) {
-                    applyTheme(stored);
-                }
-            }
-
-            (function applyStoredTheme() {
-                const stored = getStoredTheme();
-                if (stored) applyTheme(stored);
-            })();
 
             const STORAGE_PREFIX = "db-wallet:";
 
@@ -691,7 +617,15 @@
                                         ? data.theme
                                         : "";
                                 if (importedTheme) {
-                                    applyTheme(importedTheme);
+                                    if (
+                                        window.dbWalletTheme &&
+                                        typeof window.dbWalletTheme
+                                            .applyTheme === "function"
+                                    ) {
+                                        window.dbWalletTheme.applyTheme(
+                                            importedTheme,
+                                        );
+                                    }
                                 }
 
                                 renderExistingUsers();
@@ -724,7 +658,12 @@
                     });
                 }
 
-                initThemeSelector();
+                if (
+                    window.dbWalletTheme &&
+                    typeof window.dbWalletTheme.initThemeSelector === "function"
+                ) {
+                    window.dbWalletTheme.initThemeSelector();
+                }
                 // beim Laden direkt versuchen, Wallets zu finden
                 renderExistingUsers();
             })();

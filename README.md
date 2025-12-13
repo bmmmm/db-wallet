@@ -32,6 +32,7 @@ Alle Daten liegen lokal im Browser und lassen sich per Export-Link oder JSON tei
 |-------|-------|
 | [`index.html`](./index.html) | Startseite, Nutzer:innenwahl, Import/Export, Theme-Wahl |
 | [`wallet.html`](./wallet.html) | Drinks, Guthaben, Zahlungen, Historie/Raw, Theme-Wahl |
+| [`theme.js`](./theme.js) | Theme-Logik (Auswahl + Speicherung) |
 | [`themes.css`](./themes.css) | Theme-Paletten (CSS-Variablen) |
 | [`colors.html`](./colors.html) | Vorschau aller 5 Themes mit Farbbalken & UI-Beispielen |
 | [`colors.css`](./colors.css) | Styles für die Theme-Vorschau |
