@@ -13,8 +13,8 @@
         <section>
             <h2>Neue:n Nutzer:in anlegen</h2>
             <p>
-                Nutzer:in-Namen eingeben oder leer lassen, um einen
-                zufälligen Namen zu erhalten.
+                Nutzer:in-Namen eingeben oder leer lassen, um einen zufälligen
+                Namen zu erhalten.
             </p>
             <input
                 id="username"
@@ -59,7 +59,8 @@
             <h2>Theme auswählen</h2>
             <p class="theme-note">
                 Fünf dunkle Pastell-Themes, wähle per Name: Nord Glow, Cyan
-                Mist, Lilac Carbon, Teal Ember, Slate Sunrise.
+                Mist, Lilac Carbon, Teal Ember, Slate Sunrise. Vorschau:
+                <a href="colors.html">colors.html</a>
             </p>
             <div class="theme-buttons" id="theme-buttons"></div>
         </section>
@@ -82,6 +83,34 @@
                 for (let i = 0; i < len; i++)
                     o += chars[(Math.random() * chars.length) | 0];
                 return o;
+            }
+
+            function base64UrlFromBinary(binary) {
+                return btoa(binary)
+                    .replace(/\+/g, "-")
+                    .replace(/\//g, "_")
+                    .replace(/=+$/g, "");
+            }
+
+            function randomWalletId(bytesLen = 12) {
+                const bytes = new Uint8Array(bytesLen);
+                if (
+                    typeof crypto !== "undefined" &&
+                    crypto &&
+                    crypto.getRandomValues
+                ) {
+                    crypto.getRandomValues(bytes);
+                } else {
+                    for (let i = 0; i < bytes.length; i++) {
+                        bytes[i] = Math.floor(Math.random() * 256);
+                    }
+                }
+
+                let binary = "";
+                for (let i = 0; i < bytes.length; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return base64UrlFromBinary(binary);
             }
 
             const THEMES = {
@@ -196,6 +225,29 @@
 
             const STORAGE_PREFIX = "db-wallet:";
 
+            function safeParse(raw) {
+                try {
+                    return JSON.parse(raw);
+                } catch (e) {
+                    return null;
+                }
+            }
+
+            function userIdExists(userId) {
+                if (!userId) return false;
+                return !!localStorage.getItem(STORAGE_PREFIX + userId);
+            }
+
+            function makeUniqueUserId(base) {
+                let candidate = base;
+                let i = 2;
+                while (userIdExists(candidate)) {
+                    candidate = `${base}-${i}`;
+                    i++;
+                }
+                return candidate;
+            }
+
             // Alle Wallet-ähnlichen Objekte aus localStorage sammeln
             function collectWalletEntries() {
                 const entries = [];
@@ -237,6 +289,28 @@
 
                 entries.sort((a, b) => a.userId.localeCompare(b.userId));
                 return entries;
+            }
+
+            function mergeEvents(localEvents, remoteEvents) {
+                const map = new Map();
+                for (const e of localEvents || []) {
+                    if (e && e.id) map.set(e.id, e);
+                }
+                for (const e of remoteEvents || []) {
+                    if (e && e.id && !map.has(e.id)) map.set(e.id, e);
+                }
+                return Array.from(map.values());
+            }
+
+            function findUserIdByWalletId(walletId) {
+                if (!walletId) return null;
+                const entries = collectWalletEntries();
+                for (const entry of entries) {
+                    if (entry.wallet && entry.wallet.walletId === walletId) {
+                        return entry.userId;
+                    }
+                }
+                return null;
             }
 
             function renderExistingUsers() {
@@ -459,13 +533,85 @@
                                     userId = "user-" + randomId();
                                 }
 
+                                const importedWalletId =
+                                    typeof data.walletId === "string"
+                                        ? data.walletId
+                                        : "";
+
+                                if (importedWalletId) {
+                                    const knownUserId =
+                                        findUserIdByWalletId(importedWalletId);
+                                    if (knownUserId) {
+                                        userId = knownUserId;
+                                    } else if (userIdExists(userId)) {
+                                        const existingRaw =
+                                            localStorage.getItem(
+                                                STORAGE_PREFIX + userId,
+                                            );
+                                        const existingObj = safeParse(
+                                            existingRaw || "",
+                                        );
+                                        const existingWalletId =
+                                            existingObj &&
+                                            typeof existingObj.walletId ===
+                                                "string"
+                                                ? existingObj.walletId
+                                                : null;
+                                        if (
+                                            existingWalletId !==
+                                            importedWalletId
+                                        ) {
+                                            const suffix = importedWalletId
+                                                .slice(0, 4)
+                                                .toLowerCase();
+                                            userId = makeUniqueUserId(
+                                                `${userId}-${suffix}`,
+                                            );
+                                        }
+                                    }
+                                }
+
+                                const existingRaw = localStorage.getItem(
+                                    STORAGE_PREFIX + userId,
+                                );
+                                const existingObj = safeParse(
+                                    existingRaw || "",
+                                );
+                                const existingEvents =
+                                    existingObj &&
+                                    Array.isArray(existingObj.events)
+                                        ? existingObj.events
+                                        : [];
+                                const importedEvents = Array.isArray(
+                                    data.events,
+                                )
+                                    ? data.events
+                                    : [];
+
                                 const wallet = {
                                     userId,
-                                    deviceId: data.deviceId || randomId(8),
-                                    v: data.v || 1,
-                                    events: Array.isArray(data.events)
-                                        ? data.events
-                                        : [],
+                                    walletId:
+                                        importedWalletId ||
+                                        (existingObj &&
+                                        typeof existingObj.walletId === "string"
+                                            ? existingObj.walletId
+                                            : null) ||
+                                        randomWalletId(),
+                                    deviceId:
+                                        (existingObj &&
+                                        typeof existingObj.deviceId === "string"
+                                            ? existingObj.deviceId
+                                            : null) ||
+                                        data.deviceId ||
+                                        randomId(8),
+                                    v:
+                                        data.v ||
+                                        (existingObj && existingObj.v) ||
+                                        1,
+                                    events: mergeEvents(
+                                        existingEvents,
+                                        importedEvents,
+                                    ),
                                 };
 
                                 const json = JSON.stringify(wallet);

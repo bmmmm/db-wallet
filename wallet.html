@@ -10,7 +10,7 @@
         <h1>dein Getränke-Wallet 🥤</h1>
 
         <div class="top-row">
-            <div>User: <strong id="uid"></strong></div>
+            <div>Nutzer:in: <strong id="uid"></strong></div>
             <button id="btn-home">Zur Startseite 🏠</button>
             <button id="btn-info">Info ℹ️</button>
         </div>
@@ -54,10 +54,10 @@
             <div class="raw-toggle">
                 Raw-Log für:
                 <button id="raw-scope-current" class="raw-toggle-btn active">
-                    aktuellen User
+                    diese:n Nutzer:in
                 </button>
                 <button id="raw-scope-all" class="raw-toggle-btn">
-                    alle User
+                    alle Nutzer:innen
                 </button>
             </div>
 
@@ -88,7 +88,7 @@
                         Ausgewählte Einträge löschen 🧹
                     </button>
                     <button id="btn-reset">
-                        Alle Daten für diesen User löschen 🗑️
+                        Alle Daten für diese:n Nutzer:in löschen 🗑️
                     </button>
                 </div>
             </div>
@@ -101,6 +101,7 @@
             <button id="btn-export">Export</button>
             <span id="export-options" style="display: none">
                 <button id="btn-export-link">Export-Link erzeugen 🔗</button>
+                <button id="btn-export-link-qr">QR-Link (kurz) 📱</button>
                 <button id="btn-export-json">Als JSON herunterladen 📄</button>
             </span>
             <input
@@ -116,7 +117,8 @@
             <h2>Theme auswählen</h2>
             <p class="theme-note">
                 Fünf dunkle Pastell-Themes, wähle per Name: Nord Glow, Cyan
-                Mist, Lilac Carbon, Teal Ember, Slate Sunrise.
+                Mist, Lilac Carbon, Teal Ember, Slate Sunrise. Vorschau:
+                <a href="colors.html">colors.html</a>
             </p>
             <div class="theme-buttons" id="theme-buttons"></div>
         </section>
@@ -254,16 +256,49 @@
                         return out;
                     }
 
+                    function base64UrlFromBinary(binary) {
+                        return btoa(binary)
+                            .replace(/\+/g, "-")
+                            .replace(/\//g, "_")
+                            .replace(/=+$/g, "");
+                    }
+
+                    function randomWalletId(bytesLen = 12) {
+                        const bytes = new Uint8Array(bytesLen);
+                        if (
+                            typeof crypto !== "undefined" &&
+                            crypto &&
+                            crypto.getRandomValues
+                        ) {
+                            crypto.getRandomValues(bytes);
+                        } else {
+                            for (let i = 0; i < bytes.length; i++) {
+                                bytes[i] = Math.floor(Math.random() * 256);
+                            }
+                        }
+
+                        let binary = "";
+                        for (let i = 0; i < bytes.length; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        return base64UrlFromBinary(binary);
+                    }
+
                     function base64UrlEncode(str) {
                         const bytes = encoder.encode(str);
                         let binary = "";
                         for (let i = 0; i < bytes.length; i++) {
                             binary += String.fromCharCode(bytes[i]);
                         }
-                        return btoa(binary)
-                            .replace(/\+/g, "-")
-                            .replace(/\//g, "_")
-                            .replace(/=+$/g, "");
+                        return base64UrlFromBinary(binary);
+                    }
+
+                    function base64UrlEncodeBytes(bytes) {
+                        let binary = "";
+                        for (let i = 0; i < bytes.length; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        return base64UrlFromBinary(binary);
                     }
 
                     function base64UrlDecode(str) {
@@ -278,6 +313,44 @@
                             bytes[i] = binary.charCodeAt(i);
                         }
                         return decoder.decode(bytes);
+                    }
+
+                    function base64UrlDecodeBytes(str) {
+                        const padLen = (4 - (str.length % 4)) % 4;
+                        const padded = str + "=".repeat(padLen);
+                        const base = padded
+                            .replace(/-/g, "+")
+                            .replace(/_/g, "/");
+                        const binary = atob(base);
+                        const bytes = new Uint8Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) {
+                            bytes[i] = binary.charCodeAt(i);
+                        }
+                        return bytes;
+                    }
+
+                    async function gzipCompress(bytes) {
+                        if (typeof CompressionStream === "undefined") {
+                            throw new Error("CompressionStream not available");
+                        }
+                        const stream = new Blob([bytes])
+                            .stream()
+                            .pipeThrough(new CompressionStream("gzip"));
+                        const buf = await new Response(stream).arrayBuffer();
+                        return new Uint8Array(buf);
+                    }
+
+                    async function gzipDecompress(bytes) {
+                        if (typeof DecompressionStream === "undefined") {
+                            throw new Error(
+                                "DecompressionStream not available",
+                            );
+                        }
+                        const stream = new Blob([bytes])
+                            .stream()
+                            .pipeThrough(new DecompressionStream("gzip"));
+                        const buf = await new Response(stream).arrayBuffer();
+                        return new Uint8Array(buf);
                     }
 
                     function safeParse(raw) {
@@ -309,8 +382,13 @@
                         STORAGE_PREFIX,
                         REGISTRY_KEY,
                         randomId,
+                        randomWalletId,
                         base64UrlEncode,
+                        base64UrlEncodeBytes,
                         base64UrlDecode,
+                        base64UrlDecodeBytes,
+                        gzipCompress,
+                        gzipDecompress,
                         loadRegistry,
                         saveRegistry,
                         safeParse,
@@ -321,12 +399,79 @@
                     STORAGE_PREFIX,
                     REGISTRY_KEY,
                     randomId,
+                    randomWalletId,
                     base64UrlEncode,
+                    base64UrlEncodeBytes,
                     base64UrlDecode,
+                    base64UrlDecodeBytes,
+                    gzipCompress,
+                    gzipDecompress,
                     loadRegistry,
                     saveRegistry,
                     safeParse,
                 } = helpers;
+
+                const THEME_NAMES = [
+                    "Nord Glow",
+                    "Cyan Mist",
+                    "Lilac Carbon",
+                    "Teal Ember",
+                    "Slate Sunrise",
+                ];
+
+                const DEVICE_KEY_STORAGE = "db-wallet:device";
+
+                function getDeviceKey() {
+                    try {
+                        const existing =
+                            localStorage.getItem(DEVICE_KEY_STORAGE);
+                        if (existing) return existing;
+                    } catch (e) {
+                        // ignore
+                    }
+                    const created = randomWalletId(6);
+                    try {
+                        localStorage.setItem(DEVICE_KEY_STORAGE, created);
+                    } catch (e) {
+                        // ignore
+                    }
+                    return created;
+                }
+
+                function parseCompactEventId(id) {
+                    if (!id || typeof id !== "string") return null;
+                    const m = id.match(/^([A-Za-z0-9_-]+)\.([0-9a-z]+)$/);
+                    if (!m) return null;
+                    const deviceKey = m[1];
+                    const seq = parseInt(m[2], 36);
+                    if (!deviceKey || isNaN(seq) || seq <= 0) return null;
+                    return { deviceKey, seq };
+                }
+
+                function nextEventId(wallet) {
+                    const deviceKey = getDeviceKey();
+                    if (!wallet.seq || typeof wallet.seq !== "object") {
+                        wallet.seq = {};
+                    }
+                    if (typeof wallet.seq[deviceKey] !== "number") {
+                        let maxSeq = 0;
+                        for (const e of wallet.events || []) {
+                            const parsed = parseCompactEventId(e && e.id);
+                            if (
+                                parsed &&
+                                parsed.deviceKey === deviceKey &&
+                                parsed.seq > maxSeq
+                            ) {
+                                maxSeq = parsed.seq;
+                            }
+                        }
+                        wallet.seq[deviceKey] = maxSeq + 1;
+                    }
+
+                    const seq = wallet.seq[deviceKey];
+                    wallet.seq[deviceKey] = seq + 1;
+                    return `${deviceKey}.${seq.toString(36)}`;
+                }
 
                 let historyMode = "diagram"; // "diagram" | "log" | "raw"
                 let rawScope = "current"; // "current" | "all"
@@ -349,7 +494,14 @@
 
                 function getUserIdFromHash() {
                     const hash = window.location.hash.slice(1);
-                    if (!hash || hash.startsWith("import:")) return null;
+                    if (
+                        !hash ||
+                        hash.startsWith("import:") ||
+                        hash.startsWith("i2:") ||
+                        hash.startsWith("i2u:")
+                    ) {
+                        return null;
+                    }
                     return hash;
                 }
 
@@ -358,14 +510,18 @@
                     if (!raw) {
                         return {
                             userId,
+                            walletId: randomWalletId(),
                             deviceId: randomId(),
                             v: 1,
+                            seq: {},
                             events: [],
                         };
                     }
                     const obj = safeParse(raw) || {};
                     if (!Array.isArray(obj.events)) obj.events = [];
                     if (!obj.deviceId) obj.deviceId = randomId();
+                    if (!obj.walletId) obj.walletId = randomWalletId();
+                    if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
                     obj.userId = userId;
                     obj.v = obj.v || 1;
                     return obj;
@@ -438,46 +594,441 @@
                     return Array.from(map.values());
                 }
 
-                function tryImportFromHash() {
-                    const hash = window.location.hash.slice(1);
-                    if (!hash.startsWith("import:")) return null;
-                    try {
-                        const payload = base64UrlDecode(hash.slice(7));
-                        const remote = safeParse(payload);
-                        if (!remote || typeof remote !== "object") {
-                            throw new Error("Invalid import payload");
+                function findUserIdByWalletId(walletId) {
+                    if (!walletId) return null;
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+
+                        const raw = localStorage.getItem(key);
+                        if (!raw) continue;
+
+                        const obj = safeParse(raw);
+                        if (
+                            !obj ||
+                            typeof obj !== "object" ||
+                            !Array.isArray(obj.events)
+                        ) {
+                            continue;
                         }
-                        const userId = remote.userId || "user-" + randomId();
-                        const local = loadWallet(userId);
-                        const mergedEvents = mergeEvents(
-                            local.events,
-                            remote.events || [],
+                        if (obj.walletId === walletId) {
+                            const userId =
+                                typeof obj.userId === "string"
+                                    ? obj.userId
+                                    : key.slice(STORAGE_PREFIX.length);
+                            return userId || null;
+                        }
+                    }
+                    return null;
+                }
+
+                function walletIdForUserId(userId) {
+                    if (!userId) return null;
+                    const raw = localStorage.getItem(STORAGE_PREFIX + userId);
+                    if (!raw) return null;
+                    const obj = safeParse(raw);
+                    return obj && typeof obj.walletId === "string"
+                        ? obj.walletId
+                        : null;
+                }
+
+                function userIdExists(userId) {
+                    if (!userId) return false;
+                    return !!localStorage.getItem(STORAGE_PREFIX + userId);
+                }
+
+                function makeUniqueUserId(base) {
+                    let candidate = base;
+                    let i = 2;
+                    while (userIdExists(candidate)) {
+                        candidate = `${base}-${i}`;
+                        i++;
+                    }
+                    return candidate;
+                }
+
+                function writeVarUint(value, out) {
+                    let n = value >>> 0;
+                    while (n >= 0x80) {
+                        out.push((n & 0x7f) | 0x80);
+                        n >>>= 7;
+                    }
+                    out.push(n);
+                }
+
+                function readVarUint(bytes, offset) {
+                    let result = 0;
+                    let shift = 0;
+                    while (true) {
+                        if (offset >= bytes.length) {
+                            throw new Error("Truncated varint");
+                        }
+                        const b = bytes[offset++];
+                        result |= (b & 0x7f) << shift;
+                        if ((b & 0x80) === 0) break;
+                        shift += 7;
+                        if (shift > 35) {
+                            throw new Error("Varint too large");
+                        }
+                    }
+                    return [result >>> 0, offset];
+                }
+
+                function themeIndexFromName(name) {
+                    const idx = THEME_NAMES.indexOf(name);
+                    return idx >= 0 ? idx : 255;
+                }
+
+                function themeNameFromIndex(idx) {
+                    return idx >= 0 && idx < THEME_NAMES.length
+                        ? THEME_NAMES[idx]
+                        : null;
+                }
+
+                function decodeImportV2Bytes(bytes) {
+                    if (
+                        bytes.length < 5 ||
+                        bytes[0] !== 100 || // d
+                        bytes[1] !== 98 || // b
+                        bytes[2] !== 119 || // w
+                        bytes[3] !== 2
+                    ) {
+                        throw new Error("Invalid v2 payload");
+                    }
+
+                    let offset = 4;
+                    const themeIdx = bytes[offset++];
+                    const [walletV, o1] = readVarUint(bytes, offset);
+                    offset = o1;
+
+                    const [walletIdLen, o2] = readVarUint(bytes, offset);
+                    offset = o2;
+                    const walletIdBytes = bytes.slice(
+                        offset,
+                        offset + walletIdLen,
+                    );
+                    offset += walletIdLen;
+                    const walletId = base64UrlEncodeBytes(walletIdBytes);
+
+                    const decoder = new TextDecoder();
+                    const [userIdLen, o3] = readVarUint(bytes, offset);
+                    offset = o3;
+                    const userId = decoder.decode(
+                        bytes.slice(offset, offset + userIdLen),
+                    );
+                    offset += userIdLen;
+
+                    const [deviceCount, o4] = readVarUint(bytes, offset);
+                    offset = o4;
+                    const deviceKeys = [];
+                    for (let i = 0; i < deviceCount; i++) {
+                        const [len, o5] = readVarUint(bytes, offset);
+                        offset = o5;
+                        const key = decoder.decode(
+                            bytes.slice(offset, offset + len),
                         );
-                        const wallet = {
-                            userId,
-                            deviceId: local.deviceId || randomId(),
-                            v: remote.v || local.v || 1,
-                            events: mergedEvents,
-                        };
-                        saveWallet(wallet);
-                        if (remote.theme && THEMES[remote.theme]) {
-                            applyTheme(remote.theme);
+                        offset += len;
+                        deviceKeys.push(key);
+                    }
+
+                    const [baseTsMin, o6] = readVarUint(bytes, offset);
+                    offset = o6;
+
+                    const [eventCount, o7] = readVarUint(bytes, offset);
+                    offset = o7;
+
+                    const events = [];
+                    let tsMin = baseTsMin;
+                    for (let i = 0; i < eventCount; i++) {
+                        const [delta, o8] = readVarUint(bytes, offset);
+                        offset = o8;
+                        tsMin += delta;
+
+                        const typeFlags = bytes[offset++];
+                        const typeCode = typeFlags & 0x03;
+                        const hasAmount = (typeFlags & 0x04) !== 0;
+                        const idIsString = (typeFlags & 0x08) !== 0;
+
+                        let amount = 1;
+                        if (hasAmount) {
+                            const [n, o9] = readVarUint(bytes, offset);
+                            offset = o9;
+                            amount = n;
                         }
-                        window.location.hash = "#" + userId;
-                        alert("Getränkedaten importiert ✅");
-                        return userId;
+
+                        let id = "";
+                        if (idIsString) {
+                            const [len, o10] = readVarUint(bytes, offset);
+                            offset = o10;
+                            id = decoder.decode(
+                                bytes.slice(offset, offset + len),
+                            );
+                            offset += len;
+                        } else {
+                            const [deviceIndex, o10] = readVarUint(
+                                bytes,
+                                offset,
+                            );
+                            offset = o10;
+                            const [seq, o11] = readVarUint(bytes, offset);
+                            offset = o11;
+                            const deviceKey = deviceKeys[deviceIndex] || "dev";
+                            id = `${deviceKey}.${seq.toString(36)}`;
+                        }
+
+                        const t =
+                            typeCode === 0
+                                ? "d"
+                                : typeCode === 1
+                                  ? "s"
+                                  : typeCode === 2
+                                    ? "p"
+                                    : "g";
+
+                        const ev = {
+                            id,
+                            t,
+                            ts: tsMin * 60000,
+                        };
+                        if (t !== "p" && amount !== 1) {
+                            ev.n = amount;
+                        }
+                        events.push(ev);
+                    }
+
+                    const theme = themeNameFromIndex(themeIdx);
+                    return {
+                        userId: userId || "user-" + randomId(),
+                        walletId,
+                        v: walletV || 1,
+                        events,
+                        theme,
+                    };
+                }
+
+                function encodeImportV2Bytes(wallet, themeName) {
+                    const encoder = new TextEncoder();
+                    const out = [];
+
+                    out.push(100, 98, 119, 2); // "dbw" + codec v2
+                    out.push(themeIndexFromName(themeName));
+                    writeVarUint(wallet && wallet.v ? wallet.v : 1, out);
+
+                    const walletIdStr =
+                        wallet && typeof wallet.walletId === "string"
+                            ? wallet.walletId
+                            : randomWalletId();
+                    const walletIdBytes = base64UrlDecodeBytes(walletIdStr);
+                    writeVarUint(walletIdBytes.length, out);
+                    for (const b of walletIdBytes) out.push(b);
+
+                    const userIdStr =
+                        wallet && typeof wallet.userId === "string"
+                            ? wallet.userId
+                            : "user-" + randomId();
+                    const userIdBytes = encoder.encode(userIdStr);
+                    writeVarUint(userIdBytes.length, out);
+                    for (const b of userIdBytes) out.push(b);
+
+                    const deviceKeyToIndex = new Map();
+                    const deviceKeys = [];
+
+                    const typeCodeMap = { d: 0, s: 1, p: 2, g: 3 };
+                    const events = [];
+                    for (const e of (wallet && wallet.events) || []) {
+                        if (!e || typeof e !== "object") continue;
+                        const t = typeof e.t === "string" ? e.t : "";
+                        if (typeCodeMap[t] === undefined) continue;
+                        const tsMs = typeof e.ts === "number" ? e.ts : 0;
+                        const tsMin = Math.floor(tsMs / 60000);
+                        const id = typeof e.id === "string" && e.id ? e.id : "";
+                        if (!id) continue;
+
+                        const parsed = parseCompactEventId(id);
+                        if (parsed) {
+                            if (!deviceKeyToIndex.has(parsed.deviceKey)) {
+                                deviceKeyToIndex.set(
+                                    parsed.deviceKey,
+                                    deviceKeys.length,
+                                );
+                                deviceKeys.push(parsed.deviceKey);
+                            }
+                        }
+
+                        let amount = 1;
+                        if (t !== "p") {
+                            const n =
+                                typeof e.n === "number" && isFinite(e.n)
+                                    ? Math.round(e.n)
+                                    : 1;
+                            amount = n > 0 ? n : 1;
+                        }
+
+                        events.push({
+                            tsMin,
+                            typeCode: typeCodeMap[t],
+                            amount,
+                            id,
+                            parsed,
+                        });
+                    }
+
+                    events.sort((a, b) => {
+                        if (a.tsMin !== b.tsMin) return a.tsMin - b.tsMin;
+                        return a.id.localeCompare(b.id);
+                    });
+
+                    writeVarUint(deviceKeys.length, out);
+                    for (const key of deviceKeys) {
+                        const bytes = encoder.encode(key);
+                        writeVarUint(bytes.length, out);
+                        for (const b of bytes) out.push(b);
+                    }
+
+                    const baseTsMin =
+                        events.length > 0
+                            ? events[0].tsMin
+                            : Math.floor(Date.now() / 60000);
+                    writeVarUint(baseTsMin, out);
+                    writeVarUint(events.length, out);
+
+                    let prevTsMin = baseTsMin;
+                    for (const e of events) {
+                        const delta = e.tsMin - prevTsMin;
+                        prevTsMin = e.tsMin;
+                        writeVarUint(delta, out);
+
+                        let flags = e.typeCode & 0x03;
+                        if (e.typeCode !== 2 && e.amount !== 1) flags |= 0x04;
+                        const useStringId =
+                            !e.parsed ||
+                            !deviceKeyToIndex.has(e.parsed.deviceKey);
+                        if (useStringId) flags |= 0x08;
+                        out.push(flags);
+
+                        if ((flags & 0x04) !== 0) {
+                            writeVarUint(e.amount, out);
+                        }
+
+                        if ((flags & 0x08) !== 0) {
+                            const idBytes = encoder.encode(e.id);
+                            writeVarUint(idBytes.length, out);
+                            for (const b of idBytes) out.push(b);
+                        } else {
+                            const deviceIndex = deviceKeyToIndex.get(
+                                e.parsed.deviceKey,
+                            );
+                            writeVarUint(deviceIndex, out);
+                            writeVarUint(e.parsed.seq, out);
+                        }
+                    }
+
+                    return new Uint8Array(out);
+                }
+
+                function resolveUserIdForImport(remote) {
+                    const remoteWalletId =
+                        typeof remote.walletId === "string"
+                            ? remote.walletId
+                            : "";
+                    const remoteUserId =
+                        typeof remote.userId === "string" && remote.userId
+                            ? remote.userId
+                            : "user-" + randomId();
+
+                    let userId = remoteUserId;
+                    if (remoteWalletId) {
+                        const knownUserId =
+                            findUserIdByWalletId(remoteWalletId);
+                        if (knownUserId) {
+                            userId = knownUserId;
+                        } else if (userIdExists(userId)) {
+                            const existingWalletId = walletIdForUserId(userId);
+                            if (existingWalletId !== remoteWalletId) {
+                                const suffix = remoteWalletId
+                                    .slice(0, 4)
+                                    .toLowerCase();
+                                userId = makeUniqueUserId(
+                                    `${userId}-${suffix}`,
+                                );
+                            }
+                        }
+                    }
+                    return userId;
+                }
+
+                function applyImportedTheme(remote) {
+                    if (remote && remote.theme && THEMES[remote.theme]) {
+                        applyTheme(remote.theme);
+                    }
+                }
+
+                function importRemoteWallet(remote) {
+                    const userId = resolveUserIdForImport(remote);
+                    const local = loadWallet(userId);
+                    const mergedEvents = mergeEvents(
+                        local.events,
+                        Array.isArray(remote.events) ? remote.events : [],
+                    );
+                    local.walletId =
+                        (typeof remote.walletId === "string" && remote.walletId
+                            ? remote.walletId
+                            : null) ||
+                        local.walletId ||
+                        randomWalletId();
+                    local.v = remote.v || local.v || 1;
+                    local.events = mergedEvents;
+                    saveWallet(local);
+                    applyImportedTheme(remote);
+                    window.location.hash = "#" + userId;
+                    alert("Getränkedaten importiert ✅");
+                    return userId;
+                }
+
+                async function tryImportFromHash() {
+                    const hash = window.location.hash.slice(1);
+                    if (!hash) return null;
+
+                    try {
+                        if (hash.startsWith("i2u:")) {
+                            const raw = base64UrlDecodeBytes(hash.slice(4));
+                            const remote = decodeImportV2Bytes(raw);
+                            return importRemoteWallet(remote);
+                        }
+                        if (hash.startsWith("i2:")) {
+                            const compressed = base64UrlDecodeBytes(
+                                hash.slice(3),
+                            );
+                            const raw = await gzipDecompress(compressed);
+                            const remote = decodeImportV2Bytes(raw);
+                            return importRemoteWallet(remote);
+                        }
+                        if (hash.startsWith("import:")) {
+                            const payload = base64UrlDecode(hash.slice(7));
+                            const remote = safeParse(payload);
+                            if (!remote || typeof remote !== "object") {
+                                throw new Error("Invalid import payload");
+                            }
+                            return importRemoteWallet(remote);
+                        }
+                        return null;
                     } catch (e) {
-                        alert("Import fehlgeschlagen ❌");
+                        const msg =
+                            hash.startsWith("i2:") &&
+                            typeof DecompressionStream === "undefined"
+                                ? "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON."
+                                : "Import fehlgeschlagen ❌";
+                        alert(msg);
                         window.location.hash = "";
                         return null;
                     }
                 }
 
-                function ensureUserId() {
-                    let userId = tryImportFromHash();
-                    if (userId) return userId;
+                async function ensureUserId() {
+                    const imported = await tryImportFromHash();
+                    if (imported) return imported;
 
-                    userId = getUserIdFromHash();
+                    let userId = getUserIdFromHash();
                     if (!userId) {
                         userId = "user-" + randomId();
                         window.location.hash = "#" + userId;
@@ -487,13 +1038,8 @@
 
                 function newEvent(wallet, type, n) {
                     return {
-                        id:
-                            wallet.deviceId +
-                            "-" +
-                            Date.now().toString(36) +
-                            "-" +
-                            Math.random().toString(16).slice(2),
-                        t: type, // 'd' = drink, 's' = subtract, 'p' = paid
+                        id: nextEventId(wallet),
+                        t: type, // 'd' = drink, 's' = subtract, 'p' = paid, 'g' = credit
                         n: typeof n === "number" ? n : undefined,
                         ts: Date.now(),
                     };
@@ -607,7 +1153,7 @@
                     return result;
                 }
 
-                document.addEventListener("DOMContentLoaded", () => {
+                document.addEventListener("DOMContentLoaded", async () => {
                     const elUid = document.getElementById("uid");
                     const elTotal = document.getElementById("total");
                     const elUnpaid = document.getElementById("unpaid");
@@ -640,6 +1186,8 @@
                         document.getElementById("export-options");
                     const btnExportLink =
                         document.getElementById("btn-export-link");
+                    const btnExportLinkQr =
+                        document.getElementById("btn-export-link-qr");
                     const btnExportJson =
                         document.getElementById("btn-export-json");
                     const btnReset = document.getElementById("btn-reset");
@@ -658,7 +1206,7 @@
 
                     initThemeSelector();
 
-                    const userId = ensureUserId();
+                    const userId = await ensureUserId();
                     let wallet = loadWallet(userId);
                     saveWallet(wallet);
 
@@ -743,7 +1291,7 @@
                             }
                         }
 
-                        // Beim Wechsel auf Diagramm oder Historie immer auf "aktuellen User" für Raw zurücksetzen
+                        // Beim Wechsel auf Diagramm oder Historie immer auf "diese:n Nutzer:in" für Raw zurücksetzen
                         if (mode !== "raw") {
                             setRawScope("current");
                         }
@@ -1036,6 +1584,7 @@
                             const theme = getStoredTheme();
                             const payload = JSON.stringify({
                                 userId: wallet.userId,
+                                walletId: wallet.walletId,
                                 v: wallet.v,
                                 events: wallet.events,
                                 theme,
@@ -1053,11 +1602,44 @@
                         });
                     }
 
+                    if (btnExportLinkQr) {
+                        btnExportLinkQr.addEventListener("click", async () => {
+                            const theme = getStoredTheme();
+                            const raw = encodeImportV2Bytes(wallet, theme);
+
+                            let url = "";
+                            try {
+                                const compressed = await gzipCompress(raw);
+                                const token = base64UrlEncodeBytes(compressed);
+                                url =
+                                    window.location.origin +
+                                    window.location.pathname +
+                                    "#i2:" +
+                                    token;
+                            } catch (e) {
+                                const token = base64UrlEncodeBytes(raw);
+                                url =
+                                    window.location.origin +
+                                    window.location.pathname +
+                                    "#i2u:" +
+                                    token;
+                                alert(
+                                    "Hinweis: Ohne Kompression kann der QR-Link zu lang sein.\nFalls das scannen nicht klappt, nutze den klassischen Export-Link oder JSON.",
+                                );
+                            }
+
+                            elExportUrl.value = url;
+                            elExportUrl.focus();
+                            elExportUrl.select();
+                        });
+                    }
+
                     if (btnExportJson) {
                         btnExportJson.addEventListener("click", () => {
                             const theme = getStoredTheme();
                             const data = {
                                 userId: wallet.userId,
+                                walletId: wallet.walletId,
                                 deviceId: wallet.deviceId,
                                 v: wallet.v,
                                 events: wallet.events,
@@ -1098,10 +1680,13 @@
                         )
                             return;
                         localStorage.removeItem(STORAGE_PREFIX + wallet.userId);
+                        localStorage.removeItem(wallet.userId);
                         wallet = {
                             userId: wallet.userId,
-                            deviceId: randomId(),
+                            walletId: wallet.walletId || randomWalletId(),
+                            deviceId: wallet.deviceId || randomId(),
                             v: 1,
+                            seq: {},
                             events: [],
                         };
                         saveWallet(wallet);
