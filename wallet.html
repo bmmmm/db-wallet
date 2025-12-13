@@ -1481,22 +1481,85 @@
                         }
                     }
 
-                    const QR_CACHE_PREFIX = "db-wallet:qr:";
+                    const QR_SESSION_CACHE_PREFIX = "db-wallet:qr-session:";
 
-                    function qrCacheKey() {
+                    function qrSessionCacheKey() {
                         const id =
                             wallet && typeof wallet.walletId === "string"
                                 ? wallet.walletId
                                 : wallet && typeof wallet.userId === "string"
                                   ? wallet.userId
                                   : "unknown";
-                        return QR_CACHE_PREFIX + id;
+                        return QR_SESSION_CACHE_PREFIX + id;
                     }
 
-                    function storeLastQrUrl(url) {
+                    function getQrSessionFingerprint() {
+                        let updated = 0;
+                        try {
+                            const reg = loadRegistry();
+                            const entry =
+                                reg &&
+                                wallet &&
+                                typeof wallet.userId === "string" &&
+                                reg[wallet.userId];
+                            if (
+                                entry &&
+                                typeof entry.lastUpdated === "number" &&
+                                Number.isFinite(entry.lastUpdated)
+                            ) {
+                                updated = entry.lastUpdated;
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+                        const theme = getStoredTheme() || "";
+                        const walletId =
+                            wallet && typeof wallet.walletId === "string"
+                                ? wallet.walletId
+                                : "";
+                        const v =
+                            wallet && typeof wallet.v === "number"
+                                ? wallet.v
+                                : 1;
+                        return `${walletId}|${v}|${updated}|${theme}`;
+                    }
+
+                    function loadCachedQrUrl() {
+                        try {
+                            if (
+                                typeof sessionStorage === "undefined" ||
+                                !sessionStorage
+                            ) {
+                                return "";
+                            }
+                            const raw =
+                                sessionStorage.getItem(qrSessionCacheKey());
+                            if (!raw) return "";
+                            const obj = safeParse(raw);
+                            if (!obj || typeof obj !== "object") return "";
+                            if (obj.f !== getQrSessionFingerprint()) return "";
+                            return typeof obj.url === "string" ? obj.url : "";
+                        } catch (e) {
+                            return "";
+                        }
+                    }
+
+                    function storeCachedQrUrl(url) {
                         if (!url) return;
                         try {
-                            localStorage.setItem(qrCacheKey(), url);
+                            if (
+                                typeof sessionStorage === "undefined" ||
+                                !sessionStorage
+                            ) {
+                                return;
+                            }
+                            sessionStorage.setItem(
+                                qrSessionCacheKey(),
+                                JSON.stringify({
+                                    f: getQrSessionFingerprint(),
+                                    url,
+                                }),
+                            );
                         } catch (e) {
                             // ignore storage errors
                         }
@@ -1670,7 +1733,7 @@
                             qrHint.textContent = `Tippen: QR=Download • Link=Kopieren • QR v${qr.version} (L) • ${url.length} Zeichen`;
                         }
                         lastQrUrl = url;
-                        storeLastQrUrl(url);
+                        storeCachedQrUrl(url);
                         if (qrUrl) {
                             qrUrl.value = url;
                             selectQrUrl();
@@ -1759,6 +1822,15 @@
 
                     async function showQrExport() {
                         clearQr();
+                        const cached = loadCachedQrUrl();
+                        if (cached) {
+                            try {
+                                renderQrCode(cached);
+                                return;
+                            } catch (e) {
+                                clearQr();
+                            }
+                        }
                         let attempts = 0;
                         while (attempts < 2) {
                             attempts++;
