@@ -128,8 +128,9 @@
         <section id="theme-section">
             <h2>Theme auswählen</h2>
             <p class="theme-note">
-                Fünf dunkle Pastell-Themes, wähle per Name: Nord Glow, Cyan
-                Mist, Lilac Carbon, Teal Ember, Slate Sunrise. Vorschau:
+                Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name: Lilac
+                Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach Cloud.
+                Vorschau:
                 <a href="colors.html">colors.html</a>
             </p>
             <div class="theme-buttons" id="theme-buttons"></div>
@@ -140,26 +141,6 @@
         <script>
             (function () {
                 const THEMES = {
-                    "Nord Glow": {
-                        bg: "#111827",
-                        panel: "#162131",
-                        border: "#1f2c40",
-                        accent: "#9cd6ff",
-                        "accent-strong": "#7bc3ff",
-                        text: "#e9f0fb",
-                        muted: "#bfc9dc",
-                        danger: "#f19da0",
-                    },
-                    "Cyan Mist": {
-                        bg: "#0f1b24",
-                        panel: "#142330",
-                        border: "#1c3042",
-                        accent: "#8be5ff",
-                        "accent-strong": "#68d2ff",
-                        text: "#e6f5ff",
-                        muted: "#b8c9d9",
-                        danger: "#ffb0b8",
-                    },
                     "Lilac Carbon": {
                         bg: "#121322",
                         panel: "#181a2b",
@@ -189,6 +170,26 @@
                         text: "#f7f1e7",
                         muted: "#d2c7ba",
                         danger: "#ffb4a2",
+                    },
+                    "Paper Mint": {
+                        bg: "#f2f7f5",
+                        panel: "#e7f1ee",
+                        border: "#c9d9d2",
+                        accent: "#6dd5c6",
+                        "accent-strong": "#3fbfae",
+                        text: "#12201d",
+                        muted: "#486661",
+                        danger: "#d98286",
+                    },
+                    "Peach Cloud": {
+                        bg: "#faf3ee",
+                        panel: "#f2e7df",
+                        border: "#dccdc1",
+                        accent: "#f3b28d",
+                        "accent-strong": "#e69061",
+                        text: "#231913",
+                        muted: "#6a5348",
+                        danger: "#d86f6f",
                     },
                 };
 
@@ -431,6 +432,8 @@
                     "Lilac Carbon",
                     "Teal Ember",
                     "Slate Sunrise",
+                    "Paper Mint",
+                    "Peach Cloud",
                 ];
 
                 const DEVICE_KEY_STORAGE = "db-wallet:device";
@@ -1426,6 +1429,27 @@
                         }
                     }
 
+                    const QR_CACHE_PREFIX = "db-wallet:qr:";
+
+                    function qrCacheKey() {
+                        const id =
+                            wallet && typeof wallet.walletId === "string"
+                                ? wallet.walletId
+                                : wallet && typeof wallet.userId === "string"
+                                  ? wallet.userId
+                                  : "unknown";
+                        return QR_CACHE_PREFIX + id;
+                    }
+
+                    function storeLastQrUrl(url) {
+                        if (!url) return;
+                        try {
+                            localStorage.setItem(qrCacheKey(), url);
+                        } catch (e) {
+                            // ignore storage errors
+                        }
+                    }
+
                     function clearQr() {
                         lastQrUrl = "";
                         if (qrBox) qrBox.style.display = "none";
@@ -1433,6 +1457,9 @@
                         if (qrCanvas) {
                             qrCanvas.width = 0;
                             qrCanvas.height = 0;
+                        }
+                        if (elExportUrl) {
+                            elExportUrl.style.display = "";
                         }
                     }
 
@@ -1546,13 +1573,40 @@
                             Math.max(220, window.innerWidth - 48),
                         );
                         const scale = Math.max(2, Math.floor(maxPx / modules));
-                        qr.drawCanvas(scale, border, qrCanvas);
+
+                        const size = qr.size;
+                        const dim = (size + border * 2) * scale;
+                        qrCanvas.width = dim;
+                        qrCanvas.height = dim;
+                        const ctx = qrCanvas.getContext("2d");
+                        if (!ctx) throw new Error("Canvas context missing");
+                        ctx.imageSmoothingEnabled = false;
+                        ctx.fillStyle = "#ffffff";
+                        ctx.fillRect(0, 0, dim, dim);
+                        ctx.fillStyle = "#000000";
+                        for (let y = 0; y < size; y++) {
+                            for (let x = 0; x < size; x++) {
+                                if (qr.getModule(x, y)) {
+                                    ctx.fillRect(
+                                        (x + border) * scale,
+                                        (y + border) * scale,
+                                        scale,
+                                        scale,
+                                    );
+                                }
+                            }
+                        }
 
                         if (qrBox) qrBox.style.display = "flex";
                         if (qrHint) {
                             qrHint.textContent = `Tippen zum Download • QR v${qr.version} (L) • ${url.length} Zeichen`;
                         }
                         lastQrUrl = url;
+                        storeLastQrUrl(url);
+                        if (elExportUrl) {
+                            elExportUrl.value = "";
+                            elExportUrl.style.display = "none";
+                        }
                     }
 
                     function downloadQrPng(url) {
@@ -1563,7 +1617,28 @@
                         const border = 4;
                         const scale = 10;
                         const canvas = document.createElement("canvas");
-                        qr.drawCanvas(scale, border, canvas);
+                        const size = qr.size;
+                        const dim = (size + border * 2) * scale;
+                        canvas.width = dim;
+                        canvas.height = dim;
+                        const ctx = canvas.getContext("2d");
+                        if (!ctx) return;
+                        ctx.imageSmoothingEnabled = false;
+                        ctx.fillStyle = "#ffffff";
+                        ctx.fillRect(0, 0, dim, dim);
+                        ctx.fillStyle = "#000000";
+                        for (let y = 0; y < size; y++) {
+                            for (let x = 0; x < size; x++) {
+                                if (qr.getModule(x, y)) {
+                                    ctx.fillRect(
+                                        (x + border) * scale,
+                                        (y + border) * scale,
+                                        scale,
+                                        scale,
+                                    );
+                                }
+                            }
+                        }
 
                         const date = todayDateStr();
                         const safeUserId = String(
@@ -1618,14 +1693,11 @@
                             let url = "";
                             try {
                                 url = await buildQrUrl();
-                                elExportUrl.value = url;
-                                elExportUrl.focus();
-                                elExportUrl.select();
                                 renderQrCode(url);
                                 return;
                             } catch (e) {
                                 clearQr();
-                                elExportUrl.value = url || elExportUrl.value;
+                                console.error("QR export failed", e);
 
                                 const msg = String(
                                     e && e.message ? e.message : e || "",
