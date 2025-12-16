@@ -1,0 +1,59 @@
+:root[data-theme="Lilac Carbon"],
+.palette[data-scheme="lilac-carbon"] {
+    --bg: #121322;
+    --panel: #181a2b;
+    --border: #242842;
+    --accent: #c7b6ff;
+    --accent-strong: #b59bff;
+    --text: #f0edff;
+    --muted: #c5c2d8;
+    --danger: #f7a3c0;
+}
+
+:root[data-theme="Teal Ember"],
+.palette[data-scheme="teal-ember"] {
+    --bg: #10201f;
+    --panel: #142826;
+    --border: #1b3531;
+    --accent: #8df0d1;
+    --accent-strong: #6be8c0;
+    --text: #e9fff8;
+    --muted: #b5d6cb;
+    --danger: #ffb3a4;
+}
+
+:root[data-theme="Slate Sunrise"],
+.palette[data-scheme="slate-sunrise"] {
+    --bg: #141b24;
+    --panel: #1a2430;
+    --border: #243244;
+    --accent: #f2c18f;
+    --accent-strong: #f0ae69;
+    --text: #f7f1e7;
+    --muted: #d2c7ba;
+    --danger: #ffb4a2;
+}
+
+:root[data-theme="Paper Mint"],
+.palette[data-scheme="paper-mint"] {
+    --bg: #f2f7f5;
+    --panel: #e7f1ee;
+    --border: #c9d9d2;
+    --accent: #6dd5c6;
+    --accent-strong: #3fbfae;
+    --text: #12201d;
+    --muted: #486661;
+    --danger: #d98286;
+}
+
+:root[data-theme="Peach Cloud"],
+.palette[data-scheme="peach-cloud"] {
+    --bg: #faf3ee;
+    --panel: #f2e7df;
+    --border: #dccdc1;
+    --accent: #f3b28d;
+    --accent-strong: #e69061;
+    --text: #231913;
+    --muted: #6a5348;
+    --danger: #d86f6f;
+}

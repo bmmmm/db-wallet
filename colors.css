@@ -1,0 +1,307 @@
+:root {
+    color-scheme: dark;
+    font-family:
+        "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+    --ui-bg: #0c1119;
+    --ui-panel: #101828;
+    --ui-border: #1c2434;
+    --ui-muted: #a4afc3;
+    --ui-text: #e8ecf4;
+    --ui-shadow: 0 16px 30px rgba(0, 0, 0, 0.38);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background:
+        radial-gradient(
+            circle at 18% 15%,
+            rgba(158, 197, 255, 0.12),
+            transparent 35%
+        ),
+        radial-gradient(
+            circle at 82% 8%,
+            rgba(127, 184, 255, 0.12),
+            transparent 36%
+        ),
+        var(--ui-bg);
+    color: var(--ui-text);
+    min-height: 100vh;
+    padding: 1.8rem 1.4rem 2.6rem;
+}
+
+h1 {
+    margin: 0 0 1rem;
+    text-align: center;
+    font-size: 1.6rem;
+    letter-spacing: 0.04em;
+}
+
+.intro {
+    max-width: 820px;
+    margin: 0 auto 1.2rem;
+    color: var(--ui-muted);
+    text-align: center;
+    line-height: 1.6;
+}
+
+main {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1rem;
+}
+
+.palette {
+    background: var(--ui-panel);
+    border: 1px solid var(--ui-border);
+    border-radius: 14px;
+    padding: 1rem;
+    box-shadow: var(--ui-shadow);
+    display: flex;
+    flex-direction: column;
+}
+
+.palette-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.palette-name {
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: 0.02em;
+}
+
+.palette-tag {
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--ui-border);
+    background: #0c1421;
+    color: var(--ui-muted);
+    font-size: 0.9rem;
+}
+
+.color-bar {
+    height: 10px;
+    border-radius: 999px;
+    border: 1px solid var(--ui-border);
+    margin: 0.7rem 0 0.4rem;
+    background: linear-gradient(
+        to right,
+        var(--bg) 0%,
+        var(--bg) 12.5%,
+        var(--panel) 12.5%,
+        var(--panel) 25%,
+        var(--border) 25%,
+        var(--border) 37.5%,
+        var(--accent) 37.5%,
+        var(--accent) 50%,
+        var(--accent-strong) 50%,
+        var(--accent-strong) 62.5%,
+        var(--text) 62.5%,
+        var(--text) 75%,
+        var(--muted) 75%,
+        var(--muted) 87.5%,
+        var(--danger) 87.5%,
+        var(--danger) 100%
+    );
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+.swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.55rem;
+    margin: 0.75rem 0 0.8rem;
+}
+
+.swatch {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.55rem 0.6rem;
+    border-radius: 10px;
+    background: #0d1320;
+    border: 1px solid var(--ui-border);
+    min-height: 64px;
+}
+
+.swatch .chip {
+    width: 50px;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--color);
+    border: 1px solid rgba(0, 0, 0, 0.35);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+}
+
+.swatch .meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+}
+
+.swatch .token {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ui-muted);
+}
+
+.swatch .value {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--ui-text);
+}
+
+.sample {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.85rem;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+    margin-top: 0.65rem;
+}
+
+.sample .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.85rem;
+}
+
+.sample-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.sample-title {
+    margin: 0;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.sample-muted {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.sample-buttons {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin: 0.6rem 0 0.4rem;
+}
+
+.sample button {
+    padding: 0.45rem 0.75rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: linear-gradient(135deg, var(--panel), var(--bg));
+    color: var(--text);
+    cursor: pointer;
+    transition:
+        transform 120ms ease,
+        box-shadow 120ms ease,
+        border-color 120ms ease;
+}
+
+.sample button:hover {
+    border-color: var(--accent);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.4);
+    transform: translateY(-1px);
+}
+
+.sample button:active {
+    transform: translateY(0);
+}
+
+.sample .accent-btn {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+}
+
+.sample .danger-pill {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.sample-row {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.pill {
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+}
+
+.pill.accent-pill {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.pill.danger-pill {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.sample-fields {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    margin: 0.65rem 0;
+}
+
+.sample input {
+    padding: 0.5rem 0.65rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #0d1320;
+    color: var(--text);
+    width: 100%;
+    max-width: 240px;
+}
+
+.sample input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+}
+
+.sample-text {
+    margin: 0.25rem 0 0;
+    color: var(--text);
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.sample-text .accent {
+    color: var(--accent-strong);
+}
+
+.sample-text .danger {
+    color: var(--danger);
+}
+
+.legend {
+    font-size: 0.85rem;
+    color: var(--ui-muted);
+    margin-top: 0.5rem;
+}

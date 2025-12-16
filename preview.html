@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>db-wallet – Vorschau (Read-Only)</title>
+        <link rel="icon" href="data:," />
+        <link rel="stylesheet" href="style.css" />
+        <link rel="stylesheet" href="themes.css" />
+        <script src="theme.js"></script>
+    </head>
+    <body data-page="preview">
+        <h1>Vorschau (Read-Only)</h1>
+
+        <div class="top-row">
+            <div>
+                <span id="wallet-version">v–</span> Nutzer:in:
+                <strong id="uid">–</strong>
+                <small style="color: var(--muted)">(nicht gespeichert)</small>
+            </div>
+            <button id="btn-exit">Beenden</button>
+        </div>
+
+        <div class="stat-panel">
+            <div class="stat">
+                Gesamt getrunken:<br /><strong id="total">0</strong>
+            </div>
+            <div class="stat">
+                Offen seit letzter Zahlung:<br /><strong id="unpaid">0</strong>
+            </div>
+            <div class="stat">
+                Guthaben:<br /><strong id="credit">0</strong>
+            </div>
+        </div>
+
+        <div class="wallet-actions">
+            <pre id="history">Lade Vorschau…</pre>
+        </div>
+
+        <script src="import-preview.js"></script>
+    </body>
+</html>

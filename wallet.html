@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="de">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>db-wallet – Getränke</title>
+        <link rel="icon" href="data:," />
+        <link rel="stylesheet" href="style.css" />
+        <link rel="stylesheet" href="themes.css" />
+        <script src="theme.js"></script>
+        <script src="import-preview.js"></script>
+    </head>
+    <body>
+        <h1>dein Getränke-Wallet 🥤</h1>
+
+        <div class="top-row">
+            <div>
+                <span id="wallet-version">v1</span> Nutzer:in:
+                <strong id="uid"></strong>
+            </div>
+            <button id="btn-migrate" style="display: none">
+                Auf v2 migrieren
+            </button>
+            <button id="btn-home">Zur Startseite 🏠</button>
+            <button id="btn-info">Info ℹ️</button>
+        </div>
+        <details id="action-codes-panel" class="action-codes-panel">
+            <summary class="action-codes-summary">Action Codes</summary>
+            <div id="action-codes-body" class="action-codes-body"></div>
+        </details>
+        <div class="stat-panel">
+            <div class="stat">
+                Gesamt getrunken:<br /><strong id="total">0</strong>
+            </div>
+            <div class="stat">
+                Offen seit letzter Zahlung:<br /><strong id="unpaid">0</strong>
+            </div>
+            <div class="stat">
+                Guthaben:<br /><strong id="credit">0</strong>
+            </div>
+        </div>
+
+        <details id="wallet-actions-panel" class="wallet-actions-panel" open>
+            <summary class="wallet-actions-summary">
+                Getränke-Management
+            </summary>
+            <div class="wallet-actions">
+                <label for="amount">Menge (Getränke):</label>
+                <input id="amount" type="number" min="1" value="1" />
+
+                <div class="action-buttons">
+                    <button id="btn-drink">+ Trinken 🥤</button>
+                    <button
+                        id="btn-undo"
+                        title="Letzte Buchung rückgängig machen"
+                    >
+                        ↩️ Rückgängig
+                    </button>
+                    <button id="btn-pay">Bezahlen 💸</button>
+                </div>
+                <div id="pay-options" class="pay-options" style="display: none">
+                    <button id="btn-pay-today">heute bezahlen 💰</button>
+                    <button id="btn-credit">Guthaben aufladen 💰</button>
+                    <button id="btn-pay-cancel">Bezahlen abbrechen</button>
+                </div>
+
+                <!-- Ausgabe-Modus -->
+                <div>
+                    <span class="history-mode-label">Ausgabe:</span>
+                    <button id="mode-diagram" class="mode-btn active">
+                        Diagramm 📊
+                    </button>
+                    <button id="mode-log" class="mode-btn">Historie 📜</button>
+                    <button id="mode-raw" class="mode-btn">Raw-Log 🛠️</button>
+                </div>
+
+                <div class="raw-toggle">
+                    Raw-Log für:
+                    <button
+                        id="raw-scope-current"
+                        class="raw-toggle-btn active"
+                    >
+                        diese:n Nutzer:in
+                    </button>
+                    <button id="raw-scope-all" class="raw-toggle-btn">
+                        alle Nutzer:innen
+                    </button>
+                </div>
+
+                <!-- Log-Bearbeitung -->
+                <div id="log-tools">
+                    <label>
+                        <input type="checkbox" id="log-edit-toggle" />
+                        Bearbeitungsfunktionen anzeigen
+                    </label>
+                    <div id="log-edit-group">
+                        <label for="delete-range">
+                            Log-Aktions-IDs:
+                            <small
+                                >(Bearbeiten: genau eine ID, Löschen: mehrere
+                                IDs/Ranges, z. B. 1,3,5-7)</small
+                            >
+                        </label>
+                        <input
+                            id="delete-range"
+                            type="text"
+                            placeholder="IDs aus der Historie-Ansicht eingeben …"
+                        />
+                        <br />
+                        <button id="btn-edit-entry">
+                            Ausgewählten Eintrag bearbeiten ✏️
+                        </button>
+                        <button id="btn-selection-delete">
+                            Ausgewählte Einträge löschen 🧹
+                        </button>
+                        <button id="btn-reset">
+                            Alle Daten für diese:n Nutzer:in löschen 🗑️
+                        </button>
+                    </div>
+                </div>
+
+                <pre id="history">Noch keine Drinks geloggt. ✨</pre>
+            </div>
+        </details>
+
+        <div class="wallet-export">
+            <!-- Export-Bereich -->
+            <button id="btn-export">Export</button>
+            <span id="export-options" style="display: none">
+                <button id="btn-export-link">Export-Link (klassisch) 🔗</button>
+                <button id="btn-export-link-qr">
+                    QR-Code (kurz) anzeigen 📱
+                </button>
+                <button id="btn-export-json">Als JSON herunterladen 📄</button>
+            </span>
+            <input
+                id="export-url"
+                readonly
+                placeholder="Hier erscheint dein Export-Link"
+                style="display: none"
+            />
+            <div id="qr-box" class="qr-box" style="display: none">
+                <div class="qr-hint" id="qr-hint"></div>
+                <canvas id="qr-canvas"></canvas>
+                <input
+                    id="qr-url"
+                    type="text"
+                    readonly
+                    inputmode="none"
+                    aria-label="QR-Code Link"
+                />
+            </div>
+        </div>
+
+        <hr />
+
+        <details id="theme-panel" class="theme-panel">
+            <summary class="theme-summary">
+                Theme: <span id="current-theme-name">Lilac Carbon</span>
+            </summary>
+            <section id="theme-section">
+                <h2>Theme auswählen</h2>
+                <p class="theme-note">
+                    Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name:
+                    Lilac Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach
+                    Cloud. Vorschau:
+                    <a href="colors.html">colors.html</a>
+                </p>
+                <div class="theme-buttons" id="theme-buttons"></div>
+            </section>
+        </details>
+
+        <script src="qrcodegen.js"></script>
+        <script src="migration.js"></script>
+        <script src="action-codes.js"></script>
+        <script src="wallet-helpers.js"></script>
+        <script src="wallet-storage.js"></script>
+        <script src="wallet-import-v2.js"></script>
+        <script src="wallet-summary.js"></script>
+        <script src="wallet-sync.js"></script>
+        <script src="./wallet-device-ui.js"></script>
+        <script src="./wallet-sync-ui.js"></script>
+        <script src="./wallet-export-ui.js"></script>
+        <script src="./wallet-history-ui.js"></script>
+        <script src="wallet-ui.js"></script>
+    </body>
+</html>

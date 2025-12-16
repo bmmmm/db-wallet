@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="de">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>db-wallet – Start</title>
+        <link rel="icon" href="data:," />
+        <link rel="stylesheet" href="style.css" />
+        <link rel="stylesheet" href="themes.css" />
+        <script src="theme.js"></script>
+        <script src="import-preview.js"></script>
+    </head>
+    <body>
+        <h1>db-wallet</h1>
+        <button id="btn-info">Info ℹ️</button>
+
+        <section>
+            <h2>Neue:n Nutzer:in anlegen</h2>
+            <p>
+                Nutzer:in-Namen eingeben oder leer lassen, um einen zufälligen
+                Namen zu erhalten.
+            </p>
+            <input
+                id="username"
+                type="text"
+                placeholder="z. B. peter, kueche, clubraum …"
+            />
+            <button id="btn-start">Weiter</button>
+        </section>
+
+        <hr />
+
+        <section id="existing-users-section">
+            <h2>Vorhandene Nutzer:innen</h2>
+            <div id="existing-users"></div>
+            <br />
+            <button id="btn-search-users">
+                Nach lokalen Nutzer:innen suchen 🔍
+            </button>
+        </section>
+
+        <hr />
+
+        <section>
+            <h2>Import &amp; Rohdaten</h2>
+            <button id="btn-import-json">JSON importieren 📄</button>
+            <input
+                id="file-import"
+                type="file"
+                accept="application/json"
+                style="display: none"
+            />
+            <button id="btn-raw-all">Alle Raw-Daten anzeigen 🧾</button>
+            <button id="btn-nuke-all">
+                Alle lokalen Nutzer:innen löschen 💣
+            </button>
+            <pre id="raw-output"></pre>
+        </section>
+
+        <hr />
+
+        <section id="theme-section">
+            <h2>Theme auswählen</h2>
+            <p class="theme-note">
+                Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name: Lilac
+                Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach Cloud.
+                Vorschau:
+                <a href="colors.html">colors.html</a>
+            </p>
+            <div class="theme-buttons" id="theme-buttons"></div>
+        </section>
+
+        <script src="wallet-helpers.js"></script>
+        <script src="wallet-storage.js"></script>
+        <script src="wallet-summary.js"></script>
+        <script src="action-codes.js"></script>
+        <script src="wallet-import-v2.js"></script>
+        <script src="index-ui.js"></script>
+    </body>
+</html>
