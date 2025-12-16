@@ -136,12 +136,31 @@ Hinweis: `wallet.html` lädt diese Dateien vor `wallet-ui.js`.
 | [`qrcodegen.js`](./qrcodegen.js)               | QR-Code-Generator (Nayuki)                                                |
 | [`migration.js`](./migration.js)               | Migration v1 → v2 (für QR-Export)                                         |
 
-## Deployment (Beispiel)
+## Deployment (statisch, „Pages“-Style)
 
-So läuft das GitHub-Pages-Setup im Original-Repo; für Forks einfach anpassen:
+db-wallet ist eine reine Static-Webapp (HTML/CSS/JS) und kann auf vielen
+Open-Source-freundlichen „Pages“-Diensten deployed werden.
 
-1. Repo pushen.
-2. GitHub: Settings → Pages → Deploy from branch → main / root.
-3. Fertig – Beispiel-URL: https://bmmmm.github.io/db-wallet/
+### Hosted „Pages“-Dienste (GitHub-Pages-ähnlich)
+
+- **Codeberg Pages** (Forgejo-basiert): https://codeberg.page/
+- **GitLab Pages** (gitlab.com oder self-hosted GitLab): https://docs.gitlab.com/ee/user/project/pages/
+
+### Self-hosted (Forgejo / Gitea)
+
+Forgejo/Gitea bringen üblicherweise kein integriertes „Pages“-Feature wie GitHub/GitLab mit.
+Typischer Setup:
+
+1. Repo in **Forgejo** (https://forgejo.org/) oder **Gitea** (https://about.gitea.com/)
+2. CI (Forgejo Actions / Woodpecker / Drone) baut die Static Site (falls nötig)
+3. Deploy auf einen separaten Static Host (z. B. Nginx/Caddy oder S3/MinIO)
+
+Tipp: Wenn du keinen Build brauchst, reicht auch simples Hosting des Repo-Roots als Static-Verzeichnis.
+
+Es sind **keine** Build-Schritte, **keine** Server-Komponenten und **keine**
+API-Keys notwendig.
+
+Beispiel-URL (GitHub Pages):  
+https://bmmmm.github.io/db-wallet/
 
 Viel Spaß mit deinem minimalistischen, schnellen Getränke-Wallet 🍹🚀
