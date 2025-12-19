@@ -27,7 +27,8 @@ sich per Export/Import zwischen Geräten übertragen.
 - Korrigieren: Getränke zurücknehmen, solange Guthaben/Offen passt.
 - Bezahlen: Offene Getränke ausgleichen; Zahlungen sichtbar im Log.
 - Guthaben: Gutschriften aufladen und abbauen wie Vorrat.
-- Historie: Diagramm, Log mit IDs/Ranges, Raw-Daten pro Nutzer:in/alle.
+- Historie: Diagramm (inkl. Tages-Drinkcount in `[n]`), Log mit IDs/Ranges,
+  Raw-Daten pro Nutzer:in/alle.
 - Verwaltung: Einträge bearbeiten/löschen, Nutzer:innen einzeln oder gesammelt
   löschen.
 - Migration: v1-Wallets können für robusten QR-Export auf v2 migriert werden.
@@ -44,6 +45,7 @@ Action Codes sind wallet-gebundene QR-Links (`#ac:...`), die beim Scannen
 
 Wichtig:
 
+- Verwaltung erfolgt inline per Buttons (New action code, Bearbeiten, Löschen).
 - Action Codes sind an eine Wallet gebunden (Ziel-WalletId steckt im QR).
 - Action Codes können erneuert/rotiert werden: alte QR-Codes werden dann
   **ungültig** und werden beim Einlösen strikt abgelehnt.
@@ -107,8 +109,36 @@ damit agentic coding / Review einfacher ist:
 - `wallet-device-ui.js`: Geräte-Symbol-Picker in der Top-Row (inkl. sichtbarer Device-ID)
 - `wallet-sync-ui.js`: Sync-Status-Zeile (Ampel, Timeline, „✅ passt“)
 - `wallet-export-ui.js`: Export-UI (Link, QR, JSON, QR-Session-Cache)
+- `wallet-history-ui.js`: History-Ansicht (Diagramm/Log/Raw, Log-Tools)
 
 Hinweis: `wallet.html` lädt diese Dateien vor `wallet-ui.js`.
+
+## Architektur (Core vs UI)
+
+Core (Logik/Codec/Storage):
+- `wallet-helpers.js`, `wallet-storage.js`, `wallet-import-v2.js`
+- `wallet-summary.js`, `wallet-sync.js`, `migration.js`
+- `action-codes.js` (Normalisierung, Merge, Hash encode/decode)
+- `hash-router.js` (Hash-Parsing)
+
+UI (DOM + Interaktion):
+- `index-ui.js`, `wallet-ui.js`
+- `wallet-device-ui.js`, `wallet-history-ui.js`, `wallet-export-ui.js`, `wallet-sync-ui.js`
+- `import-preview.js`, `theme.js`
+
+Tools:
+- `self-check.js` (Konsole: `window.dbWalletSelfCheck.run()`)
+
+## Self-Check
+
+Im Browser (z. B. `wallet.html`) in der Konsole ausführen:
+
+```
+window.dbWalletSelfCheck.run()
+```
+
+Der Self-Check prüft u. a. Storage-Roundtrip, Import v2, Migration, Hash-Parsing,
+Summary-Parität und Action-Code-Updates.
 
 ## Dateien
 
@@ -127,6 +157,9 @@ Hinweis: `wallet.html` lädt diese Dateien vor `wallet-ui.js`.
 | [`wallet-summary.js`](./wallet-summary.js)     | Berechnung von Total/Offen/Guthaben/Diagramm (pure)                       |
 | [`wallet-sync.js`](./wallet-sync.js)           | Sync-Status Helfer (Ampel + ASCII-Timeline; lokal)                        |
 | [`action-codes.js`](./action-codes.js)         | Action Codes UI + Hash-Encoding/Decoding                                  |
+| [`wallet-history-ui.js`](./wallet-history-ui.js) | History-UI (Diagramm/Log/Raw, Log-Tools)                                 |
+| [`hash-router.js`](./hash-router.js)           | Hash-Parsing (ac/import/i2/i2u)                                           |
+| [`self-check.js`](./self-check.js)             | In-Browser Self-Check (Konsole)                                           |
 | [`theme.js`](./theme.js)                       | Theme-Logik (Auswahl + Speicherung)                                       |
 | [`import-preview.js`](./import-preview.js)     | Import-Auswahl (persist/preview) + Preview-Flow                           |
 | [`themes.css`](./themes.css)                   | Theme-Paletten (CSS-Variablen)                                            |

@@ -93,6 +93,7 @@
         perDayMap.set(key, {
           date: key,
           drinks: 0,
+          drinkCount: 0,
           paid: false,
         });
       }
@@ -105,6 +106,7 @@
             : 1;
         total += n;
         day.drinks += n;
+        day.drinkCount += n;
         balance += n;
       } else if (e.t === "s") {
         const n =

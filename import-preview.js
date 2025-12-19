@@ -263,7 +263,12 @@
     for (const e of eventsSorted) {
       const key = dayKey(e.ts);
       if (!perDayMap.has(key)) {
-        perDayMap.set(key, { date: key, drinks: 0, paid: false });
+        perDayMap.set(key, {
+          date: key,
+          drinks: 0,
+          drinkCount: 0,
+          paid: false,
+        });
       }
       const day = perDayMap.get(key);
 
@@ -274,6 +279,7 @@
             : 1;
         total += n;
         day.drinks += n;
+        day.drinkCount += n;
         balance += n;
       } else if (e.t === "s") {
         const n =
@@ -413,9 +419,15 @@
           .slice()
           .reverse()
           .map((d) => {
+            const drinkCount =
+              typeof d.drinkCount === "number" && Number.isFinite(d.drinkCount)
+                ? d.drinkCount
+                : typeof d.drinks === "number" && Number.isFinite(d.drinks)
+                  ? Math.max(0, Math.round(d.drinks))
+                  : 0;
             const bar = "#".repeat(Math.min(d.drinks, 50));
             const paidMark = d.paid ? " 💰" : "";
-            return `${d.date}${paidMark} | ${bar}`;
+            return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
           });
         elHistory.textContent = lines.join("\n");
       }

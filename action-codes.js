@@ -92,6 +92,62 @@
     return t === "d" ? "d" : "g";
   }
 
+  function defaultLabelForType(type, amount) {
+    const amountValue = normalizeAmount(amount);
+    const normalizedType = normalizeType(type);
+    return normalizedType === "d"
+      ? `Drink +${amountValue}`
+      : `Guthaben +${amountValue}`;
+  }
+
+  function rotateActionCodeKey(code, now = Date.now()) {
+    if (!code || typeof code !== "object") return;
+    code.key = randomToken(18);
+    code.updatedAt = now;
+    if (!code.createdAt) code.createdAt = code.updatedAt;
+  }
+
+  function buildActionCode(data, now = Date.now()) {
+    const type = normalizeType(data && data.type);
+    const amount = normalizeAmount(data && data.amount);
+    const labelRaw = data && typeof data.label === "string" ? data.label : "";
+    const label =
+      String(labelRaw || "").trim() || defaultLabelForType(type, amount);
+    return {
+      id: randomToken(10),
+      label,
+      amount,
+      type,
+      key: randomToken(18),
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  function applyActionCodeEdits(code, updates, now = Date.now()) {
+    if (!code || typeof code !== "object") return false;
+    const nextAmount = normalizeAmount(updates && updates.amount);
+    const nextType = normalizeType(updates && updates.type);
+    const nextLabelRaw =
+      updates && typeof updates.label === "string" ? updates.label : "";
+    const nextLabel = String(nextLabelRaw || "").trim() || `+${nextAmount}`;
+    const prevLabel = code.label || "";
+    const changed =
+      nextAmount !== code.amount ||
+      nextType !== code.type ||
+      nextLabel !== prevLabel;
+    code.amount = nextAmount;
+    code.type = nextType;
+    code.label = nextLabel;
+    if (changed) {
+      rotateActionCodeKey(code, now);
+    } else {
+      code.updatedAt = now;
+      if (!code.createdAt) code.createdAt = code.updatedAt;
+    }
+    return true;
+  }
+
   function normalizeActionCode(raw) {
     if (!raw || typeof raw !== "object") return null;
     const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : "";
@@ -349,7 +405,11 @@
 
     if (!container) return { refresh: () => {} };
     let showTrimNotice = false;
+    let showSoftLimitNotice = false;
     let selectedType = "d";
+    let createOpen = false;
+    let editingId = "";
+    let pendingDeleteId = "";
 
     function persistIfChanged(wallet) {
       const current = Array.isArray(wallet && wallet.actionCodes)
@@ -367,78 +427,11 @@
       return getBaseUrl() + "#" + encodeActionHash(payload);
     }
 
-    function rotateKey(code) {
-      code.key = randomToken(18);
-      code.updatedAt = Date.now();
-      if (!code.createdAt) code.createdAt = code.updatedAt;
-    }
+    function buildTypeToggle(initialType, onChange) {
+      let currentType = normalizeType(initialType);
+      const wrapper = document.createElement("div");
+      wrapper.className = "action-code-type-toggle";
 
-    function editCode(code) {
-      const currentLabel =
-        code.label ||
-        `${code.type === "d" ? "Drink" : "Guthaben"} +${code.amount}`;
-      const newLabelRaw = prompt("Name für den Action Code:", currentLabel);
-      if (newLabelRaw === null) return false;
-
-      const amountPrompt =
-        code.type === "d"
-          ? "Wie viele Getränke soll dieser Code als Trinken buchen?"
-          : "Wie viele Getränke soll dieser Code gutschreiben?";
-      const newAmountRaw = prompt(amountPrompt, String(code.amount || 1));
-      if (newAmountRaw === null) return false;
-
-      const nextAmount = normalizeAmount(newAmountRaw);
-      const nextLabel = String(newLabelRaw || "").trim() || `+${nextAmount}`;
-
-      const changed =
-        nextAmount !== code.amount || nextLabel !== (code.label || "");
-      code.amount = nextAmount;
-      code.label = nextLabel;
-      if (changed) {
-        rotateKey(code);
-      } else {
-        code.updatedAt = Date.now();
-      }
-      if (!code.createdAt) code.createdAt = code.updatedAt;
-      return true;
-    }
-
-    function createCode(typeHint) {
-      const type = typeHint === "g" ? "g" : "d";
-      const amountRaw = prompt(
-        "Wie viele Getränke soll der neue Code gutschreiben?",
-        "10",
-      );
-      if (amountRaw === null) return null;
-      const amount = normalizeAmount(amountRaw);
-      const defaultLabel =
-        type === "g" ? `Guthaben +${amount}` : `Drink +${amount}`;
-      const labelRaw = prompt("Name für den Action Code:", defaultLabel);
-      if (labelRaw === null) return null;
-      const label = String(labelRaw || "").trim() || defaultLabel;
-      const now = Date.now();
-      return {
-        id: randomToken(10),
-        label,
-        amount,
-        type,
-        key: randomToken(18),
-        createdAt: now,
-        updatedAt: now,
-      };
-    }
-
-    function refresh() {
-      const wallet = getWallet();
-      if (!wallet) return;
-
-      persistIfChanged(wallet);
-
-      container.innerHTML = "";
-      container.classList.add("action-codes-body-inner");
-
-      const toolbar = document.createElement("div");
-      toolbar.className = "action-codes-toolbar";
       const btnTypeDrink = document.createElement("button");
       btnTypeDrink.type = "button";
       btnTypeDrink.textContent = "🥤 Trinken";
@@ -451,9 +444,67 @@
       btnTypeCredit.className = "mode-btn";
       btnTypeCredit.setAttribute("aria-pressed", "false");
 
+      function sync() {
+        currentType = currentType === "g" ? "g" : "d";
+        const isDrink = currentType === "d";
+        btnTypeDrink.classList.toggle("active", isDrink);
+        btnTypeCredit.classList.toggle("active", !isDrink);
+        btnTypeDrink.setAttribute("aria-pressed", isDrink ? "true" : "false");
+        btnTypeCredit.setAttribute("aria-pressed", isDrink ? "false" : "true");
+      }
+
+      btnTypeDrink.addEventListener("click", () => {
+        currentType = "d";
+        sync();
+        if (onChange) onChange(currentType);
+      });
+      btnTypeCredit.addEventListener("click", () => {
+        currentType = "g";
+        sync();
+        if (onChange) onChange(currentType);
+      });
+
+      sync();
+      wrapper.appendChild(btnTypeDrink);
+      wrapper.appendChild(btnTypeCredit);
+
+      return {
+        el: wrapper,
+        getType: () => currentType,
+        setType: (type) => {
+          currentType = normalizeType(type);
+          sync();
+        },
+      };
+    }
+
+    function refresh() {
+      const wallet = getWallet();
+      if (!wallet) return;
+
+      persistIfChanged(wallet);
+
+      const codes = Array.isArray(wallet.actionCodes) ? wallet.actionCodes : [];
+      if (codes.length < SOFT_LIMIT) showSoftLimitNotice = false;
+      if (editingId && !codes.find((c) => c && c.id === editingId)) {
+        editingId = "";
+      }
+      if (
+        pendingDeleteId &&
+        !codes.find((c) => c && c.id === pendingDeleteId)
+      ) {
+        pendingDeleteId = "";
+      }
+
+      container.innerHTML = "";
+      container.classList.add("action-codes-body-inner");
+
+      const toolbar = document.createElement("div");
+      toolbar.className = "action-codes-toolbar";
+
       const btnAdd = document.createElement("button");
       btnAdd.type = "button";
-      btnAdd.textContent = "+ Code";
+      btnAdd.textContent = "New action code";
       btnAdd.addEventListener("click", () => {
         const walletNow = getWallet();
         if (!walletNow) return;
@@ -461,49 +512,15 @@
         const currentCodes = Array.isArray(walletNow.actionCodes)
           ? walletNow.actionCodes
           : [];
-        const hadNoCodes = currentCodes.length === 0;
         if (currentCodes.length >= SOFT_LIMIT) {
-          alert(
-            "Empfohlen: max. 6 Action Codes. Ab 10 werden automatisch nur die 10 zuletzt aktiven gespeichert (ältere werden entfernt).",
-          );
+          showSoftLimitNotice = true;
         }
-        const created = createCode(selectedType);
-        if (!created) return;
-        if (!Array.isArray(walletNow.actionCodes)) walletNow.actionCodes = [];
-        walletNow.actionCodes.push(created);
-        const res = ensureWalletActionCodes(walletNow);
-        if (res && res.trimmedCount > 0) showTrimNotice = true;
-        persistWallet(walletNow);
-        if (hadNoCodes) {
-          const details =
-            typeof container.closest === "function"
-              ? container.closest("details")
-              : null;
-          if (details) details.open = true;
-        }
+        createOpen = !createOpen;
+        editingId = "";
+        pendingDeleteId = "";
         refresh();
       });
 
-      function syncTypeButtons() {
-        selectedType = selectedType === "g" ? "g" : "d";
-        const isDrink = selectedType === "d";
-        btnTypeDrink.classList.toggle("active", isDrink);
-        btnTypeCredit.classList.toggle("active", !isDrink);
-        btnTypeDrink.setAttribute("aria-pressed", isDrink ? "true" : "false");
-        btnTypeCredit.setAttribute("aria-pressed", isDrink ? "false" : "true");
-      }
-      btnTypeDrink.addEventListener("click", () => {
-        selectedType = "d";
-        syncTypeButtons();
-      });
-      btnTypeCredit.addEventListener("click", () => {
-        selectedType = "g";
-        syncTypeButtons();
-      });
-      syncTypeButtons();
-
-      toolbar.appendChild(btnTypeDrink);
-      toolbar.appendChild(btnTypeCredit);
       toolbar.appendChild(btnAdd);
 
       const hint = document.createElement("div");
@@ -516,18 +533,132 @@
       notice.textContent =
         "Hinweis: Für Import/Export werden nur die 10 zuletzt aktiven Action Codes gespeichert. Ältere Codes wurden entfernt.";
 
+      const softNotice = document.createElement("div");
+      softNotice.className = "action-codes-notice";
+      softNotice.textContent =
+        "Empfohlen: max. 6 Action Codes. Ab 10 werden automatisch nur die 10 zuletzt aktiven gespeichert (ältere werden entfernt).";
+
+      const createForm = document.createElement("div");
+      createForm.className = "action-code-form";
+
+      if (createOpen) {
+        const typeToggle = buildTypeToggle(selectedType, (nextType) => {
+          selectedType = nextType;
+          updateCreateDefaults();
+        });
+
+        const amountInput = document.createElement("input");
+        amountInput.type = "number";
+        amountInput.min = "1";
+        amountInput.value = "10";
+
+        const labelInput = document.createElement("input");
+        labelInput.type = "text";
+
+        let autoLabel = defaultLabelForType(selectedType, amountInput.value);
+        labelInput.value = autoLabel;
+
+        function updateCreateDefaults() {
+          const nextDefault = defaultLabelForType(
+            typeToggle.getType(),
+            amountInput.value,
+          );
+          const current = labelInput.value.trim();
+          if (!current || current === autoLabel) {
+            labelInput.value = nextDefault;
+          }
+          autoLabel = nextDefault;
+        }
+
+        amountInput.addEventListener("input", updateCreateDefaults);
+
+        const labelField = document.createElement("label");
+        labelField.className = "action-code-form-field";
+        const labelText = document.createElement("span");
+        labelText.textContent = "Name für den Action Code:";
+        labelField.appendChild(labelText);
+        labelField.appendChild(labelInput);
+
+        const amountField = document.createElement("label");
+        amountField.className = "action-code-form-field";
+        const amountText = document.createElement("span");
+        amountText.textContent =
+          "Wie viele Getränke soll der neue Code gutschreiben?";
+        amountField.appendChild(amountText);
+        amountField.appendChild(amountInput);
+
+        const fields = document.createElement("div");
+        fields.className = "action-code-form-fields";
+        fields.appendChild(amountField);
+        fields.appendChild(labelField);
+
+        const actions = document.createElement("div");
+        actions.className = "action-code-form-actions";
+
+        const btnSave = document.createElement("button");
+        btnSave.type = "button";
+        btnSave.textContent = "Speichern";
+        btnSave.addEventListener("click", () => {
+          const walletNow = getWallet();
+          if (!walletNow) return;
+          persistIfChanged(walletNow);
+          const currentCodes = Array.isArray(walletNow.actionCodes)
+            ? walletNow.actionCodes
+            : [];
+          const hadNoCodes = currentCodes.length === 0;
+          const created = buildActionCode({
+            type: typeToggle.getType(),
+            amount: amountInput.value,
+            label: labelInput.value,
+          });
+          if (!Array.isArray(walletNow.actionCodes)) walletNow.actionCodes = [];
+          walletNow.actionCodes.push(created);
+          const res = ensureWalletActionCodes(walletNow);
+          if (res && res.trimmedCount > 0) showTrimNotice = true;
+          persistWallet(walletNow);
+          if (hadNoCodes) {
+            const details =
+              typeof container.closest === "function"
+                ? container.closest("details")
+                : null;
+            if (details) details.open = true;
+          }
+          createOpen = false;
+          refresh();
+        });
+
+        const btnCancel = document.createElement("button");
+        btnCancel.type = "button";
+        btnCancel.textContent = "Abbrechen";
+        btnCancel.addEventListener("click", () => {
+          createOpen = false;
+          refresh();
+        });
+
+        actions.appendChild(btnSave);
+        actions.appendChild(btnCancel);
+
+        createForm.appendChild(typeToggle.el);
+        createForm.appendChild(fields);
+        createForm.appendChild(actions);
+      }
+
       const grid = document.createElement("div");
       grid.className = "action-codes-grid";
-
-      const codes = Array.isArray(wallet.actionCodes) ? wallet.actionCodes : [];
 
       if (!codes.length) {
         const empty = document.createElement("div");
         empty.className = "action-codes-empty";
-        empty.textContent = "Noch keine Action Codes – klicke auf “+ Code”.";
+        empty.textContent =
+          "Noch keine Action Codes – klicke auf “New action code”.";
         container.appendChild(toolbar);
-        if (showTrimNotice) container.appendChild(notice);
         container.appendChild(hint);
+        if (showSoftLimitNotice) {
+          container.appendChild(softNotice);
+          showSoftLimitNotice = false;
+        }
+        if (showTrimNotice) container.appendChild(notice);
+        if (createOpen) container.appendChild(createForm);
         container.appendChild(empty);
         return;
       }
@@ -568,18 +699,9 @@
         btnEdit.type = "button";
         btnEdit.textContent = "Bearbeiten";
         btnEdit.addEventListener("click", () => {
-          const walletNow = getWallet();
-          if (!walletNow) return;
-          const codesNow = Array.isArray(walletNow.actionCodes)
-            ? walletNow.actionCodes
-            : [];
-          const target = codesNow.find((c) => c && c.id === code.id);
-          if (!target) return;
-          const changed = editCode(target);
-          if (!changed) return;
-          const res = ensureWalletActionCodes(walletNow);
-          if (res && res.trimmedCount > 0) showTrimNotice = true;
-          persistWallet(walletNow);
+          editingId = code.id;
+          pendingDeleteId = "";
+          createOpen = false;
           refresh();
         });
 
@@ -594,7 +716,7 @@
             : [];
           const target = codesNow.find((c) => c && c.id === code.id);
           if (!target) return;
-          rotateKey(target);
+          rotateActionCodeKey(target);
           const res = ensureWalletActionCodes(walletNow);
           if (res && res.trimmedCount > 0) showTrimNotice = true;
           persistWallet(walletNow);
@@ -605,22 +727,9 @@
         btnDelete.type = "button";
         btnDelete.textContent = "Löschen";
         btnDelete.addEventListener("click", () => {
-          if (
-            !confirm(
-              `Action Code "${code.label || `+${code.amount}`}" löschen?`,
-            )
-          ) {
-            return;
-          }
-          const walletNow = getWallet();
-          if (!walletNow) return;
-          const codesNow = Array.isArray(walletNow.actionCodes)
-            ? walletNow.actionCodes
-            : [];
-          walletNow.actionCodes = codesNow.filter((c) => c && c.id !== code.id);
-          const res = ensureWalletActionCodes(walletNow);
-          if (res && res.trimmedCount > 0) showTrimNotice = true;
-          persistWallet(walletNow);
+          pendingDeleteId = pendingDeleteId === code.id ? "" : code.id;
+          editingId = "";
+          createOpen = false;
           refresh();
         });
 
@@ -631,72 +740,215 @@
         head.appendChild(meta);
         head.appendChild(btns);
 
-        const canvas = document.createElement("canvas");
-        canvas.className = "action-code-canvas";
+        if (editingId === code.id) {
+          const editForm = document.createElement("div");
+          editForm.className = "action-code-form";
 
-        const urlInput = document.createElement("input");
-        urlInput.type = "text";
-        urlInput.readOnly = true;
-        urlInput.inputMode = "none";
-        urlInput.className = "action-code-url";
-        urlInput.setAttribute("aria-label", "Action Code Link");
+          let amountLabelText = "";
+          const typeToggle = buildTypeToggle(code.type, (nextType) => {
+            amountLabelText =
+              nextType === "d"
+                ? "Wie viele Getränke soll dieser Code als Trinken buchen?"
+                : "Wie viele Getränke soll dieser Code gutschreiben?";
+            amountLabel.textContent = amountLabelText;
+          });
 
-        let url = "";
-        try {
-          url = actionUrlFor(code);
-          urlInput.value = url;
-          renderQrToCanvas(canvas, url);
-        } catch (e) {
-          urlInput.value = "";
-          const msg = String(e && e.message ? e.message : e || "");
-          const fallback = document.createElement("div");
-          fallback.className = "action-code-error";
-          fallback.textContent = msg.includes("QR library missing")
-            ? "QR-Code-Generator fehlt (qrcodegen.js)."
-            : "QR-Code konnte nicht erzeugt werden.";
+          const amountInput = document.createElement("input");
+          amountInput.type = "number";
+          amountInput.min = "1";
+          amountInput.value = String(code.amount || 1);
+
+          const labelInput = document.createElement("input");
+          labelInput.type = "text";
+          labelInput.value =
+            code.label ||
+            defaultLabelForType(code.type, normalizeAmount(code.amount));
+
+          const amountField = document.createElement("label");
+          amountField.className = "action-code-form-field";
+          const amountLabel = document.createElement("span");
+          amountLabelText =
+            code.type === "d"
+              ? "Wie viele Getränke soll dieser Code als Trinken buchen?"
+              : "Wie viele Getränke soll dieser Code gutschreiben?";
+          amountLabel.textContent = amountLabelText;
+          amountField.appendChild(amountLabel);
+          amountField.appendChild(amountInput);
+
+          const labelField = document.createElement("label");
+          labelField.className = "action-code-form-field";
+          const labelText = document.createElement("span");
+          labelText.textContent = "Name für den Action Code:";
+          labelField.appendChild(labelText);
+          labelField.appendChild(labelInput);
+
+          const fields = document.createElement("div");
+          fields.className = "action-code-form-fields";
+          fields.appendChild(amountField);
+          fields.appendChild(labelField);
+
+          const actions = document.createElement("div");
+          actions.className = "action-code-form-actions";
+
+          const btnSave = document.createElement("button");
+          btnSave.type = "button";
+          btnSave.textContent = "Speichern";
+          btnSave.addEventListener("click", () => {
+            const walletNow = getWallet();
+            if (!walletNow) return;
+            const codesNow = Array.isArray(walletNow.actionCodes)
+              ? walletNow.actionCodes
+              : [];
+            const target = codesNow.find((c) => c && c.id === code.id);
+            if (!target) return;
+            applyActionCodeEdits(target, {
+              label: labelInput.value,
+              amount: amountInput.value,
+              type: typeToggle.getType(),
+            });
+            const res = ensureWalletActionCodes(walletNow);
+            if (res && res.trimmedCount > 0) showTrimNotice = true;
+            persistWallet(walletNow);
+            editingId = "";
+            refresh();
+          });
+
+          const btnCancel = document.createElement("button");
+          btnCancel.type = "button";
+          btnCancel.textContent = "Abbrechen";
+          btnCancel.addEventListener("click", () => {
+            editingId = "";
+            refresh();
+          });
+
+          actions.appendChild(btnSave);
+          actions.appendChild(btnCancel);
+
+          editForm.appendChild(typeToggle.el);
+          editForm.appendChild(fields);
+          editForm.appendChild(actions);
+
           card.appendChild(head);
-          card.appendChild(fallback);
-          grid.appendChild(card);
-          continue;
-        }
+          card.appendChild(editForm);
+        } else if (pendingDeleteId === code.id) {
+          const deleteBox = document.createElement("div");
+          deleteBox.className = "action-code-confirm";
 
-        function selectUrl() {
+          const deleteText = document.createElement("div");
+          deleteText.textContent = `Action Code "${code.label || `+${code.amount}`}" löschen?`;
+
+          const deleteActions = document.createElement("div");
+          deleteActions.className = "action-code-form-actions";
+
+          const btnConfirm = document.createElement("button");
+          btnConfirm.type = "button";
+          btnConfirm.textContent = "Löschen";
+          btnConfirm.addEventListener("click", () => {
+            const walletNow = getWallet();
+            if (!walletNow) return;
+            const codesNow = Array.isArray(walletNow.actionCodes)
+              ? walletNow.actionCodes
+              : [];
+            walletNow.actionCodes = codesNow.filter(
+              (c) => c && c.id !== code.id,
+            );
+            const res = ensureWalletActionCodes(walletNow);
+            if (res && res.trimmedCount > 0) showTrimNotice = true;
+            persistWallet(walletNow);
+            pendingDeleteId = "";
+            refresh();
+          });
+
+          const btnCancel = document.createElement("button");
+          btnCancel.type = "button";
+          btnCancel.textContent = "Abbrechen";
+          btnCancel.addEventListener("click", () => {
+            pendingDeleteId = "";
+            refresh();
+          });
+
+          deleteActions.appendChild(btnConfirm);
+          deleteActions.appendChild(btnCancel);
+
+          deleteBox.appendChild(deleteText);
+          deleteBox.appendChild(deleteActions);
+
+          card.appendChild(head);
+          card.appendChild(deleteBox);
+        } else {
+          const canvas = document.createElement("canvas");
+          canvas.className = "action-code-canvas";
+
+          const urlInput = document.createElement("input");
+          urlInput.type = "text";
+          urlInput.readOnly = true;
+          urlInput.inputMode = "none";
+          urlInput.className = "action-code-url";
+          urlInput.setAttribute("aria-label", "Action Code Link");
+
+          let url = "";
           try {
-            urlInput.focus({ preventScroll: true });
+            url = actionUrlFor(code);
+            urlInput.value = url;
+            renderQrToCanvas(canvas, url);
           } catch (e) {
-            urlInput.focus();
+            urlInput.value = "";
+            const msg = String(e && e.message ? e.message : e || "");
+            const fallback = document.createElement("div");
+            fallback.className = "action-code-error";
+            fallback.textContent = msg.includes("QR library missing")
+              ? "QR-Code-Generator fehlt (qrcodegen.js)."
+              : "QR-Code konnte nicht erzeugt werden.";
+            card.appendChild(head);
+            card.appendChild(fallback);
+            grid.appendChild(card);
+            continue;
           }
-          urlInput.select();
-          try {
-            urlInput.setSelectionRange(0, urlInput.value.length);
-          } catch (e) {}
+
+          function selectUrl() {
+            try {
+              urlInput.focus({ preventScroll: true });
+            } catch (e) {
+              urlInput.focus();
+            }
+            urlInput.select();
+            try {
+              urlInput.setSelectionRange(0, urlInput.value.length);
+            } catch (e) {}
+          }
+
+          urlInput.addEventListener("focus", selectUrl);
+          urlInput.addEventListener("click", selectUrl);
+
+          canvas.addEventListener("click", () => {
+            if (!url) return;
+            const safeUserId = String(wallet.userId || "user").replace(
+              /[^a-zA-Z0-9_-]/g,
+              "_",
+            );
+            const safeCode = String(code.label || `+${code.amount}`)
+              .replace(/[^a-zA-Z0-9_-]/g, "_")
+              .slice(0, 20);
+            const filename = `db-wallet-${safeUserId}-action-${safeCode}.png`;
+            canvasToPngDownload(canvas, filename);
+          });
+
+          card.appendChild(head);
+          card.appendChild(canvas);
+          card.appendChild(urlInput);
         }
 
-        urlInput.addEventListener("focus", selectUrl);
-        urlInput.addEventListener("click", selectUrl);
-
-        canvas.addEventListener("click", () => {
-          if (!url) return;
-          const safeUserId = String(wallet.userId || "user").replace(
-            /[^a-zA-Z0-9_-]/g,
-            "_",
-          );
-          const safeCode = String(code.label || `+${code.amount}`)
-            .replace(/[^a-zA-Z0-9_-]/g, "_")
-            .slice(0, 20);
-          const filename = `db-wallet-${safeUserId}-action-${safeCode}.png`;
-          canvasToPngDownload(canvas, filename);
-        });
-
-        card.appendChild(head);
-        card.appendChild(canvas);
-        card.appendChild(urlInput);
         grid.appendChild(card);
       }
 
       container.appendChild(toolbar);
       container.appendChild(hint);
+      if (showSoftLimitNotice) {
+        container.appendChild(softNotice);
+        showSoftLimitNotice = false;
+      }
       if (showTrimNotice) container.appendChild(notice);
+      if (createOpen) container.appendChild(createForm);
       container.appendChild(grid);
     }
 
@@ -707,11 +959,15 @@
   window.dbWalletActionCodes = {
     mergeActionCodes,
     normalizeActionCodes,
+    buildActionCode,
+    applyActionCodeEdits,
+    buildActionPayload,
     decodeActionHash,
     encodeActionHash,
     initActionCodesUi,
     ensureWalletActionCodes,
     normalizeAmount,
+    defaultLabelForType,
     HARD_LIMIT,
     SOFT_LIMIT,
   };

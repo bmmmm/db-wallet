@@ -390,6 +390,57 @@ hr {
     font-size: 0.85rem;
 }
 
+.action-code-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg);
+}
+
+.action-code-form-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.action-code-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+
+.action-code-form-field input {
+    width: 100%;
+}
+
+.action-code-form-actions {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.action-code-type-toggle {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.action-code-confirm {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: 12px;
+    padding: 0.6rem;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 .action-code-canvas {
     width: 100%;
     height: auto;

@@ -6,6 +6,25 @@ Scope: file-level audit only (no code removal).
 
 - No clearly unused files found: every `.js`/`.css` is referenced by at least one `.html` file in this repo.
 - Optional-only pages exist (palette preview), but they are still linked from UI.
+- Hash parsing is centralized via `hash-router.js`.
+- Summary computation now has normalization + safe path (`computeSummarySafe`) shared with preview.
+- Action codes use inline UI controls (no popup dialogs).
+- History diagram now includes the daily drink count in brackets.
+- `self-check.js` covers storage roundtrip, import v2 decode, migration, hash parsing, summary parity, and action code edits.
+
+## Completed Work
+
+- Introduced `hash-router.js` to keep hash parsing in one place and reduce duplication.
+- Added summary normalization and safe computation (`computeSummarySafe`) with fallback logging.
+- Replaced action-code popup flows with inline create/edit/delete UI.
+- Enhanced history diagram output with `[drinkCount]` per day.
+- Expanded `self-check.js` coverage for summaries and action code behavior.
+
+## Remaining TODOs
+
+- Add an optional UI entry point for running `dbWalletSelfCheck.run()` without opening the console.
+- Add a small visual hint when an action code is in edit/delete-confirm mode.
+- Consider a soft-limit helper note that can be dismissed per session.
 
 ## File Usage Matrix
 
@@ -23,13 +42,15 @@ Scope: file-level audit only (no code removal).
 | `qrcodegen.js` | active | `wallet.html` | QR rendering for exports. |
 | `migration.js` | active (optional) | `wallet.html` | V1→V2 migration helpers. |
 | `action-codes.js` | active | `wallet.html`, `index.html` | Action codes UI + merge helpers used during import. |
+| `hash-router.js` | active | `wallet.html`, `index.html` | Hash parsing helpers (ac/import/i2/i2u). |
+| `self-check.js` | active | `wallet.html`, `index.html` | In-browser self-check diagnostics (console). |
 | `wallet-helpers.js` | active | `wallet.html`, `index.html` | Shared helpers (storage wrappers, base64, gzip). |
 | `wallet-storage.js` | active | `wallet.html`, `index.html` | Storage + wallet model functions (device keys, load/save). |
 | `wallet-import-v2.js` | active | `wallet.html`, `index.html` | Import/export v2 codec + hash import routing. |
 | `wallet-summary.js` | active | `wallet.html`, `index.html` | Pure summary computation. |
 | `wallet-sync.js` | active | `wallet.html` | Local-only sync status helpers. |
+| `wallet-history-ui.js` | active | `wallet.html` | History UI (diagram/log/raw). |
 | `wallet-ui.js` | active | `wallet.html` | Wallet DOM wiring + interactions. |
 | `index-ui.js` | active | `index.html` | Start page UI wiring + import/redirect. |
 | `README.md` | active | — | Documentation. |
 | `LICENSE` | active | — | License file. |
-

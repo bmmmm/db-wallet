@@ -231,9 +231,49 @@
         if (
           actionCodes &&
           typeof actionCodes.encodeActionHash === "function" &&
+          typeof actionCodes.buildActionCode === "function" &&
+          typeof actionCodes.buildActionPayload === "function" &&
+          typeof actionCodes.applyActionCodeEdits === "function" &&
           hashRouter &&
           typeof hashRouter.parseWalletIdFromHash === "function"
         ) {
+          const code = actionCodes.buildActionCode({
+            type: "d",
+            amount: 2,
+            label: "Selfcheck",
+          });
+          const payloadBefore = actionCodes.buildActionPayload(wallet, code);
+          const hashBefore = actionCodes.encodeActionHash(payloadBefore);
+          const keyBefore = code.key;
+
+          actionCodes.applyActionCodeEdits(code, {
+            label: "Selfcheck Updated",
+            amount: code.amount,
+            type: code.type,
+          });
+          const payloadAfter = actionCodes.buildActionPayload(wallet, code);
+          const hashAfter = actionCodes.encodeActionHash(payloadAfter);
+          const keyAfter = code.key;
+
+          addCheck(
+            result,
+            "action code edit rotates key",
+            keyBefore !== keyAfter && hashBefore !== hashAfter,
+            `keyChanged=${keyBefore !== keyAfter}`,
+          );
+
+          actionCodes.applyActionCodeEdits(code, {
+            label: code.label,
+            amount: code.amount,
+            type: code.type,
+          });
+          addCheck(
+            result,
+            "action code edit stable payload",
+            code.key === keyAfter,
+            `keyStable=${code.key === keyAfter}`,
+          );
+
           const actionHash = actionCodes.encodeActionHash({
             v: 1,
             walletId: wallet.walletId,
@@ -248,6 +288,30 @@
             "hash parse action",
             actionWalletId === wallet.walletId,
             `walletId=${actionWalletId}`,
+          );
+        }
+
+        if (
+          actionCodes &&
+          typeof actionCodes.buildActionCode === "function" &&
+          typeof actionCodes.normalizeActionCodes === "function"
+        ) {
+          const list = [];
+          for (let i = 0; i < 7; i++) {
+            list.push(
+              actionCodes.buildActionCode({
+                type: "g",
+                amount: i + 1,
+                label: `Code ${i + 1}`,
+              }),
+            );
+          }
+          const normalized = actionCodes.normalizeActionCodes(list);
+          addCheck(
+            result,
+            "action code soft limit no trim",
+            normalized.length === 7 && !normalized._dbwTrimmed,
+            `count=${normalized.length}`,
           );
         }
 

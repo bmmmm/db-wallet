@@ -124,9 +124,16 @@
             .slice()
             .reverse()
             .map((d) => {
+              const drinkCount =
+                typeof d.drinkCount === "number" &&
+                Number.isFinite(d.drinkCount)
+                  ? d.drinkCount
+                  : typeof d.drinks === "number" && Number.isFinite(d.drinks)
+                    ? Math.max(0, Math.round(d.drinks))
+                    : 0;
               const bar = "#".repeat(Math.min(d.drinks, 50));
               const paidMark = d.paid ? " 💰" : "";
-              return `${d.date}${paidMark} | ${bar}`;
+              return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
             });
           refs.elHistory.textContent = lines.join("\n");
         }
