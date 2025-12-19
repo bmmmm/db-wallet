@@ -11,9 +11,10 @@ Scope: file-level audit only (no code removal).
 - Action codes use inline UI controls (no popup dialogs).
 - Action-code amount prompt is type-aware (trinken vs gutschreiben).
 - History diagram now includes the daily drink count in brackets.
-- Undo removes the latest event (ts/id order) and recomputes totals from the log.
+- Undo/deletes now emit tombstone entries (ts/id order) so removals sync across devices.
 - Unpaid/credit stats are hidden when zero.
-- `self-check.js` covers storage roundtrip, import v2 decode, migration, hash parsing, summary parity, undo, and action code edits.
+- Action code QR payloads are slimmer (backward compatible decode).
+- `self-check.js` covers storage roundtrip, import v2 decode, migration, hash parsing, summary parity, tombstones/undo, and action code edits.
 
 ## Completed Work
 
@@ -22,9 +23,12 @@ Scope: file-level audit only (no code removal).
 - Replaced action-code popup flows with inline create/edit/delete UI.
 - Made action-code amount prompts type-specific in the inline form.
 - Enhanced history diagram output with `[drinkCount]` per day.
-- Undo now removes the latest log event and recomputes derived totals.
+- Tombstone deletes: undo/delete adds deletion markers and recomputes from effective events.
+- Added v2 import/export extension for tombstone events.
 - Hide unpaid/credit stats when the values are zero.
-- Expanded `self-check.js` coverage for summaries, undo, and action code behavior.
+- Removed the “Neu erzeugen” action-code button (editing refreshes payloads).
+- Slimmed action-code QR payloads with backward-compatible decode.
+- Expanded `self-check.js` coverage for summaries, tombstones/undo, and action code behavior.
 
 ## DeviceId/seq Review (not safe to merge)
 

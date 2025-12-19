@@ -24,11 +24,11 @@ sich per Export/Import zwischen Geräten übertragen.
 ## Funktionen
 
 - Buchen: Getränke hinzufügen, Tagesstatistik inkl. Diagramm/Log/Raw.
-- Korrigieren: letzte Buchung rückgängig, danach komplette Neuberechnung aus dem Log.
+- Korrigieren: letzte Buchung rückgängig (Löschmarker im Log, syncbar), danach komplette Neuberechnung aus dem Log.
 - Bezahlen: Offene Getränke ausgleichen; Zahlungen sichtbar im Log.
 - Guthaben: Gutschriften aufladen und abbauen wie Vorrat.
-- Historie: Diagramm (inkl. Tages-Drinkcount in `[n]`), Log mit IDs/Ranges,
-  Raw-Daten pro Nutzer:in/alle.
+- Historie: Diagramm (inkl. Tages-Drinkcount in `[n]`), Log mit IDs/Ranges
+  inklusive Löschmarker, Raw-Daten pro Nutzer:in/alle.
 - Statistik: Offen/Guthaben werden ausgeblendet, wenn sie 0 sind.
 - Verwaltung: Einträge bearbeiten/löschen, Nutzer:innen einzeln oder gesammelt
   löschen.
@@ -49,10 +49,11 @@ Wichtig:
 - Verwaltung erfolgt inline per Buttons (New action code, Bearbeiten, Löschen).
 - Die Mengenfrage im Inline-Formular passt sich dem Typ an (trinken vs gutschreiben).
 - Action Codes sind an eine Wallet gebunden (Ziel-WalletId steckt im QR).
-- Action Codes können erneuert/rotiert werden: alte QR-Codes werden dann
-  **ungültig** und werden beim Einlösen strikt abgelehnt.
+- Beim Bearbeiten (Name/Menge/Typ) wird der QR bei Bedarf neu erzeugt; alte Codes
+  werden dann **ungültig** und werden beim Einlösen strikt abgelehnt.
 - Der Betrag wird aus dem gespeicherten Action Code gelesen (nicht aus
   manipulierbaren QR-Feldern).
+- QR-Payloads sind schlank gehalten; ältere Payloads bleiben kompatibel.
 
 ## Sync Status (Top-Row)
 
@@ -140,7 +141,7 @@ window.dbWalletSelfCheck.run()
 ```
 
 Der Self-Check prüft u. a. Storage-Roundtrip, Import v2, Migration, Hash-Parsing,
-Summary-Parität, Undo-Recompute und Action-Code-Updates.
+Summary-Parität, Tombstones/Undo und Action-Code-Payloads.
 
 ## Datenmodell Hinweise
 

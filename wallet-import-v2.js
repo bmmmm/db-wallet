@@ -295,6 +295,7 @@
     //  - action codes ("ac", v1/v2)
     //  - sync peer device id ("sp", v1)
     //  - device list ("dv", v1)
+    //  - tombstones ("xt", v1)
     if (offset < bytes.length) {
       try {
         while (offset + 1 < bytes.length) {
@@ -418,6 +419,45 @@
             continue;
           }
 
+          if (
+            bytes[offset] === 120 && // "x"
+            bytes[offset + 1] === 116 // "t"
+          ) {
+            offset += 2;
+            const [xtVersion, o8] = readVarUint(bytes, offset);
+            offset = o8;
+            if (xtVersion === 1) {
+              const [count, o9] = readVarUint(bytes, offset);
+              offset = o9;
+              for (let i = 0; i < count; i++) {
+                const [idLen, o10] = readVarUint(bytes, offset);
+                offset = o10;
+                const id = decoder.decode(bytes.slice(offset, offset + idLen));
+                offset += idLen;
+
+                const [refLen, o11] = readVarUint(bytes, offset);
+                offset = o11;
+                const ref = decoder.decode(
+                  bytes.slice(offset, offset + refLen),
+                );
+                offset += refLen;
+
+                const [tsMs, o12] = readVarUint(bytes, offset);
+                offset = o12;
+
+                if (id && ref) {
+                  events.push({
+                    id,
+                    t: "x",
+                    ref,
+                    ts: tsMs,
+                  });
+                }
+              }
+            }
+            continue;
+          }
+
           break;
         }
       } catch (e) {
@@ -457,9 +497,22 @@
 
     const typeCodeMap = { d: 0, s: 1, p: 2, g: 3 };
     const events = [];
+    const tombstones = [];
     for (const e of (wallet && wallet.events) || []) {
       if (!e || typeof e !== "object") continue;
       const t = typeof e.t === "string" ? e.t : "";
+      if (t === "x") {
+        const id = typeof e.id === "string" && e.id ? e.id : "";
+        const ref = typeof e.ref === "string" ? e.ref.trim() : "";
+        const tsMs =
+          typeof e.ts === "number" && Number.isFinite(e.ts)
+            ? Math.floor(e.ts)
+            : 0;
+        if (id && ref) {
+          tombstones.push({ id, ref, tsMs });
+        }
+        continue;
+      }
       if (typeCodeMap[t] === undefined) continue;
       const tsMs = typeof e.ts === "number" ? e.ts : 0;
       const tsMin = Math.floor(tsMs / 60000);
@@ -652,6 +705,24 @@
       }
     } catch (e) {
       // ignore
+    }
+
+    // optional extension: tombstones ("xt", v1)
+    if (tombstones.length) {
+      out.push(120, 116); // "xt"
+      writeVarUint(1, out);
+      writeVarUint(tombstones.length, out);
+      for (const t of tombstones) {
+        const idBytes = encoder.encode(t.id);
+        writeVarUint(idBytes.length, out);
+        for (const b of idBytes) out.push(b);
+
+        const refBytes = encoder.encode(t.ref);
+        writeVarUint(refBytes.length, out);
+        for (const b of refBytes) out.push(b);
+
+        writeVarUint(t.tsMs, out);
+      }
     }
 
     return new Uint8Array(out);

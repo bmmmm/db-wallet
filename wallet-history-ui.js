@@ -77,6 +77,10 @@
           else if (e.t === "s") action = `↩️ ${n} zurückgenommen`;
           else if (e.t === "p") action = "Bezahlt";
           else if (e.t === "g") action = `Gutschrift ${n} Getränk(e)`;
+          else if (e.t === "x") {
+            const ref = typeof e.ref === "string" ? e.ref : "";
+            action = ref ? `🗑️ gelöscht: ${ref}` : "🗑️ gelöscht";
+          }
           return `#${index} | ${dateStr} ${timeStr} | ${action}`;
         };
 

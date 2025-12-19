@@ -274,14 +274,12 @@
 
   function buildActionPayload(wallet, code) {
     const payload = {
-      v: 1,
+      v: 2,
       walletId:
         wallet && typeof wallet.walletId === "string" ? wallet.walletId : "",
       codeId: code.id,
       key: code.key,
     };
-    const type = code && typeof code.type === "string" ? code.type : "";
-    if (type === "d" || type === "g") payload.type = type;
     return payload;
   }
 
@@ -715,24 +713,6 @@
           refresh();
         });
 
-        const btnRegen = document.createElement("button");
-        btnRegen.type = "button";
-        btnRegen.textContent = "Neu erzeugen";
-        btnRegen.addEventListener("click", () => {
-          const walletNow = getWallet();
-          if (!walletNow) return;
-          const codesNow = Array.isArray(walletNow.actionCodes)
-            ? walletNow.actionCodes
-            : [];
-          const target = codesNow.find((c) => c && c.id === code.id);
-          if (!target) return;
-          rotateActionCodeKey(target);
-          const res = ensureWalletActionCodes(walletNow);
-          if (res && res.trimmedCount > 0) showTrimNotice = true;
-          persistWallet(walletNow);
-          refresh();
-        });
-
         const btnDelete = document.createElement("button");
         btnDelete.type = "button";
         btnDelete.textContent = "Löschen";
@@ -744,7 +724,6 @@
         });
 
         btns.appendChild(btnEdit);
-        btns.appendChild(btnRegen);
         btns.appendChild(btnDelete);
 
         head.appendChild(meta);

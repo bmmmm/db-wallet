@@ -215,47 +215,85 @@
           });
           storage.saveWallet(wallet);
 
-          function compareEventsByTime(a, b) {
-            const aTs =
-              a && typeof a.ts === "number" && Number.isFinite(a.ts) ? a.ts : 0;
-            const bTs =
-              b && typeof b.ts === "number" && Number.isFinite(b.ts) ? b.ts : 0;
-            if (aTs !== bTs) return aTs - bTs;
-            const aId = a && typeof a.id === "string" ? a.id : "";
-            const bId = b && typeof b.id === "string" ? b.id : "";
-            if (aId === bId) return 0;
-            return aId < bId ? -1 : 1;
-          }
+          const beforeUndo = summaryApi.computeSummary(wallet);
+          const lastEffective =
+            beforeUndo.eventsEffectiveSorted &&
+            beforeUndo.eventsEffectiveSorted.length
+              ? beforeUndo.eventsEffectiveSorted[
+                  beforeUndo.eventsEffectiveSorted.length - 1
+                ]
+              : null;
 
-          let targetIdx = -1;
-          let target = null;
-          for (let i = 0; i < wallet.events.length; i++) {
-            const e = wallet.events[i];
-            if (!e || typeof e !== "object") continue;
-            if (!target || compareEventsByTime(target, e) < 0) {
-              target = e;
-              targetIdx = i;
-            }
-          }
-
-          const expectedEvents =
-            targetIdx >= 0
-              ? wallet.events.filter((_, idx) => idx !== targetIdx)
-              : wallet.events.slice();
-          const expectedAfter = summaryApi.computeSummary({
-            events: expectedEvents,
-          });
-
-          const removed = storage.undoLastEvent(wallet);
+          const tombstone = storage.undoLastEvent(wallet);
           const afterUndo = summaryApi.computeSummary(wallet);
           addCheck(
             result,
-            "undo recompute matches log",
-            !!removed &&
-              afterUndo.total === expectedAfter.total &&
-              afterUndo.unpaid === expectedAfter.unpaid &&
-              afterUndo.credit === expectedAfter.credit,
-            `total=${afterUndo.total}`,
+            "undo appends tombstone",
+            !!tombstone &&
+              tombstone.t === "x" &&
+              lastEffective &&
+              tombstone.ref === lastEffective.id,
+            `ref=${tombstone && tombstone.ref}`,
+          );
+          addCheck(
+            result,
+            "undo reduces totals",
+            afterUndo.total < beforeUndo.total,
+            `before=${beforeUndo.total} after=${afterUndo.total}`,
+          );
+
+          if (lastEffective) {
+            wallet.events.push({
+              id: lastEffective.id,
+              t: lastEffective.t,
+              n: lastEffective.n,
+              ts: baseTs + 10000,
+            });
+            const afterReintro = summaryApi.computeSummary(wallet);
+            addCheck(
+              result,
+              "tombstone excludes reintroduced id",
+              afterReintro.total === afterUndo.total &&
+                afterReintro.unpaid === afterUndo.unpaid &&
+                afterReintro.credit === afterUndo.credit,
+              `total=${afterReintro.total}`,
+            );
+          }
+
+          const phantomId = storage.nextEventId(wallet);
+          const tombFirst = {
+            events: [
+              {
+                id: storage.nextEventId(wallet),
+                t: "x",
+                ref: phantomId,
+                ts: baseTs + 20000,
+              },
+              {
+                id: phantomId,
+                t: "d",
+                n: 2,
+                ts: baseTs + 19000,
+              },
+            ],
+          };
+          const outOfOrder = summaryApi.computeSummary(tombFirst);
+          addCheck(
+            result,
+            "tombstone wins out-of-order",
+            outOfOrder.total === 0 && outOfOrder.unpaid === 0,
+            `total=${outOfOrder.total}`,
+          );
+
+          const logLine = summaryApi.formatLogLine(
+            { id: "x1", t: "x", ref: "evt-123", ts: baseTs },
+            1,
+          );
+          addCheck(
+            result,
+            "tombstone log includes id",
+            logLine.includes("evt-123"),
+            logLine,
           );
 
           let guard = 10;
@@ -267,19 +305,13 @@
           addCheck(
             result,
             "undo until empty",
-            wallet.events.length === 0 &&
-              emptySummary.total === 0 &&
+            emptySummary.total === 0 &&
               emptySummary.unpaid === 0 &&
               emptySummary.credit === 0,
-            `events=${wallet.events.length}`,
+            `total=${emptySummary.total}`,
           );
         } else {
-          addCheck(
-            result,
-            "undo recompute matches log",
-            false,
-            "undoLastEvent missing",
-          );
+          addCheck(result, "undo appends tombstone", false, "undo missing");
         }
 
         const needsMigration =
@@ -372,6 +404,36 @@
             "action code edit stable payload",
             code.key === keyAfter,
             `keyStable=${code.key === keyAfter}`,
+          );
+
+          addCheck(
+            result,
+            "action payload slim",
+            payloadBefore &&
+              typeof payloadBefore === "object" &&
+              !("type" in payloadBefore),
+            JSON.stringify(payloadBefore),
+          );
+
+          const legacyPayload = {
+            v: 1,
+            walletId: wallet.walletId,
+            codeId: "code-legacy",
+            key: "key-legacy",
+            type: "d",
+            ts: 123,
+          };
+          const legacyHash = actionCodes.encodeActionHash(legacyPayload);
+          const legacyDecoded = actionCodes.decodeActionHash(legacyHash);
+          addCheck(
+            result,
+            "action payload legacy decode",
+            legacyDecoded &&
+              legacyDecoded.walletId === legacyPayload.walletId &&
+              legacyDecoded.codeId === legacyPayload.codeId &&
+              legacyDecoded.key === legacyPayload.key &&
+              legacyDecoded.type === legacyPayload.type,
+            JSON.stringify(legacyDecoded),
           );
 
           const actionHash = actionCodes.encodeActionHash({

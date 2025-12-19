@@ -68,6 +68,7 @@
     touchLocalDevice,
     parseCompactEventId,
     ensureDeviceSeq,
+    appendTombstone,
     undoLastEvent,
     nextEventId,
     loadWallet,
@@ -820,6 +821,7 @@
       summary.eventsSorted.forEach((e, i) => {
         const idx = i + 1;
         if (indices.has(idx)) {
+          if (!e || e.t === "x") return;
           idsToDelete.add(e.id);
           if (e.t === "p") payCount++;
         }
@@ -839,8 +841,14 @@
 
       if (!confirm(msg)) return;
 
-      wallet.events = wallet.events.filter((e) => !idsToDelete.has(e.id));
-      saveWallet(wallet);
+      const baseTs = Date.now();
+      let added = 0;
+      for (const id of idsToDelete) {
+        if (appendTombstone(wallet, id, baseTs + added)) {
+          added++;
+        }
+      }
+      if (added > 0) saveWallet(wallet);
       invalidateCaches();
       clearExport();
       elDeleteRange.value = "";
@@ -881,6 +889,11 @@
           alert(
             "Die ausgewählte ID konnte keinem Logeintrag zugeordnet werden.",
           );
+          clearExport();
+          elDeleteRange.value = "";
+          return;
+        }
+        if (targetEvent.t === "x") {
           clearExport();
           elDeleteRange.value = "";
           return;

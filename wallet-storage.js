@@ -257,28 +257,55 @@
     return aId < bId ? -1 : 1;
   }
 
+  function buildTombstoneEvent(wallet, refId, ts) {
+    const ref = typeof refId === "string" ? refId.trim() : "";
+    if (!ref) return null;
+    const stamp =
+      typeof ts === "number" && Number.isFinite(ts)
+        ? Math.floor(ts)
+        : Date.now();
+    return {
+      id: nextEventId(wallet),
+      t: "x",
+      ref,
+      ts: stamp,
+    };
+  }
+
+  function appendTombstone(wallet, refId, ts) {
+    if (!wallet || typeof wallet !== "object") return null;
+    if (!Array.isArray(wallet.events)) wallet.events = [];
+    const ev = buildTombstoneEvent(wallet, refId, ts);
+    if (!ev) return null;
+    wallet.events.push(ev);
+    return ev;
+  }
+
   function undoLastEvent(wallet) {
     if (!wallet || typeof wallet !== "object") return null;
     const events = Array.isArray(wallet.events) ? wallet.events : [];
     if (!events.length) return null;
 
-    let targetIdx = -1;
-    let target = null;
-    for (let i = 0; i < events.length; i++) {
-      const e = events[i];
-      if (!e || typeof e !== "object") continue;
-      if (!target || compareEventsByTime(target, e) < 0) {
-        target = e;
-        targetIdx = i;
-      }
+    const sorted = events.slice().sort(compareEventsByTime);
+    const summaryApi = window.dbWalletSummary || null;
+    let effective = null;
+    if (summaryApi && typeof summaryApi.applyTombstones === "function") {
+      const res = summaryApi.applyTombstones(sorted);
+      effective =
+        res && Array.isArray(res.effectiveEvents) ? res.effectiveEvents : [];
+    } else {
+      effective = sorted.filter((e) => e && e.t !== "x");
     }
-    if (targetIdx < 0) return null;
 
-    const removed = events.splice(targetIdx, 1)[0] || null;
-    wallet.events = events;
+    if (!effective.length) return null;
+    const target = effective[effective.length - 1];
+    if (!target || typeof target.id !== "string" || !target.id) return null;
+
+    const tombstone = appendTombstone(wallet, target.id);
+    if (!tombstone) return null;
     ensureDeviceSeq(wallet);
     saveWallet(wallet);
-    return removed;
+    return tombstone;
   }
 
   function nextEventId(wallet) {
@@ -544,6 +571,8 @@
     mergeWalletDevices,
     parseCompactEventId,
     ensureDeviceSeq,
+    buildTombstoneEvent,
+    appendTombstone,
     undoLastEvent,
     nextEventId,
     loadWallet,

@@ -22,6 +22,41 @@
 
   let computeSummarySafeLogged = false;
 
+  function applyTombstones(events) {
+    const list = Array.isArray(events) ? events : [];
+    const deletedIds = new Set();
+    const tombstones = [];
+
+    for (const e of list) {
+      if (!e || typeof e !== "object") continue;
+      if (e.t !== "x") continue;
+      tombstones.push(e);
+      const ref = typeof e.ref === "string" ? e.ref.trim() : "";
+      if (ref) deletedIds.add(ref);
+    }
+
+    const visibleEvents = [];
+    for (const e of list) {
+      if (!e || typeof e !== "object") continue;
+      if (e.t === "x") {
+        visibleEvents.push(e);
+        continue;
+      }
+      const id = typeof e.id === "string" ? e.id : "";
+      if (id && deletedIds.has(id)) continue;
+      visibleEvents.push(e);
+    }
+
+    const effectiveEvents = visibleEvents.filter((e) => e.t !== "x");
+
+    return {
+      deletedIds,
+      tombstones,
+      visibleEvents,
+      effectiveEvents,
+    };
+  }
+
   function normalizeWalletForSummary(wallet) {
     const src = wallet && typeof wallet === "object" ? wallet : {};
     const eventsRaw = Array.isArray(src.events) ? src.events : [];
@@ -47,7 +82,9 @@
           : typeof ev.n === "string" && ev.n.trim() !== ""
             ? Number(ev.n)
             : undefined;
-      events.push({ id, t, n, ts });
+      const ref =
+        typeof ev.ref === "string" && ev.ref.trim() !== "" ? ev.ref : undefined;
+      events.push({ id, t, n, ts, ref });
     }
 
     return {
@@ -74,6 +111,9 @@
     const eventsSorted = wallet.events
       .slice()
       .sort((a, b) => a.ts - b.ts || cmpStr(a.id, b.id));
+    const tombstoneRes = applyTombstones(eventsSorted);
+    const eventsEffective = tombstoneRes.effectiveEvents;
+    const eventsVisible = tombstoneRes.visibleEvents;
 
     let total = 0;
     const perDayMap = new Map();
@@ -87,7 +127,7 @@
       return `${y}-${m}-${day}`;
     }
 
-    for (const e of eventsSorted) {
+    for (const e of eventsEffective) {
       const key = dayKey(e.ts);
       if (!perDayMap.has(key)) {
         perDayMap.set(key, {
@@ -143,7 +183,14 @@
       cmpStr(a.date, b.date),
     );
 
-    return { total, unpaid, credit, perDay, eventsSorted };
+    return {
+      total,
+      unpaid,
+      credit,
+      perDay,
+      eventsSorted: eventsVisible,
+      eventsEffectiveSorted: eventsEffective,
+    };
   }
 
   function computeSummarySafe(wallet) {
@@ -180,6 +227,7 @@
         credit: base.credit,
         perDay: base.perDay,
         eventsSorted: base.eventsSorted,
+        eventsEffectiveSorted: base.eventsEffectiveSorted,
       };
     } catch (e) {
       logOnce(e, "normalize");
@@ -196,6 +244,7 @@
           credit: base.credit,
           perDay: base.perDay,
           eventsSorted: base.eventsSorted,
+          eventsEffectiveSorted: base.eventsEffectiveSorted,
         };
       }
     } catch (e) {
@@ -214,6 +263,7 @@
       credit: 0,
       perDay: [],
       eventsSorted: [],
+      eventsEffectiveSorted: [],
     };
   }
 
@@ -264,6 +314,10 @@
     else if (e.t === "s") action = `↩️ ${n} zurückgenommen`;
     else if (e.t === "p") action = "Bezahlt";
     else if (e.t === "g") action = `Gutschrift ${n} Getränk(e)`;
+    else if (e.t === "x") {
+      const ref = typeof e.ref === "string" ? e.ref : "";
+      action = ref ? `🗑️ gelöscht: ${ref}` : "🗑️ gelöscht";
+    }
     return `#${index} | ${dateStr} ${timeStr} | ${action}`;
   }
 
@@ -271,6 +325,7 @@
     todayDateStr,
     dateStrFromTimestamp,
     normalizeWalletForSummary,
+    applyTombstones,
     computeSummary,
     computeSummarySafe,
     parseDeleteRange,
