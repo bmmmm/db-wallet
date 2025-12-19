@@ -1,4 +1,5 @@
 (function () {
+  const summaryApi = window.dbWalletSummary || null;
   let historyMode = "diagram"; // "diagram" | "log" | "raw"
   let rawScope = "current"; // "current" | "all"
   let rawAllCache = null;
@@ -55,26 +56,29 @@
     }
   }
 
-  function formatLogLine(e, index) {
-    const d = new Date(e.ts);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    const dateStr = `${y}-${m}-${day}`;
-    const timeStr = `${hh}:${mm}`;
-    let action = "";
-    const n =
-      typeof e.n === "number" && isFinite(e.n)
-        ? Math.max(1, Math.round(e.n))
-        : 1;
-    if (e.t === "d") action = `+${n} Getränk(e)`;
-    else if (e.t === "s") action = `↩️ ${n} zurückgenommen`;
-    else if (e.t === "p") action = "Bezahlt";
-    else if (e.t === "g") action = `Gutschrift ${n} Getränk(e)`;
-    return `#${index} | ${dateStr} ${timeStr} | ${action}`;
-  }
+  const formatLogLine =
+    summaryApi && typeof summaryApi.formatLogLine === "function"
+      ? summaryApi.formatLogLine
+      : (e, index) => {
+          const d = new Date(e.ts);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, "0");
+          const day = String(d.getDate()).padStart(2, "0");
+          const hh = String(d.getHours()).padStart(2, "0");
+          const mm = String(d.getMinutes()).padStart(2, "0");
+          const dateStr = `${y}-${m}-${day}`;
+          const timeStr = `${hh}:${mm}`;
+          let action = "";
+          const n =
+            typeof e.n === "number" && isFinite(e.n)
+              ? Math.max(1, Math.round(e.n))
+              : 1;
+          if (e.t === "d") action = `+${n} Getränk(e)`;
+          else if (e.t === "s") action = `↩️ ${n} zurückgenommen`;
+          else if (e.t === "p") action = "Bezahlt";
+          else if (e.t === "g") action = `Gutschrift ${n} Getränk(e)`;
+          return `#${index} | ${dateStr} ${timeStr} | ${action}`;
+        };
 
   window.dbWalletHistoryUI = {
     init(params) {

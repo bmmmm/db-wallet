@@ -1,16 +1,22 @@
 (function () {
+  const helpers = window.dbWalletHelpers || null;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const SOFT_LIMIT = 6;
   const HARD_LIMIT = 10;
 
-  function safeParse(raw) {
+  function safeParseFallback(raw) {
     try {
       return JSON.parse(raw);
     } catch (e) {
       return null;
     }
   }
+
+  const safeParse =
+    helpers && typeof helpers.safeParse === "function"
+      ? helpers.safeParse
+      : safeParseFallback;
 
   function base64UrlFromBinary(binary) {
     return btoa(binary)
@@ -41,7 +47,7 @@
     return decoder.decode(bytes);
   }
 
-  function randomToken(len = 18) {
+  function randomTokenFallback(len = 18) {
     const chars =
       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -69,6 +75,11 @@
     }
     return out;
   }
+
+  const randomToken =
+    helpers && typeof helpers.randomToken === "function"
+      ? helpers.randomToken
+      : randomTokenFallback;
 
   function normalizeAmount(value) {
     const n = typeof value === "number" ? value : parseInt(value, 10);

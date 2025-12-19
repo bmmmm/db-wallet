@@ -178,6 +178,19 @@
     const btnRawCurrent = document.getElementById("raw-scope-current");
     const btnRawAll = document.getElementById("raw-scope-all");
 
+    const requiredEls = [
+      elUid,
+      elTotal,
+      elUnpaid,
+      elAmount,
+      elHistory,
+      btnDrink,
+      btnUndo,
+      btnPay,
+      btnReset,
+    ];
+    if (requiredEls.some((el) => !el)) return;
+
     initThemeSelector();
     updateCurrentThemeLabel();
     const themeButtons = document.getElementById("theme-buttons");

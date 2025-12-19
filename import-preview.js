@@ -1,7 +1,8 @@
 (() => {
+  const helpers = window.dbWalletHelpers || null;
   const CACHE_PREFIX = "db-wallet:import-cache:";
 
-  function safeParse(raw) {
+  function safeParseFallback(raw) {
     try {
       return JSON.parse(raw);
     } catch (e) {
@@ -9,7 +10,12 @@
     }
   }
 
-  function randomToken(len = 18) {
+  const safeParse =
+    helpers && typeof helpers.safeParse === "function"
+      ? helpers.safeParse
+      : safeParseFallback;
+
+  function randomTokenFallback(len = 18) {
     const chars =
       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -37,6 +43,11 @@
     }
     return out;
   }
+
+  const randomToken =
+    helpers && typeof helpers.randomToken === "function"
+      ? helpers.randomToken
+      : randomTokenFallback;
 
   function cacheSet(payload) {
     const token = randomToken();
@@ -232,8 +243,7 @@
     };
   }
 
-  function computeSummary(wallet) {
-    const normalized = normalizeWalletForSummary(wallet);
+  function computeSummaryFromNormalized(normalized) {
     const eventsSorted = normalized.events.slice().sort((a, b) => {
       return a.ts - b.ts || a.id.localeCompare(b.id);
     });
@@ -305,6 +315,35 @@
       perDay,
       eventsSorted,
     };
+  }
+
+  function computeSummary(wallet) {
+    const summaryApi = window.dbWalletSummary || null;
+    if (summaryApi && typeof summaryApi.computeSummarySafe === "function") {
+      return summaryApi.computeSummarySafe(wallet);
+    }
+    if (
+      summaryApi &&
+      typeof summaryApi.normalizeWalletForSummary === "function" &&
+      typeof summaryApi.computeSummary === "function"
+    ) {
+      const normalized = summaryApi.normalizeWalletForSummary(wallet);
+      const base = summaryApi.computeSummary({
+        events: normalized.events,
+      });
+      return {
+        userId: normalized.userId,
+        v: normalized.v,
+        total: base.total,
+        unpaid: base.unpaid,
+        credit: base.credit,
+        perDay: base.perDay,
+        eventsSorted: base.eventsSorted,
+      };
+    }
+
+    const normalized = normalizeWalletForSummary(wallet);
+    return computeSummaryFromNormalized(normalized);
   }
 
   function applyThemeTransient(themeName) {
