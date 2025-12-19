@@ -95,7 +95,8 @@
       hash.startsWith("import:") ||
       hash.startsWith("i2:") ||
       hash.startsWith("i2u:") ||
-      hash.startsWith("ac:")
+      hash.startsWith("ac:") ||
+      hash.startsWith("acg:")
     ) {
       return null;
     }
@@ -192,6 +193,32 @@
       btnReset,
     ];
     if (requiredEls.some((el) => !el)) return;
+
+    function showGlobalActionMessage(message) {
+      const text = String(message || "").trim();
+      if (!text) return;
+      let el = document.getElementById("global-action-message");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "global-action-message";
+        el.className = "action-codes-notice";
+        const topRowEl = document.querySelector(".top-row");
+        if (topRowEl && topRowEl.parentNode) {
+          topRowEl.parentNode.insertBefore(el, topRowEl.nextSibling);
+        } else {
+          document.body.appendChild(el);
+        }
+      }
+      el.textContent = text;
+    }
+
+    const initialHash = window.location.hash.slice(1);
+    if (initialHash.startsWith("acg:")) {
+      showGlobalActionMessage(
+        "Bitte zuerst ein Wallet öffnen, dann den Code erneut scannen.",
+      );
+      return;
+    }
 
     initThemeSelector();
     updateCurrentThemeLabel();
@@ -497,6 +524,40 @@
       try {
         const hash = window.location.hash.slice(1);
         if (!hash) return;
+
+        if (hash.startsWith("acg:")) {
+          const actionApi = window.dbWalletActionCodes || null;
+          const payload =
+            actionApi && typeof actionApi.decodeGlobalActionHash === "function"
+              ? actionApi.decodeGlobalActionHash(hash)
+              : null;
+          if (!payload || !wallet) {
+            showGlobalActionMessage(
+              "Bitte zuerst ein Wallet öffnen, dann den Code erneut scannen.",
+            );
+            if (userId && window.location.hash.slice(1) !== userId) {
+              window.location.hash = "#" + userId;
+            }
+            return;
+          }
+
+          const type = payload.t === "d" ? "d" : "g";
+          const amount =
+            typeof payload.n === "number" && Number.isFinite(payload.n)
+              ? Math.max(1, Math.round(payload.n))
+              : 1;
+
+          wallet.events.push(newEvent(wallet, type, amount));
+          saveWallet(wallet);
+          invalidateCaches();
+          resetAmount();
+          clearExport();
+          refreshSummary();
+          if (userId && window.location.hash.slice(1) !== userId) {
+            window.location.hash = "#" + userId;
+          }
+          return;
+        }
 
         if (
           hash.startsWith("ac:") ||

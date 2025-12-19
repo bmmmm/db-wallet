@@ -54,7 +54,8 @@
       raw.startsWith("import:") ||
       raw.startsWith("i2:") ||
       raw.startsWith("i2u:") ||
-      raw.startsWith("ac:")
+      raw.startsWith("ac:") ||
+      raw.startsWith("acg:")
     ) {
       return makeUniqueUserId("user-" + raw);
     }

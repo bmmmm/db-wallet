@@ -66,6 +66,24 @@
     if (rawOutput) rawOutput.textContent = "";
   }
 
+  function showGlobalActionMessage(message) {
+    const text = String(message || "").trim();
+    if (!text) return;
+    let el = document.getElementById("global-action-message");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "global-action-message";
+      el.className = "action-codes-notice";
+      const title = document.querySelector("h1");
+      if (title && title.parentNode) {
+        title.parentNode.insertBefore(el, title.nextSibling);
+      } else {
+        document.body.appendChild(el);
+      }
+    }
+    el.textContent = text;
+  }
+
   function renderExistingUsers() {
     const container = document.getElementById("existing-users");
     const section = document.getElementById("existing-users-section");
@@ -221,12 +239,21 @@
 
   async function handleHashRouting() {
     const hash = window.location.hash.slice(1);
+    if (!hash) {
+      return false;
+    }
+    if (hash.startsWith("acg:")) {
+      showGlobalActionMessage(
+        "Bitte zuerst ein Wallet öffnen, dann den Code erneut scannen.",
+      );
+      window.location.hash = "";
+      return false;
+    }
     if (
-      !hash ||
-      (!hash.startsWith("import:") &&
-        !hash.startsWith("i2:") &&
-        !hash.startsWith("i2u:") &&
-        !hash.startsWith("ac:"))
+      !hash.startsWith("import:") &&
+      !hash.startsWith("i2:") &&
+      !hash.startsWith("i2u:") &&
+      !hash.startsWith("ac:")
     ) {
       return false;
     }

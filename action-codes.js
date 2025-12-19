@@ -92,6 +92,37 @@
     return t === "d" ? "d" : "g";
   }
 
+  const GLOBAL_ACTION_VERSION = 1;
+  const GLOBAL_ACTION_MAX_AMOUNT = 100;
+
+  function normalizeGlobalAmount(value) {
+    const n = typeof value === "number" ? value : parseInt(value, 10);
+    if (!Number.isFinite(n)) return null;
+    const rounded = Math.round(n);
+    if (typeof value === "number" && rounded !== n) return null;
+    if (rounded < 1 || rounded > GLOBAL_ACTION_MAX_AMOUNT) return null;
+    return rounded;
+  }
+
+  function normalizeGlobalPayload(input) {
+    if (!input || typeof input !== "object") return null;
+    const vRaw = typeof input.v === "number" ? Math.floor(input.v) : null;
+    const v =
+      vRaw === null || !Number.isFinite(vRaw) ? GLOBAL_ACTION_VERSION : vRaw;
+    if (v !== GLOBAL_ACTION_VERSION) return null;
+    const t = input.t === "d" || input.t === "g" ? input.t : "";
+    if (!t) return null;
+    const n = normalizeGlobalAmount(input.n);
+    if (n === null) return null;
+    const label =
+      typeof input.l === "string" && input.l.trim() !== ""
+        ? input.l.trim()
+        : "";
+    const out = { v, t, n };
+    if (label) out.l = label;
+    return out;
+  }
+
   function defaultLabelForType(type, amount) {
     const amountValue = normalizeAmount(amount);
     const normalizedType = normalizeType(type);
@@ -281,6 +312,27 @@
       key: code.key,
     };
     return payload;
+  }
+
+  function encodeGlobalActionHash(input) {
+    const payload = normalizeGlobalPayload(input);
+    if (!payload) return "";
+    const json = JSON.stringify(payload);
+    return "acg:" + base64UrlEncode(json);
+  }
+
+  function decodeGlobalActionHash(hash) {
+    const raw = String(hash || "");
+    if (!raw.startsWith("acg:")) return null;
+    const token = raw.slice(4);
+    if (!token) return null;
+    try {
+      const json = base64UrlDecode(token);
+      const payload = safeParse(json);
+      return normalizeGlobalPayload(payload);
+    } catch (e) {
+      return null;
+    }
   }
 
   function encodeActionHash(payload) {
@@ -482,6 +534,123 @@
       };
     }
 
+    function buildGlobalSection() {
+      const section = document.createElement("div");
+      section.className = "action-codes-global";
+
+      const title = document.createElement("div");
+      title.className = "action-codes-hint";
+      title.textContent =
+        "Globaler Action Code (wirkt auf das aktuell geöffnete Wallet).";
+
+      const form = document.createElement("div");
+      form.className = "action-code-form";
+
+      const typeToggle = buildTypeToggle("d", () => {
+        updateGlobalOutput();
+      });
+
+      const amountInput = document.createElement("input");
+      amountInput.type = "number";
+      amountInput.min = "1";
+      amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
+      amountInput.value = "1";
+
+      const amountField = document.createElement("label");
+      amountField.className = "action-code-form-field";
+      const amountText = document.createElement("span");
+      amountText.textContent = "Menge (Getränke):";
+      amountField.appendChild(amountText);
+      amountField.appendChild(amountInput);
+
+      const fields = document.createElement("div");
+      fields.className = "action-code-form-fields";
+      fields.appendChild(amountField);
+
+      const output = document.createElement("div");
+      output.className = "action-code-output";
+
+      const canvas = document.createElement("canvas");
+      canvas.className = "action-code-canvas";
+
+      const urlInput = document.createElement("input");
+      urlInput.type = "text";
+      urlInput.readOnly = true;
+      urlInput.inputMode = "none";
+      urlInput.className = "action-code-url";
+      urlInput.setAttribute("aria-label", "Global Action Code Link");
+
+      function selectUrl() {
+        try {
+          urlInput.focus({ preventScroll: true });
+        } catch (e) {
+          urlInput.focus();
+        }
+        urlInput.select();
+        try {
+          urlInput.setSelectionRange(0, urlInput.value.length);
+        } catch (e) {}
+      }
+
+      urlInput.addEventListener("focus", selectUrl);
+      urlInput.addEventListener("click", selectUrl);
+
+      let currentUrl = "";
+      function updateGlobalOutput() {
+        const payload = normalizeGlobalPayload({
+          v: GLOBAL_ACTION_VERSION,
+          t: typeToggle.getType(),
+          n: amountInput.value,
+        });
+        if (!payload) {
+          currentUrl = "";
+          urlInput.value = "";
+          return;
+        }
+        const hash = encodeGlobalActionHash(payload);
+        currentUrl = hash ? getBaseUrl() + "#" + hash : "";
+        urlInput.value = currentUrl;
+        if (!currentUrl) return;
+        try {
+          renderQrToCanvas(canvas, currentUrl);
+        } catch (e) {
+          urlInput.value = currentUrl;
+        }
+      }
+
+      amountInput.addEventListener("input", () => {
+        const normalized = normalizeGlobalAmount(amountInput.value);
+        if (normalized !== null) {
+          amountInput.value = String(normalized);
+        }
+        updateGlobalOutput();
+      });
+
+      canvas.addEventListener("click", () => {
+        if (!currentUrl) return;
+        const safeType = typeToggle.getType() === "d" ? "drink" : "guthaben";
+        const safeAmount = String(amountInput.value || "1").replace(
+          /[^0-9]/g,
+          "",
+        );
+        const filename = `db-wallet-global-${safeType}-${safeAmount}.png`;
+        canvasToPngDownload(canvas, filename);
+      });
+
+      form.appendChild(typeToggle.el);
+      form.appendChild(fields);
+
+      output.appendChild(canvas);
+      output.appendChild(urlInput);
+
+      section.appendChild(title);
+      section.appendChild(form);
+      section.appendChild(output);
+
+      updateGlobalOutput();
+      return section;
+    }
+
     function refresh() {
       const wallet = getWallet();
       if (!wallet) return;
@@ -667,6 +836,7 @@
         }
         if (showTrimNotice) container.appendChild(notice);
         if (createOpen) container.appendChild(createForm);
+        container.appendChild(buildGlobalSection());
         container.appendChild(empty);
         return;
       }
@@ -930,6 +1100,7 @@
       if (showTrimNotice) container.appendChild(notice);
       if (createOpen) container.appendChild(createForm);
       container.appendChild(grid);
+      container.appendChild(buildGlobalSection());
     }
 
     refresh();
@@ -942,6 +1113,8 @@
     buildActionCode,
     applyActionCodeEdits,
     buildActionPayload,
+    encodeGlobalActionHash,
+    decodeGlobalActionHash,
     decodeActionHash,
     encodeActionHash,
     initActionCodesUi,
@@ -950,5 +1123,6 @@
     defaultLabelForType,
     HARD_LIMIT,
     SOFT_LIMIT,
+    GLOBAL_ACTION_MAX_AMOUNT,
   };
 })();

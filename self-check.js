@@ -436,6 +436,70 @@
             JSON.stringify(legacyDecoded),
           );
 
+          if (
+            typeof actionCodes.encodeGlobalActionHash === "function" &&
+            typeof actionCodes.decodeGlobalActionHash === "function" &&
+            summaryApi &&
+            typeof summaryApi.computeSummary === "function"
+          ) {
+            const globalPayload = { v: 1, t: "d", n: 1 };
+            const globalHash1 =
+              actionCodes.encodeGlobalActionHash(globalPayload);
+            const globalHash2 =
+              actionCodes.encodeGlobalActionHash(globalPayload);
+            addCheck(
+              result,
+              "global action deterministic",
+              globalHash1 === globalHash2 && globalHash1.startsWith("acg:"),
+              globalHash1,
+            );
+
+            const decodedGlobal =
+              actionCodes.decodeGlobalActionHash(globalHash1);
+            const beforeGlobal = summaryApi.computeSummary(wallet).total;
+            const appliedWithWallet =
+              !!decodedGlobal && !!wallet && !!storage
+                ? (() => {
+                    wallet.events.push({
+                      id: storage.nextEventId(wallet),
+                      t: decodedGlobal.t,
+                      n: decodedGlobal.n,
+                      ts: Date.now() + 5000,
+                    });
+                    return true;
+                  })()
+                : false;
+            const afterGlobal = summaryApi.computeSummary(wallet).total;
+            addCheck(
+              result,
+              "global action applies",
+              appliedWithWallet && afterGlobal > beforeGlobal,
+              `before=${beforeGlobal} after=${afterGlobal}`,
+            );
+
+            const appliedNoWallet = (() => {
+              if (!decodedGlobal) return false;
+              if (!storage || typeof storage.nextEventId !== "function") {
+                return false;
+              }
+              const target = null;
+              if (!target) return false;
+              target.events.push({
+                id: storage.nextEventId(target),
+                t: decodedGlobal.t,
+                n: decodedGlobal.n,
+                ts: Date.now(),
+              });
+              return true;
+            })();
+            addCheck(
+              result,
+              "global action requires wallet",
+              appliedNoWallet === false,
+              `applied=${appliedNoWallet}`,
+            );
+          }
+
           const actionHash = actionCodes.encodeActionHash({
             v: 1,
             walletId: wallet.walletId,

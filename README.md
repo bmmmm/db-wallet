@@ -55,6 +55,16 @@ Wichtig:
   manipulierbaren QR-Feldern).
 - QR-Payloads sind schlank gehalten; ältere Payloads bleiben kompatibel.
 
+### Globale Action Codes (deterministisch)
+
+Zusätzlich gibt es **globale** Action Codes (`#acg:...`), die **nicht** an ein
+Wallet gebunden sind. Sie wirken immer auf das **aktuell geöffnete** Wallet:
+
+- deterministisch: gleiche Eingaben → gleicher Link
+- keine Speicherung, keine Secrets
+- Validierung: Typ `d/g`, Menge `1..100`
+- wenn kein Wallet geöffnet ist, wird eine Hinweis‑Meldung angezeigt
+
 ## Sync Status (Top-Row)
 
 Die Wallet zeigt einen rein lokalen Sync-Status an, um den Stand zwischen

@@ -1,9 +1,10 @@
 (function () {
-  // Hash formats are part of the external contract: ac:, import:, i2:, i2u:
+  // Hash formats are part of the external contract: ac:, acg:, import:, i2:, i2u:
   function getHashKind(hash) {
     const raw = String(hash || "");
     if (!raw) return "";
     if (raw.startsWith("ac:")) return "action";
+    if (raw.startsWith("acg:")) return "action-global";
     if (raw.startsWith("import:")) return "import";
     if (raw.startsWith("i2u:")) return "import-v2-plain";
     if (raw.startsWith("i2:")) return "import-v2";
@@ -28,6 +29,9 @@
         return decoded && typeof decoded.walletId === "string"
           ? decoded.walletId
           : "";
+      }
+      if (kind === "action-global") {
+        return "";
       }
 
       if (kind === "import") {
