@@ -244,7 +244,7 @@
     }
     if (hash.startsWith("acg:")) {
       showGlobalActionMessage(
-        "Bitte zuerst ein Wallet öffnen, dann den Code erneut scannen.",
+        "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
       window.location.hash = "";
       return false;

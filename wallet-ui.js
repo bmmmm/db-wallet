@@ -215,7 +215,7 @@
     const initialHash = window.location.hash.slice(1);
     if (initialHash.startsWith("acg:")) {
       showGlobalActionMessage(
-        "Bitte zuerst ein Wallet öffnen, dann den Code erneut scannen.",
+        "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
       return;
     }
@@ -533,7 +533,7 @@
               : null;
           if (!payload || !wallet) {
             showGlobalActionMessage(
-              "Bitte zuerst ein Wallet öffnen, dann den Code erneut scannen.",
+              "Bitte zuerst ein Wallet importieren oder öffnen.",
             );
             if (userId && window.location.hash.slice(1) !== userId) {
               window.location.hash = "#" + userId;

@@ -92,8 +92,20 @@
     return t === "d" ? "d" : "g";
   }
 
+  function normalizeScope(value) {
+    return value === "global" ? "global" : "local";
+  }
+
   const GLOBAL_ACTION_VERSION = 1;
   const GLOBAL_ACTION_MAX_AMOUNT = 100;
+
+  function clampGlobalAmount(value) {
+    const n = typeof value === "number" ? value : parseInt(value, 10);
+    if (!Number.isFinite(n)) return null;
+    const rounded = Math.round(n);
+    const clamped = Math.min(GLOBAL_ACTION_MAX_AMOUNT, Math.max(1, rounded));
+    return clamped;
+  }
 
   function normalizeGlobalAmount(value) {
     const n = typeof value === "number" ? value : parseInt(value, 10);
@@ -156,6 +168,24 @@
       amount,
       type,
       key: randomToken(18),
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  function buildGlobalCode(data, now = Date.now()) {
+    const type = normalizeType(data && data.type);
+    const amountRaw = clampGlobalAmount(data && data.amount);
+    const amount = amountRaw === null ? 1 : amountRaw;
+    const labelRaw = data && typeof data.label === "string" ? data.label : "";
+    const label =
+      String(labelRaw || "").trim() || defaultLabelForType(type, amount);
+    return {
+      id: `global:${randomToken(10)}`,
+      label,
+      amount,
+      type,
+      scope: "global",
       createdAt: now,
       updatedAt: now,
     };
@@ -463,9 +493,11 @@
     let showTrimNotice = false;
     let showSoftLimitNotice = false;
     let selectedType = "d";
+    let selectedScope = "local";
     let createOpen = false;
     let editingId = "";
     let pendingDeleteId = "";
+    let globalCodes = [];
 
     function persistIfChanged(wallet) {
       const current = Array.isArray(wallet && wallet.actionCodes)
@@ -479,6 +511,21 @@
 
     function actionUrlFor(code) {
       const wallet = getWallet();
+      const scope = normalizeScope(code && code.scope);
+      if (scope === "global") {
+        const label =
+          code && typeof code.label === "string" ? code.label.trim() : "";
+        const amountRaw = clampGlobalAmount(code && code.amount);
+        const amount = amountRaw === null ? 1 : amountRaw;
+        const payload = {
+          v: GLOBAL_ACTION_VERSION,
+          t: normalizeType(code && code.type),
+          n: amount,
+        };
+        if (label) payload.l = label;
+        const hash = encodeGlobalActionHash(payload);
+        return hash ? getBaseUrl() + "#" + hash : "";
+      }
       const payload = buildActionPayload(wallet, code);
       return getBaseUrl() + "#" + encodeActionHash(payload);
     }
@@ -534,121 +581,55 @@
       };
     }
 
-    function buildGlobalSection() {
-      const section = document.createElement("div");
-      section.className = "action-codes-global";
+    function buildScopeToggle(initialScope, onChange) {
+      let currentScope = normalizeScope(initialScope);
+      const wrapper = document.createElement("div");
+      wrapper.className = "action-code-scope-toggle";
 
-      const title = document.createElement("div");
-      title.className = "action-codes-hint";
-      title.textContent =
-        "Globaler Action Code (wirkt auf das aktuell geöffnete Wallet).";
+      const btnLocal = document.createElement("button");
+      btnLocal.type = "button";
+      btnLocal.textContent = "🔒 Lokal";
+      btnLocal.className = "mode-btn";
+      btnLocal.setAttribute("aria-pressed", "false");
 
-      const form = document.createElement("div");
-      form.className = "action-code-form";
+      const btnGlobal = document.createElement("button");
+      btnGlobal.type = "button";
+      btnGlobal.textContent = "🌍 Global";
+      btnGlobal.className = "mode-btn";
+      btnGlobal.setAttribute("aria-pressed", "false");
 
-      const typeToggle = buildTypeToggle("d", () => {
-        updateGlobalOutput();
-      });
-
-      const amountInput = document.createElement("input");
-      amountInput.type = "number";
-      amountInput.min = "1";
-      amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
-      amountInput.value = "1";
-
-      const amountField = document.createElement("label");
-      amountField.className = "action-code-form-field";
-      const amountText = document.createElement("span");
-      amountText.textContent = "Menge (Getränke):";
-      amountField.appendChild(amountText);
-      amountField.appendChild(amountInput);
-
-      const fields = document.createElement("div");
-      fields.className = "action-code-form-fields";
-      fields.appendChild(amountField);
-
-      const output = document.createElement("div");
-      output.className = "action-code-output";
-
-      const canvas = document.createElement("canvas");
-      canvas.className = "action-code-canvas";
-
-      const urlInput = document.createElement("input");
-      urlInput.type = "text";
-      urlInput.readOnly = true;
-      urlInput.inputMode = "none";
-      urlInput.className = "action-code-url";
-      urlInput.setAttribute("aria-label", "Global Action Code Link");
-
-      function selectUrl() {
-        try {
-          urlInput.focus({ preventScroll: true });
-        } catch (e) {
-          urlInput.focus();
-        }
-        urlInput.select();
-        try {
-          urlInput.setSelectionRange(0, urlInput.value.length);
-        } catch (e) {}
+      function sync() {
+        currentScope = normalizeScope(currentScope);
+        const isLocal = currentScope === "local";
+        btnLocal.classList.toggle("active", isLocal);
+        btnGlobal.classList.toggle("active", !isLocal);
+        btnLocal.setAttribute("aria-pressed", isLocal ? "true" : "false");
+        btnGlobal.setAttribute("aria-pressed", isLocal ? "false" : "true");
       }
 
-      urlInput.addEventListener("focus", selectUrl);
-      urlInput.addEventListener("click", selectUrl);
-
-      let currentUrl = "";
-      function updateGlobalOutput() {
-        const payload = normalizeGlobalPayload({
-          v: GLOBAL_ACTION_VERSION,
-          t: typeToggle.getType(),
-          n: amountInput.value,
-        });
-        if (!payload) {
-          currentUrl = "";
-          urlInput.value = "";
-          return;
-        }
-        const hash = encodeGlobalActionHash(payload);
-        currentUrl = hash ? getBaseUrl() + "#" + hash : "";
-        urlInput.value = currentUrl;
-        if (!currentUrl) return;
-        try {
-          renderQrToCanvas(canvas, currentUrl);
-        } catch (e) {
-          urlInput.value = currentUrl;
-        }
-      }
-
-      amountInput.addEventListener("input", () => {
-        const normalized = normalizeGlobalAmount(amountInput.value);
-        if (normalized !== null) {
-          amountInput.value = String(normalized);
-        }
-        updateGlobalOutput();
+      btnLocal.addEventListener("click", () => {
+        currentScope = "local";
+        sync();
+        if (onChange) onChange(currentScope);
+      });
+      btnGlobal.addEventListener("click", () => {
+        currentScope = "global";
+        sync();
+        if (onChange) onChange(currentScope);
       });
 
-      canvas.addEventListener("click", () => {
-        if (!currentUrl) return;
-        const safeType = typeToggle.getType() === "d" ? "drink" : "guthaben";
-        const safeAmount = String(amountInput.value || "1").replace(
-          /[^0-9]/g,
-          "",
-        );
-        const filename = `db-wallet-global-${safeType}-${safeAmount}.png`;
-        canvasToPngDownload(canvas, filename);
-      });
+      sync();
+      wrapper.appendChild(btnLocal);
+      wrapper.appendChild(btnGlobal);
 
-      form.appendChild(typeToggle.el);
-      form.appendChild(fields);
-
-      output.appendChild(canvas);
-      output.appendChild(urlInput);
-
-      section.appendChild(title);
-      section.appendChild(form);
-      section.appendChild(output);
-
-      updateGlobalOutput();
-      return section;
+      return {
+        el: wrapper,
+        getScope: () => currentScope,
+        setScope: (scope) => {
+          currentScope = normalizeScope(scope);
+          sync();
+        },
+      };
     }
 
     function refresh() {
@@ -657,8 +638,11 @@
 
       persistIfChanged(wallet);
 
-      const codes = Array.isArray(wallet.actionCodes) ? wallet.actionCodes : [];
-      if (codes.length < SOFT_LIMIT) showSoftLimitNotice = false;
+      const localCodes = Array.isArray(wallet.actionCodes)
+        ? wallet.actionCodes
+        : [];
+      const codes = localCodes.concat(globalCodes);
+      if (localCodes.length < SOFT_LIMIT) showSoftLimitNotice = false;
       if (editingId && !codes.find((c) => c && c.id === editingId)) {
         editingId = "";
       }
@@ -715,6 +699,10 @@
       createForm.className = "action-code-form";
 
       if (createOpen) {
+        const scopeToggle = buildScopeToggle(selectedScope, (nextScope) => {
+          selectedScope = nextScope;
+          updateCreateAmountLimit();
+        });
         const typeToggle = buildTypeToggle(selectedType, (nextType) => {
           selectedType = nextType;
           updateCreateDefaults();
@@ -748,7 +736,23 @@
           amountText.textContent = amountPromptForType(typeToggle.getType());
         }
 
-        amountInput.addEventListener("input", updateCreateDefaults);
+        function updateCreateAmountLimit() {
+          const scope = scopeToggle.getScope();
+          if (scope === "global") {
+            amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
+            const normalized = clampGlobalAmount(amountInput.value);
+            if (normalized !== null) {
+              amountInput.value = String(normalized);
+            }
+          } else {
+            amountInput.removeAttribute("max");
+          }
+        }
+
+        amountInput.addEventListener("input", () => {
+          updateCreateDefaults();
+          updateCreateAmountLimit();
+        });
 
         const labelField = document.createElement("label");
         labelField.className = "action-code-form-field";
@@ -778,27 +782,38 @@
         btnSave.addEventListener("click", () => {
           const walletNow = getWallet();
           if (!walletNow) return;
-          persistIfChanged(walletNow);
-          const currentCodes = Array.isArray(walletNow.actionCodes)
-            ? walletNow.actionCodes
-            : [];
-          const hadNoCodes = currentCodes.length === 0;
-          const created = buildActionCode({
-            type: typeToggle.getType(),
-            amount: amountInput.value,
-            label: labelInput.value,
-          });
-          if (!Array.isArray(walletNow.actionCodes)) walletNow.actionCodes = [];
-          walletNow.actionCodes.push(created);
-          const res = ensureWalletActionCodes(walletNow);
-          if (res && res.trimmedCount > 0) showTrimNotice = true;
-          persistWallet(walletNow);
-          if (hadNoCodes) {
-            const details =
-              typeof container.closest === "function"
-                ? container.closest("details")
-                : null;
-            if (details) details.open = true;
+          const scope = scopeToggle.getScope();
+          if (scope === "global") {
+            const created = buildGlobalCode({
+              type: typeToggle.getType(),
+              amount: amountInput.value,
+              label: labelInput.value,
+            });
+            globalCodes.push(created);
+          } else {
+            persistIfChanged(walletNow);
+            const currentCodes = Array.isArray(walletNow.actionCodes)
+              ? walletNow.actionCodes
+              : [];
+            const hadNoCodes = currentCodes.length === 0;
+            const created = buildActionCode({
+              type: typeToggle.getType(),
+              amount: amountInput.value,
+              label: labelInput.value,
+            });
+            if (!Array.isArray(walletNow.actionCodes))
+              walletNow.actionCodes = [];
+            walletNow.actionCodes.push(created);
+            const res = ensureWalletActionCodes(walletNow);
+            if (res && res.trimmedCount > 0) showTrimNotice = true;
+            persistWallet(walletNow);
+            if (hadNoCodes) {
+              const details =
+                typeof container.closest === "function"
+                  ? container.closest("details")
+                  : null;
+              if (details) details.open = true;
+            }
           }
           createOpen = false;
           refresh();
@@ -815,6 +830,8 @@
         actions.appendChild(btnSave);
         actions.appendChild(btnCancel);
 
+        updateCreateAmountLimit();
+        createForm.appendChild(scopeToggle.el);
         createForm.appendChild(typeToggle.el);
         createForm.appendChild(fields);
         createForm.appendChild(actions);
@@ -836,7 +853,6 @@
         }
         if (showTrimNotice) container.appendChild(notice);
         if (createOpen) container.appendChild(createForm);
-        container.appendChild(buildGlobalSection());
         container.appendChild(empty);
         return;
       }
@@ -846,6 +862,7 @@
       }
 
       for (const code of codes) {
+        const isGlobal = normalizeScope(code && code.scope) === "global";
         const card = document.createElement("div");
         card.className = "action-code-card";
         if (codes.length === 1) {
@@ -858,6 +875,10 @@
         const meta = document.createElement("div");
         meta.className = "action-code-meta";
 
+        const badge = document.createElement("span");
+        badge.className = "action-code-badge";
+        badge.textContent = isGlobal ? "🌍 Global" : "🔒 Lokal";
+
         const label = document.createElement("div");
         label.className = "action-code-label";
         label.textContent = code.label || `+${code.amount}`;
@@ -867,7 +888,12 @@
         const typeLabel = code.type === "d" ? "Drink" : "Guthaben";
         amount.textContent = `+${normalizeAmount(code.amount)} Getränke (${typeLabel})`;
 
-        meta.appendChild(label);
+        const labelRow = document.createElement("div");
+        labelRow.className = "action-code-label-row";
+        labelRow.appendChild(label);
+        labelRow.appendChild(badge);
+
+        meta.appendChild(labelRow);
         meta.appendChild(amount);
 
         const btns = document.createElement("div");
@@ -903,6 +929,12 @@
           const editForm = document.createElement("div");
           editForm.className = "action-code-form";
 
+          const scopeToggle = buildScopeToggle(
+            isGlobal ? "global" : "local",
+            () => {
+              updateEditAmountLimit();
+            },
+          );
           const typeToggle = buildTypeToggle(code.type, (nextType) => {
             amountLabel.textContent = amountPromptForType(nextType);
           });
@@ -911,6 +943,9 @@
           amountInput.type = "number";
           amountInput.min = "1";
           amountInput.value = String(code.amount || 1);
+          amountInput.addEventListener("input", () => {
+            updateEditAmountLimit();
+          });
 
           const labelInput = document.createElement("input");
           labelInput.type = "text";
@@ -940,25 +975,79 @@
           const actions = document.createElement("div");
           actions.className = "action-code-form-actions";
 
+          function updateEditAmountLimit() {
+            const scope = scopeToggle.getScope();
+            if (scope === "global") {
+              amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
+              const normalized = clampGlobalAmount(amountInput.value);
+              if (normalized !== null) {
+                amountInput.value = String(normalized);
+              }
+            } else {
+              amountInput.removeAttribute("max");
+            }
+          }
+
           const btnSave = document.createElement("button");
           btnSave.type = "button";
           btnSave.textContent = "Speichern";
           btnSave.addEventListener("click", () => {
             const walletNow = getWallet();
             if (!walletNow) return;
-            const codesNow = Array.isArray(walletNow.actionCodes)
-              ? walletNow.actionCodes
-              : [];
-            const target = codesNow.find((c) => c && c.id === code.id);
-            if (!target) return;
-            applyActionCodeEdits(target, {
-              label: labelInput.value,
-              amount: amountInput.value,
-              type: typeToggle.getType(),
-            });
-            const res = ensureWalletActionCodes(walletNow);
-            if (res && res.trimmedCount > 0) showTrimNotice = true;
-            persistWallet(walletNow);
+            const scope = scopeToggle.getScope();
+            if (scope === "global") {
+              if (!isGlobal) {
+                const codesNow = Array.isArray(walletNow.actionCodes)
+                  ? walletNow.actionCodes
+                  : [];
+                walletNow.actionCodes = codesNow.filter(
+                  (c) => c && c.id !== code.id,
+                );
+                const res = ensureWalletActionCodes(walletNow);
+                if (res && res.trimmedCount > 0) showTrimNotice = true;
+                persistWallet(walletNow);
+                const created = buildGlobalCode({
+                  type: typeToggle.getType(),
+                  amount: amountInput.value,
+                  label: labelInput.value,
+                });
+                globalCodes.push(created);
+              } else {
+                code.type = normalizeType(typeToggle.getType());
+                const amountRaw = clampGlobalAmount(amountInput.value);
+                code.amount = amountRaw === null ? 1 : amountRaw;
+                const labelRaw = String(labelInput.value || "").trim();
+                code.label =
+                  labelRaw || defaultLabelForType(code.type, code.amount);
+                code.updatedAt = Date.now();
+              }
+            } else {
+              if (isGlobal) {
+                globalCodes = globalCodes.filter((c) => c.id !== code.id);
+                const created = buildActionCode({
+                  type: typeToggle.getType(),
+                  amount: amountInput.value,
+                  label: labelInput.value,
+                });
+                if (!Array.isArray(walletNow.actionCodes))
+                  walletNow.actionCodes = [];
+                walletNow.actionCodes.push(created);
+              } else {
+                const codesNow = Array.isArray(walletNow.actionCodes)
+                  ? walletNow.actionCodes
+                  : [];
+                const target = codesNow.find((c) => c && c.id === code.id);
+                if (!target) return;
+                applyActionCodeEdits(target, {
+                  label: labelInput.value,
+                  amount: amountInput.value,
+                  type: typeToggle.getType(),
+                });
+              }
+              const res = ensureWalletActionCodes(walletNow);
+              if (res && res.trimmedCount > 0) showTrimNotice = true;
+              persistWallet(walletNow);
+            }
             editingId = "";
             refresh();
           });
@@ -974,6 +1063,8 @@
           actions.appendChild(btnSave);
           actions.appendChild(btnCancel);
 
+          updateEditAmountLimit();
+          editForm.appendChild(scopeToggle.el);
           editForm.appendChild(typeToggle.el);
           editForm.appendChild(fields);
           editForm.appendChild(actions);
@@ -996,15 +1087,19 @@
           btnConfirm.addEventListener("click", () => {
             const walletNow = getWallet();
             if (!walletNow) return;
-            const codesNow = Array.isArray(walletNow.actionCodes)
-              ? walletNow.actionCodes
-              : [];
-            walletNow.actionCodes = codesNow.filter(
-              (c) => c && c.id !== code.id,
-            );
-            const res = ensureWalletActionCodes(walletNow);
-            if (res && res.trimmedCount > 0) showTrimNotice = true;
-            persistWallet(walletNow);
+            if (isGlobal) {
+              globalCodes = globalCodes.filter((c) => c.id !== code.id);
+            } else {
+              const codesNow = Array.isArray(walletNow.actionCodes)
+                ? walletNow.actionCodes
+                : [];
+              walletNow.actionCodes = codesNow.filter(
+                (c) => c && c.id !== code.id,
+              );
+              const res = ensureWalletActionCodes(walletNow);
+              if (res && res.trimmedCount > 0) showTrimNotice = true;
+              persistWallet(walletNow);
+            }
             pendingDeleteId = "";
             refresh();
           });
@@ -1100,7 +1195,6 @@
       if (showTrimNotice) container.appendChild(notice);
       if (createOpen) container.appendChild(createForm);
       container.appendChild(grid);
-      container.appendChild(buildGlobalSection());
     }
 
     refresh();

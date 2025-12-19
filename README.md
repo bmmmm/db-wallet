@@ -38,8 +38,9 @@ sich per Export/Import zwischen Geräten übertragen.
 
 ## Action Codes (QR)
 
-Action Codes sind wallet-gebundene QR-Links (`#ac:...`), die beim Scannen
-**sofort** eine Buchung im Ziel-Profil auslösen (ohne Reload):
+Action Codes können **lokal (wallet-gebunden)** oder **global (wallet-agnostisch)**
+sein. Der Scope wird beim Erstellen/Bearbeiten gewählt. Beim Scannen erfolgt
+**sofort** eine Buchung (ohne Reload):
 
 - Typ **Trinken**: bucht ein Drink-Event.
 - Typ **Guthaben**: bucht eine Gutschrift.
@@ -48,7 +49,9 @@ Wichtig:
 
 - Verwaltung erfolgt inline per Buttons (New action code, Bearbeiten, Löschen).
 - Die Mengenfrage im Inline-Formular passt sich dem Typ an (trinken vs gutschreiben).
-- Action Codes sind an eine Wallet gebunden (Ziel-WalletId steckt im QR).
+- Pro Code ist der Scope wählbar: 🔒 Lokal (wallet‑gebunden) oder 🌍 Global.
+- Lokale Action Codes sind an eine Wallet gebunden (Ziel-WalletId steckt im QR).
+- Globale Action Codes sind stateless und wirken auf das aktuell geöffnete Wallet.
 - Beim Bearbeiten (Name/Menge/Typ) wird der QR bei Bedarf neu erzeugt; alte Codes
   werden dann **ungültig** und werden beim Einlösen strikt abgelehnt.
 - Der Betrag wird aus dem gespeicherten Action Code gelesen (nicht aus
@@ -57,13 +60,13 @@ Wichtig:
 
 ### Globale Action Codes (deterministisch)
 
-Zusätzlich gibt es **globale** Action Codes (`#acg:...`), die **nicht** an ein
-Wallet gebunden sind. Sie wirken immer auf das **aktuell geöffnete** Wallet:
+Globale Action Codes (`#acg:...`) sind rein datengetrieben:
 
 - deterministisch: gleiche Eingaben → gleicher Link
 - keine Speicherung, keine Secrets
 - Validierung: Typ `d/g`, Menge `1..100`
 - wenn kein Wallet geöffnet ist, wird eine Hinweis‑Meldung angezeigt
+- wirkt nur beim Scannen/Öffnen des Links, nicht automatisch
 
 ## Sync Status (Top-Row)
 

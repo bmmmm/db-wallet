@@ -377,6 +377,12 @@
           const payloadBefore = actionCodes.buildActionPayload(wallet, code);
           const hashBefore = actionCodes.encodeActionHash(payloadBefore);
           const keyBefore = code.key;
+          addCheck(
+            result,
+            "action code local hash",
+            typeof hashBefore === "string" && hashBefore.startsWith("ac:"),
+            hashBefore,
+          );
 
           actionCodes.applyActionCodeEdits(code, {
             label: "Selfcheck Updated",
@@ -442,7 +448,12 @@
             summaryApi &&
             typeof summaryApi.computeSummary === "function"
           ) {
-            const globalPayload = { v: 1, t: "d", n: 1 };
+            const globalPayload = {
+              v: 1,
+              t: code.type,
+              n: code.amount,
+              l: code.label,
+            };
             const globalHash1 =
               actionCodes.encodeGlobalActionHash(globalPayload);
             const globalHash2 =
@@ -452,6 +463,12 @@
               "global action deterministic",
               globalHash1 === globalHash2 && globalHash1.startsWith("acg:"),
               globalHash1,
+            );
+            addCheck(
+              result,
+              "scope switch regenerates link",
+              globalHash1 !== hashBefore && globalHash1.startsWith("acg:"),
+              `local=${hashBefore} global=${globalHash1}`,
             );
 
             const decodedGlobal =
