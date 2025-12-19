@@ -25,6 +25,7 @@
     const helpers = window.dbWalletHelpers || null;
     const storage = window.dbWalletStorage || null;
     const importV2 = window.dbWalletImportV2 || null;
+    const summaryApi = window.dbWalletSummary || null;
     const actionCodes = window.dbWalletActionCodes || null;
     const hashRouter = window.dbWalletHashRouter || null;
 
@@ -35,13 +36,31 @@
       addCheck(result, "storage available", false, "dbWalletStorage missing");
     }
     if (!importV2) {
-      addCheck(result, "import v2 available", false, "dbWalletImportV2 missing");
+      addCheck(
+        result,
+        "import v2 available",
+        false,
+        "dbWalletImportV2 missing",
+      );
+    }
+    if (!summaryApi) {
+      addCheck(result, "summary available", false, "dbWalletSummary missing");
     }
     if (!actionCodes) {
-      addCheck(result, "action codes available", false, "dbWalletActionCodes missing");
+      addCheck(
+        result,
+        "action codes available",
+        false,
+        "dbWalletActionCodes missing",
+      );
     }
     if (!hashRouter) {
-      addCheck(result, "hash router available", false, "dbWalletHashRouter missing");
+      addCheck(
+        result,
+        "hash router available",
+        false,
+        "dbWalletHashRouter missing",
+      );
     }
 
     const randomId =
@@ -125,6 +144,44 @@
           );
         }
 
+        if (
+          summaryApi &&
+          typeof summaryApi.computeSummary === "function" &&
+          typeof summaryApi.computeSummarySafe === "function"
+        ) {
+          const legacySummary = summaryApi.computeSummary(wallet);
+          const safeSummary = summaryApi.computeSummarySafe(wallet);
+          addCheck(
+            result,
+            "summary safe matches legacy",
+            legacySummary.total === safeSummary.total &&
+              legacySummary.unpaid === safeSummary.unpaid &&
+              legacySummary.credit === safeSummary.credit,
+            `total=${safeSummary.total}`,
+          );
+          addCheck(
+            result,
+            "summary non-zero",
+            legacySummary.total > 0,
+            `total=${legacySummary.total}`,
+          );
+
+          const beforeTotal = safeSummary.total;
+          wallet.events.push({
+            id: storage.nextEventId(wallet),
+            t: "d",
+            n: 1,
+            ts: now + 120000,
+          });
+          const afterSummary = summaryApi.computeSummarySafe(wallet);
+          addCheck(
+            result,
+            "summary monotonic after action",
+            afterSummary.total > beforeTotal,
+            `before=${beforeTotal} after=${afterSummary.total}`,
+          );
+        }
+
         const needsMigration =
           typeof window.dbWalletNeedsMigration === "function"
             ? window.dbWalletNeedsMigration
@@ -184,9 +241,8 @@
             key: "key-1",
             type: "d",
           });
-          const actionWalletId = await hashRouter.parseWalletIdFromHash(
-            actionHash,
-          );
+          const actionWalletId =
+            await hashRouter.parseWalletIdFromHash(actionHash);
           addCheck(
             result,
             "hash parse action",
@@ -208,9 +264,8 @@
             events: wallet.events,
           });
           const importHash = "import:" + helpers.base64UrlEncode(payload);
-          const importWalletId = await hashRouter.parseWalletIdFromHash(
-            importHash,
-          );
+          const importWalletId =
+            await hashRouter.parseWalletIdFromHash(importHash);
           addCheck(
             result,
             "hash parse import",

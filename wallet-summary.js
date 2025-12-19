@@ -20,6 +20,8 @@
     return `${y}-${m}-${day}`;
   }
 
+  let computeSummarySafeLogged = false;
+
   function normalizeWalletForSummary(wallet) {
     const src = wallet && typeof wallet === "object" ? wallet : {};
     const eventsRaw = Array.isArray(src.events) ? src.events : [];
@@ -143,16 +145,73 @@
   }
 
   function computeSummarySafe(wallet) {
-    const normalized = normalizeWalletForSummary(wallet);
-    const base = computeSummary({ events: normalized.events });
+    const userId =
+      wallet && typeof wallet.userId === "string" ? wallet.userId : "";
+    const v =
+      wallet &&
+      typeof wallet.v === "number" &&
+      Number.isFinite(wallet.v) &&
+      wallet.v > 0
+        ? wallet.v
+        : 1;
+    let didLog = false;
+
+    function logOnce(err, label) {
+      if (didLog || computeSummarySafeLogged) return;
+      didLog = true;
+      computeSummarySafeLogged = true;
+      console.error(
+        "dbWalletSummary.computeSummarySafe failed, falling back.",
+        label || "",
+        err,
+      );
+    }
+
+    try {
+      const normalized = normalizeWalletForSummary(wallet);
+      const base = computeSummary({ events: normalized.events });
+      return {
+        userId: normalized.userId,
+        v: normalized.v,
+        total: base.total,
+        unpaid: base.unpaid,
+        credit: base.credit,
+        perDay: base.perDay,
+        eventsSorted: base.eventsSorted,
+      };
+    } catch (e) {
+      logOnce(e, "normalize");
+    }
+
+    try {
+      if (wallet && Array.isArray(wallet.events)) {
+        const base = computeSummary(wallet);
+        return {
+          userId,
+          v,
+          total: base.total,
+          unpaid: base.unpaid,
+          credit: base.credit,
+          perDay: base.perDay,
+          eventsSorted: base.eventsSorted,
+        };
+      }
+    } catch (e) {
+      logOnce(e, "legacy");
+    }
+
+    if (!didLog) {
+      logOnce(new Error("summary fallback to zeros"), "empty");
+    }
+
     return {
-      userId: normalized.userId,
-      v: normalized.v,
-      total: base.total,
-      unpaid: base.unpaid,
-      credit: base.credit,
-      perDay: base.perDay,
-      eventsSorted: base.eventsSorted,
+      userId,
+      v,
+      total: 0,
+      unpaid: 0,
+      credit: 0,
+      perDay: [],
+      eventsSorted: [],
     };
   }
 

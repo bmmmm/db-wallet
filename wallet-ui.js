@@ -598,6 +598,7 @@
     }
 
     updateHeaderUi();
+    refreshSummary();
 
     function getAmount() {
       const n = parseInt(elAmount.value, 10);

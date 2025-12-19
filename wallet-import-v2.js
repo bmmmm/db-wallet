@@ -49,7 +49,7 @@
     "Peach Cloud",
   ];
 
-  const DEVICE_SYMBOLS = ["L", "M", "D", "K", "T", "*"];
+  const DEVICE_SYMBOLS = ["👾", "🤖", "🌈", "🕹️", "🦄", "🖖"];
 
   function cmpStr(a, b) {
     if (a === b) return 0;
