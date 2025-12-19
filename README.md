@@ -24,11 +24,12 @@ sich per Export/Import zwischen Geräten übertragen.
 ## Funktionen
 
 - Buchen: Getränke hinzufügen, Tagesstatistik inkl. Diagramm/Log/Raw.
-- Korrigieren: Getränke zurücknehmen, solange Guthaben/Offen passt.
+- Korrigieren: letzte Buchung rückgängig, danach komplette Neuberechnung aus dem Log.
 - Bezahlen: Offene Getränke ausgleichen; Zahlungen sichtbar im Log.
 - Guthaben: Gutschriften aufladen und abbauen wie Vorrat.
 - Historie: Diagramm (inkl. Tages-Drinkcount in `[n]`), Log mit IDs/Ranges,
   Raw-Daten pro Nutzer:in/alle.
+- Statistik: Offen/Guthaben werden ausgeblendet, wenn sie 0 sind.
 - Verwaltung: Einträge bearbeiten/löschen, Nutzer:innen einzeln oder gesammelt
   löschen.
 - Migration: v1-Wallets können für robusten QR-Export auf v2 migriert werden.
@@ -46,6 +47,7 @@ Action Codes sind wallet-gebundene QR-Links (`#ac:...`), die beim Scannen
 Wichtig:
 
 - Verwaltung erfolgt inline per Buttons (New action code, Bearbeiten, Löschen).
+- Die Mengenfrage im Inline-Formular passt sich dem Typ an (trinken vs gutschreiben).
 - Action Codes sind an eine Wallet gebunden (Ziel-WalletId steckt im QR).
 - Action Codes können erneuert/rotiert werden: alte QR-Codes werden dann
   **ungültig** und werden beim Einlösen strikt abgelehnt.
@@ -138,7 +140,12 @@ window.dbWalletSelfCheck.run()
 ```
 
 Der Self-Check prüft u. a. Storage-Roundtrip, Import v2, Migration, Hash-Parsing,
-Summary-Parität und Action-Code-Updates.
+Summary-Parität, Undo-Recompute und Action-Code-Updates.
+
+## Datenmodell Hinweise
+
+- `wallet.deviceId` (Export/Sync-Metadatum) und `wallet.seq` (Event-Zähler pro Device-Key)
+  bleiben getrennt; eine Zusammenlegung wäre nicht rückwärtskompatibel.
 
 ## Dateien
 

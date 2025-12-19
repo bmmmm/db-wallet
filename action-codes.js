@@ -100,6 +100,12 @@
       : `Guthaben +${amountValue}`;
   }
 
+  function amountPromptForType(type) {
+    return normalizeType(type) === "d"
+      ? "Wie viele Getränke soll der neue Code trinken?"
+      : "Wie viele Getränke soll der neue Code gutschreiben?";
+  }
+
   function rotateActionCodeKey(code, now = Date.now()) {
     if (!code || typeof code !== "object") return;
     code.key = randomToken(18);
@@ -545,6 +551,7 @@
         const typeToggle = buildTypeToggle(selectedType, (nextType) => {
           selectedType = nextType;
           updateCreateDefaults();
+          updateCreateAmountLabel();
         });
 
         const amountInput = document.createElement("input");
@@ -570,6 +577,10 @@
           autoLabel = nextDefault;
         }
 
+        function updateCreateAmountLabel() {
+          amountText.textContent = amountPromptForType(typeToggle.getType());
+        }
+
         amountInput.addEventListener("input", updateCreateDefaults);
 
         const labelField = document.createElement("label");
@@ -582,8 +593,7 @@
         const amountField = document.createElement("label");
         amountField.className = "action-code-form-field";
         const amountText = document.createElement("span");
-        amountText.textContent =
-          "Wie viele Getränke soll der neue Code gutschreiben?";
+        amountText.textContent = amountPromptForType(selectedType);
         amountField.appendChild(amountText);
         amountField.appendChild(amountInput);
 
@@ -744,13 +754,8 @@
           const editForm = document.createElement("div");
           editForm.className = "action-code-form";
 
-          let amountLabelText = "";
           const typeToggle = buildTypeToggle(code.type, (nextType) => {
-            amountLabelText =
-              nextType === "d"
-                ? "Wie viele Getränke soll dieser Code als Trinken buchen?"
-                : "Wie viele Getränke soll dieser Code gutschreiben?";
-            amountLabel.textContent = amountLabelText;
+            amountLabel.textContent = amountPromptForType(nextType);
           });
 
           const amountInput = document.createElement("input");
@@ -767,11 +772,7 @@
           const amountField = document.createElement("label");
           amountField.className = "action-code-form-field";
           const amountLabel = document.createElement("span");
-          amountLabelText =
-            code.type === "d"
-              ? "Wie viele Getränke soll dieser Code als Trinken buchen?"
-              : "Wie viele Getränke soll dieser Code gutschreiben?";
-          amountLabel.textContent = amountLabelText;
+          amountLabel.textContent = amountPromptForType(code.type);
           amountField.appendChild(amountLabel);
           amountField.appendChild(amountInput);
 

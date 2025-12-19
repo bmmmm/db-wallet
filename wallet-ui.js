@@ -68,6 +68,7 @@
     touchLocalDevice,
     parseCompactEventId,
     ensureDeviceSeq,
+    undoLastEvent,
     nextEventId,
     loadWallet,
     saveWallet,
@@ -624,12 +625,29 @@
       }
     }
 
+    function toggleStatVisibility(el, value) {
+      if (!el) return;
+      const parent =
+        typeof el.closest === "function" ? el.closest(".stat") : el.parentNode;
+      if (!parent) return;
+      const parsed =
+        typeof value === "number"
+          ? value
+          : typeof value === "string"
+            ? parseInt(value, 10)
+            : 0;
+      const n = Number.isFinite(parsed) ? parsed : 0;
+      parent.hidden = n === 0;
+    }
+
     function refreshSummary() {
       const summary = getSummary();
       elTotal.textContent = summary.total;
       elUnpaid.textContent = summary.unpaid;
+      toggleStatVisibility(elUnpaid, summary.unpaid);
       if (elCredit) {
         elCredit.textContent = summary.credit;
+        toggleStatVisibility(elCredit, summary.credit);
       }
 
       if (syncUi && typeof syncUi.refresh === "function") {
@@ -660,49 +678,13 @@
     });
 
     btnUndo.addEventListener("click", () => {
-      const summaryBefore = getSummary();
-      const events = summaryBefore.eventsSorted || [];
-      const deviceKey = getDeviceKey();
-
-      function isUndoable(e) {
-        return e && (e.t === "d" || e.t === "s");
-      }
-
-      let target = null;
-      for (let i = events.length - 1; i >= 0; i--) {
-        const e = events[i];
-        if (!isUndoable(e)) continue;
-        const parsed = parseCompactEventId(e.id);
-        if (parsed && parsed.deviceKey === deviceKey) {
-          target = e;
-          break;
-        }
-      }
-      if (!target) {
-        for (let i = events.length - 1; i >= 0; i--) {
-          const e = events[i];
-          if (isUndoable(e)) {
-            target = e;
-            break;
-          }
-        }
-      }
-
-      if (!target) {
-        alert("Keine Buchung zum Rückgängig machen 🤷");
+      if (typeof undoLastEvent !== "function") return;
+      const removed = undoLastEvent(wallet);
+      if (!removed) {
         resetAmount();
         clearExport();
         return;
       }
-
-      const n =
-        typeof target.n === "number" && isFinite(target.n)
-          ? Math.max(1, Math.round(target.n))
-          : 1;
-      const inverseType = target.t === "d" ? "s" : "d";
-
-      wallet.events.push(newEvent(wallet, inverseType, n));
-      saveWallet(wallet);
       invalidateCaches();
       resetAmount();
       clearExport();

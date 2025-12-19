@@ -182,6 +182,106 @@
           );
         }
 
+        if (
+          summaryApi &&
+          typeof summaryApi.computeSummary === "function" &&
+          storage &&
+          typeof storage.undoLastEvent === "function"
+        ) {
+          const baseTs = Date.now();
+          wallet.events = [];
+          wallet.events.push({
+            id: storage.nextEventId(wallet),
+            t: "d",
+            n: 1,
+            ts: baseTs - 4000,
+          });
+          wallet.events.push({
+            id: storage.nextEventId(wallet),
+            t: "d",
+            n: 2,
+            ts: baseTs - 3000,
+          });
+          wallet.events.push({
+            id: storage.nextEventId(wallet),
+            t: "p",
+            ts: baseTs - 2000,
+          });
+          wallet.events.push({
+            id: storage.nextEventId(wallet),
+            t: "d",
+            n: 3,
+            ts: baseTs - 1000,
+          });
+          storage.saveWallet(wallet);
+
+          function compareEventsByTime(a, b) {
+            const aTs =
+              a && typeof a.ts === "number" && Number.isFinite(a.ts) ? a.ts : 0;
+            const bTs =
+              b && typeof b.ts === "number" && Number.isFinite(b.ts) ? b.ts : 0;
+            if (aTs !== bTs) return aTs - bTs;
+            const aId = a && typeof a.id === "string" ? a.id : "";
+            const bId = b && typeof b.id === "string" ? b.id : "";
+            if (aId === bId) return 0;
+            return aId < bId ? -1 : 1;
+          }
+
+          let targetIdx = -1;
+          let target = null;
+          for (let i = 0; i < wallet.events.length; i++) {
+            const e = wallet.events[i];
+            if (!e || typeof e !== "object") continue;
+            if (!target || compareEventsByTime(target, e) < 0) {
+              target = e;
+              targetIdx = i;
+            }
+          }
+
+          const expectedEvents =
+            targetIdx >= 0
+              ? wallet.events.filter((_, idx) => idx !== targetIdx)
+              : wallet.events.slice();
+          const expectedAfter = summaryApi.computeSummary({
+            events: expectedEvents,
+          });
+
+          const removed = storage.undoLastEvent(wallet);
+          const afterUndo = summaryApi.computeSummary(wallet);
+          addCheck(
+            result,
+            "undo recompute matches log",
+            !!removed &&
+              afterUndo.total === expectedAfter.total &&
+              afterUndo.unpaid === expectedAfter.unpaid &&
+              afterUndo.credit === expectedAfter.credit,
+            `total=${afterUndo.total}`,
+          );
+
+          let guard = 10;
+          while (guard-- > 0) {
+            const res = storage.undoLastEvent(wallet);
+            if (!res) break;
+          }
+          const emptySummary = summaryApi.computeSummary(wallet);
+          addCheck(
+            result,
+            "undo until empty",
+            wallet.events.length === 0 &&
+              emptySummary.total === 0 &&
+              emptySummary.unpaid === 0 &&
+              emptySummary.credit === 0,
+            `events=${wallet.events.length}`,
+          );
+        } else {
+          addCheck(
+            result,
+            "undo recompute matches log",
+            false,
+            "undoLastEvent missing",
+          );
+        }
+
         const needsMigration =
           typeof window.dbWalletNeedsMigration === "function"
             ? window.dbWalletNeedsMigration

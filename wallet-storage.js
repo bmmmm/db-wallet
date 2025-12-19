@@ -245,6 +245,42 @@
     }
   }
 
+  function compareEventsByTime(a, b) {
+    const aTs =
+      a && typeof a.ts === "number" && Number.isFinite(a.ts) ? a.ts : 0;
+    const bTs =
+      b && typeof b.ts === "number" && Number.isFinite(b.ts) ? b.ts : 0;
+    if (aTs !== bTs) return aTs - bTs;
+    const aId = a && typeof a.id === "string" ? a.id : "";
+    const bId = b && typeof b.id === "string" ? b.id : "";
+    if (aId === bId) return 0;
+    return aId < bId ? -1 : 1;
+  }
+
+  function undoLastEvent(wallet) {
+    if (!wallet || typeof wallet !== "object") return null;
+    const events = Array.isArray(wallet.events) ? wallet.events : [];
+    if (!events.length) return null;
+
+    let targetIdx = -1;
+    let target = null;
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i];
+      if (!e || typeof e !== "object") continue;
+      if (!target || compareEventsByTime(target, e) < 0) {
+        target = e;
+        targetIdx = i;
+      }
+    }
+    if (targetIdx < 0) return null;
+
+    const removed = events.splice(targetIdx, 1)[0] || null;
+    wallet.events = events;
+    ensureDeviceSeq(wallet);
+    saveWallet(wallet);
+    return removed;
+  }
+
   function nextEventId(wallet) {
     const deviceKey = getDeviceKey();
     if (!wallet.seq || typeof wallet.seq !== "object") {
@@ -508,6 +544,7 @@
     mergeWalletDevices,
     parseCompactEventId,
     ensureDeviceSeq,
+    undoLastEvent,
     nextEventId,
     loadWallet,
     saveWallet,

@@ -9,16 +9,32 @@ Scope: file-level audit only (no code removal).
 - Hash parsing is centralized via `hash-router.js`.
 - Summary computation now has normalization + safe path (`computeSummarySafe`) shared with preview.
 - Action codes use inline UI controls (no popup dialogs).
+- Action-code amount prompt is type-aware (trinken vs gutschreiben).
 - History diagram now includes the daily drink count in brackets.
-- `self-check.js` covers storage roundtrip, import v2 decode, migration, hash parsing, summary parity, and action code edits.
+- Undo removes the latest event (ts/id order) and recomputes totals from the log.
+- Unpaid/credit stats are hidden when zero.
+- `self-check.js` covers storage roundtrip, import v2 decode, migration, hash parsing, summary parity, undo, and action code edits.
 
 ## Completed Work
 
 - Introduced `hash-router.js` to keep hash parsing in one place and reduce duplication.
 - Added summary normalization and safe computation (`computeSummarySafe`) with fallback logging.
 - Replaced action-code popup flows with inline create/edit/delete UI.
+- Made action-code amount prompts type-specific in the inline form.
 - Enhanced history diagram output with `[drinkCount]` per day.
-- Expanded `self-check.js` coverage for summaries and action code behavior.
+- Undo now removes the latest log event and recomputes derived totals.
+- Hide unpaid/credit stats when the values are zero.
+- Expanded `self-check.js` coverage for summaries, undo, and action code behavior.
+
+## DeviceId/seq Review (not safe to merge)
+
+- `wallet.deviceId` is a stable string exported in JSON and used by the v2 import
+  sync-peer extension (`sp`) for peer labeling when no `seq` exists.
+- `wallet.seq` is an object keyed by local `deviceKey` and drives compact event IDs.
+- They have different shapes and responsibilities; merging would change schema,
+  break imports/exports, and risk event-id collisions.
+- Smallest safe path if desired later: keep both fields, introduce a derived alias
+  (e.g. `deviceKeyShort`) behind a migration, and accept legacy wallets unchanged.
 
 ## Remaining TODOs
 
