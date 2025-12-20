@@ -14,9 +14,6 @@
   const {
     STORAGE_PREFIX,
     REGISTRY_KEY,
-    base64UrlDecode,
-    base64UrlDecodeBytes,
-    gzipDecompress,
     safeParse,
     safeLocalStorageRemoveItem,
     loadRegistry,
@@ -36,8 +33,7 @@
 
   const { computeSummary } = summaryApi;
 
-  const { decodeImportV2Bytes, buildImportedWallet, applyImportedTheme } =
-    importV2;
+  const { buildImportedWallet, applyImportedTheme } = importV2;
 
   function formatDateTime(ts) {
     if (typeof ts !== "number" || !Number.isFinite(ts) || ts <= 0) {
@@ -194,46 +190,6 @@
       }
     }
 
-    try {
-      if (raw.startsWith("ac:")) {
-        const actionApi = window.dbWalletActionCodes || null;
-        const decoded =
-          actionApi && typeof actionApi.decodeActionHash === "function"
-            ? actionApi.decodeActionHash(raw)
-            : null;
-        return decoded && typeof decoded.walletId === "string"
-          ? decoded.walletId
-          : "";
-      }
-
-      if (raw.startsWith("import:")) {
-        const payload = base64UrlDecode(raw.slice(7));
-        const remote = safeParse(payload);
-        return remote && typeof remote.walletId === "string"
-          ? remote.walletId
-          : "";
-      }
-
-      if (raw.startsWith("i2u:")) {
-        const bytes = base64UrlDecodeBytes(raw.slice(4));
-        const remote = decodeImportV2Bytes(bytes);
-        return remote && typeof remote.walletId === "string"
-          ? remote.walletId
-          : "";
-      }
-
-      if (raw.startsWith("i2:")) {
-        const bytes = base64UrlDecodeBytes(raw.slice(3));
-        const decompressed = await gzipDecompress(bytes);
-        const remote = decodeImportV2Bytes(decompressed);
-        return remote && typeof remote.walletId === "string"
-          ? remote.walletId
-          : "";
-      }
-    } catch (e) {
-      // ignore
-    }
-
     return "";
   }
 
@@ -241,20 +197,7 @@
     if (hashRouter && typeof hashRouter.classifyHash === "function") {
       return hashRouter.classifyHash(raw);
     }
-    const value = String(raw || "");
-    if (!value) return { kind: "none" };
-    if (value.startsWith("acg:")) return { kind: "globalAction", raw: value };
-    if (value.startsWith("ac:")) return { kind: "localAction", raw: value };
-    if (
-      value.startsWith("import:") ||
-      value.startsWith("i2:") ||
-      value.startsWith("i2u:")
-    ) {
-      return { kind: "import", raw: value };
-    }
-    const trimmed = value.trim();
-    if (!trimmed) return { kind: "none" };
-    return { kind: "user", userId: trimmed };
+    return { kind: "none" };
   }
 
   async function handleHashRouting() {

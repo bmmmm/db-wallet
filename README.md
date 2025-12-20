@@ -52,6 +52,8 @@ Wichtig:
 - Pro Code ist der Scope wählbar: 🔒 Lokal (wallet‑gebunden) oder 🌍 Global.
 - Lokale Action Codes sind an eine Wallet gebunden (Ziel-WalletId steckt im QR).
 - Globale Action Codes sind stateless und wirken auf das aktuell geöffnete Wallet.
+- Öffnest du `wallet.html#acg:…` direkt, wird bei mehreren Wallets eine Auswahl
+  angezeigt; bei genau einem Wallet wird automatisch gebucht.
 - Beim Bearbeiten (Name/Menge/Typ) wird der QR bei Bedarf neu erzeugt; alte Codes
   werden dann **ungültig** und werden beim Einlösen strikt abgelehnt.
 - Der Betrag wird aus dem gespeicherten Action Code gelesen (nicht aus
@@ -218,3 +220,11 @@ Beispiel-URL (GitHub Pages):
 https://bmmmm.github.io/db-wallet/
 
 Viel Spaß mit deinem minimalistischen, schnellen Getränke-Wallet 🍹🚀
+
+## LLM Notes (for quick repo understanding)
+
+- File map (core vs UI): Core/codec/storage in `wallet-helpers.js`, `wallet-storage.js`, `wallet-import-v2.js`, `wallet-summary.js`, `wallet-sync.js`, `migration.js`, `action-codes.js`, `hash-router.js`. UI in `index-ui.js`, `wallet-ui.js`, `wallet-device-ui.js`, `wallet-sync-ui.js`, `wallet-export-ui.js`, `wallet-history-ui.js`, `import-preview.js`, `theme.js`.
+- Invariants: storage prefix `db-wallet:`, registry key `db-wallet:registry`, hash formats `#<userId>`, `#import:`, `#i2:`, `#i2u:`, `#ac:`, `#acg:`; event schema `{id,t,n?,ts,ref?}` with tombstones `t:"x"` + `ref`; action code SOFT/HARD limits 6/10; global `#acg:` deterministic and stateless.
+- Entrypoints & flow: `index.html` → `index-ui.js` (list/create/import) and `wallet.html` → `wallet-ui.js` (hash classify → load wallet → compute summary → render UI); `hash-router.js` is the single classifier/parser for hashes.
+- Where to edit: storage/model in `wallet-storage.js`; summary/tombstones in `wallet-summary.js`; action-code encode/decode + UI in `action-codes.js`; hash parsing in `hash-router.js`; UI wiring in `index-ui.js` / `wallet-ui.js` / `wallet-history-ui.js`.
+- Quick manual checks: open `index.html` → create/open wallet → add drinks/pay → undo (tombstone) → export/import v2 → local/global action codes → open `wallet.html#acg:…` with 1+ wallets → `window.dbWalletSelfCheck.run()`.

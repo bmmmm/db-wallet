@@ -619,12 +619,28 @@
             const acgRoute = globalHash1
               ? hashRouter.classifyHash(globalHash1)
               : { kind: "" };
+            const localRoute = hashRouter.classifyHash(hashBefore);
+            const userRoute = testUserId
+              ? hashRouter.classifyHash(testUserId)
+              : { kind: "" };
             const emptyRoute = hashRouter.classifyHash("");
             addCheck(
               result,
               "hash classify acg",
               acgRoute.kind === "globalAction",
               `kind=${acgRoute.kind || "?"}`,
+            );
+            addCheck(
+              result,
+              "hash classify ac",
+              localRoute.kind === "localAction",
+              `kind=${localRoute.kind || "?"}`,
+            );
+            addCheck(
+              result,
+              "hash classify user",
+              userRoute.kind === "user",
+              `kind=${userRoute.kind || "?"}`,
             );
             addCheck(
               result,

@@ -150,20 +150,7 @@
     if (hashRouter && typeof hashRouter.classifyHash === "function") {
       return hashRouter.classifyHash(raw);
     }
-    const value = String(raw || "");
-    if (!value) return { kind: "none" };
-    if (value.startsWith("acg:")) return { kind: "globalAction", raw: value };
-    if (value.startsWith("ac:")) return { kind: "localAction", raw: value };
-    if (
-      value.startsWith("import:") ||
-      value.startsWith("i2:") ||
-      value.startsWith("i2u:")
-    ) {
-      return { kind: "import", raw: value };
-    }
-    const trimmed = value.trim();
-    if (!trimmed) return { kind: "none" };
-    return { kind: "user", userId: trimmed };
+    return { kind: "none" };
   }
 
   async function resolveInitialUserId() {

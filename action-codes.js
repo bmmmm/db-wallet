@@ -1,85 +1,18 @@
 (function () {
   const helpers = window.dbWalletHelpers || null;
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
+  if (
+    !helpers ||
+    typeof helpers.base64UrlEncode !== "function" ||
+    typeof helpers.base64UrlDecode !== "function" ||
+    typeof helpers.safeParse !== "function" ||
+    typeof helpers.randomToken !== "function"
+  ) {
+    return;
+  }
   const SOFT_LIMIT = 6;
   const HARD_LIMIT = 10;
 
-  function safeParseFallback(raw) {
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  const safeParse =
-    helpers && typeof helpers.safeParse === "function"
-      ? helpers.safeParse
-      : safeParseFallback;
-
-  function base64UrlFromBinary(binary) {
-    return btoa(binary)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/g, "");
-  }
-
-  function base64UrlEncode(str) {
-    const bytes = encoder.encode(String(str || ""));
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return base64UrlFromBinary(binary);
-  }
-
-  function base64UrlDecode(str) {
-    const input = String(str || "");
-    const padLen = (4 - (input.length % 4)) % 4;
-    const padded = input + "=".repeat(padLen);
-    const base = padded.replace(/-/g, "+").replace(/_/g, "/");
-    const binary = atob(base);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return decoder.decode(bytes);
-  }
-
-  function randomTokenFallback(len = 18) {
-    const chars =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-    try {
-      if (
-        typeof crypto !== "undefined" &&
-        crypto &&
-        typeof crypto.getRandomValues === "function"
-      ) {
-        const bytes = new Uint8Array(len);
-        crypto.getRandomValues(bytes);
-        let out = "";
-        for (let i = 0; i < bytes.length; i++) {
-          out += chars[bytes[i] % chars.length];
-        }
-        return out;
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    let out = "";
-    for (let i = 0; i < len; i++) {
-      out += chars[(Math.random() * chars.length) | 0];
-    }
-    return out;
-  }
-
-  const randomToken =
-    helpers && typeof helpers.randomToken === "function"
-      ? helpers.randomToken
-      : randomTokenFallback;
+  const { base64UrlEncode, base64UrlDecode, safeParse, randomToken } = helpers;
 
   function normalizeAmount(value) {
     const n = typeof value === "number" ? value : parseInt(value, 10);
