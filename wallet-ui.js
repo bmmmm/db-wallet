@@ -91,6 +91,7 @@
   let lastHandledGlobalHash = "";
   let lastHandledGlobalHashAt = 0;
   const GLOBAL_ACTION_DUP_WINDOW_MS = 750;
+  const LAST_USER_KEY = "db-wallet:last-user";
 
   function replaceHashSilently(nextHash) {
     const target = String(nextHash || "").trim();
@@ -121,6 +122,27 @@
       lastHandledGlobalHash
     ) {
       document.body.dataset.lastGlobalAction = lastHandledGlobalHash;
+    }
+  }
+
+  function getLastUserId() {
+    try {
+      if (typeof sessionStorage === "undefined" || !sessionStorage) return "";
+      const stored = sessionStorage.getItem(LAST_USER_KEY);
+      return typeof stored === "string" ? stored : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function setLastUserId(userId) {
+    const value = String(userId || "").trim();
+    if (!value) return;
+    try {
+      if (typeof sessionStorage === "undefined" || !sessionStorage) return;
+      sessionStorage.setItem(LAST_USER_KEY, value);
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -238,7 +260,6 @@
       if (!el) {
         el = document.createElement("div");
         el.id = "global-action-message";
-        el.className = "action-codes-notice";
         const topRowEl = document.querySelector(".top-row");
         if (topRowEl && topRowEl.parentNode) {
           topRowEl.parentNode.insertBefore(el, topRowEl.nextSibling);
@@ -246,6 +267,7 @@
           document.body.appendChild(el);
         }
       }
+      el.className = "action-codes-notice global-action-panel";
       return el;
     }
 
@@ -278,46 +300,158 @@
       }
     }
 
-    function showGlobalActionSelection(userIds, onSelect) {
+    function buildGlobalActionPreview(payload) {
+      const type = payload && payload.t === "g" ? "g" : "d";
+      const amount =
+        payload && typeof payload.n === "number" && Number.isFinite(payload.n)
+          ? Math.max(1, Math.round(payload.n))
+          : 1;
+      const label =
+        payload && typeof payload.l === "string" ? payload.l.trim() : "";
+      return { type, amount, label };
+    }
+
+    function showGlobalActionSelection(options) {
+      const userIds = Array.isArray(options.userIds) ? options.userIds : [];
+      const walletMeta = options.walletMeta || {};
+      const preview = buildGlobalActionPreview(options.payload);
+      const onSelect = options.onSelect;
+      const onCancel = options.onCancel;
+
       const el = ensureGlobalActionContainer();
       el.textContent = "";
       el.dataset.mode = "select";
 
+      const header = document.createElement("div");
+      header.className = "global-action-header";
+
       const title = document.createElement("div");
       title.className = "global-action-title";
-      title.textContent = "Wähle ein Wallet für diesen Code";
+      title.textContent = "Wallet auswählen ✨";
+
+      const previewLine = document.createElement("div");
+      previewLine.className = "global-action-preview";
+      const strong = document.createElement("strong");
+      strong.textContent =
+        preview.type === "d"
+          ? `+${preview.amount} Getränke`
+          : `+${preview.amount} Guthaben`;
+      if (preview.type === "d") {
+        previewLine.append("Du hast gerade ");
+        previewLine.appendChild(strong);
+        previewLine.append(" am Start 🥤");
+      } else {
+        previewLine.append("Gutschein-Boost: ");
+        previewLine.appendChild(strong);
+        previewLine.append(" 💰");
+      }
+
+      const subtitle = document.createElement("div");
+      subtitle.className = "global-action-subtitle";
+      subtitle.textContent =
+        preview.type === "d"
+          ? "Welchem Wallet sollen wir das zuordnen?"
+          : "Welchem Wallet willst du das gutschreiben?";
+
+      const labelLine = document.createElement("div");
+      labelLine.className = "global-action-label";
+      if (preview.label) {
+        labelLine.textContent = `„${preview.label}“`;
+      }
+
+      const reassure = document.createElement("div");
+      reassure.className = "global-action-reassure";
+      reassure.textContent =
+        "Keine Sorge: Der Code wird genau einmal angewendet.";
+
+      header.appendChild(title);
+      header.appendChild(previewLine);
+      header.appendChild(subtitle);
+      if (preview.label) header.appendChild(labelLine);
+      header.appendChild(reassure);
 
       const list = document.createElement("div");
       list.id = "global-action-wallet-select";
-      list.className = "action-buttons";
+      list.className = "global-action-options";
 
+      let firstBtn = null;
       userIds.forEach((userId) => {
+        const meta = walletMeta[userId] || {};
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.textContent = userId;
+        btn.className = "global-action-card";
+
+        const name = document.createElement("div");
+        name.className = "global-action-card-title";
+        name.textContent = userId;
+
+        const sub = document.createElement("div");
+        sub.className = "global-action-card-sub";
+        sub.textContent = meta.subtitle || "";
+
+        btn.appendChild(name);
+        if (sub.textContent) btn.appendChild(sub);
+
         btn.addEventListener("click", () => {
           if (btn.disabled) return;
           const buttons = list.querySelectorAll("button");
           buttons.forEach((b) => {
             b.disabled = true;
           });
-          onSelect(userId);
+          if (typeof onSelect === "function") onSelect(userId);
         });
+        if (!firstBtn) firstBtn = btn;
         list.appendChild(btn);
       });
 
-      el.appendChild(title);
+      const actions = document.createElement("div");
+      actions.className = "global-action-actions";
+
+      if (typeof onCancel === "function") {
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "global-action-cancel";
+        cancelBtn.textContent = "Abbrechen";
+        cancelBtn.addEventListener("click", () => onCancel());
+        actions.appendChild(cancelBtn);
+      }
+
+      el.appendChild(header);
       el.appendChild(list);
+      if (actions.childNodes.length) {
+        el.appendChild(actions);
+      }
+
+      if (firstBtn) {
+        setTimeout(() => {
+          try {
+            firstBtn.focus();
+          } catch (e) {
+            // ignore
+          }
+        }, 0);
+      }
     }
 
-    async function awaitGlobalActionWalletSelection(userIds) {
-      if (!Array.isArray(userIds) || userIds.length === 0) return "";
+    async function awaitGlobalActionWalletSelection(options) {
+      const userIds = Array.isArray(options.userIds) ? options.userIds : [];
+      if (!userIds.length) return { action: "cancel", userId: "" };
       setNoWalletState();
       return new Promise((resolve) => {
-        showGlobalActionSelection(userIds, (userId) => {
-          clearNoWalletState();
-          clearGlobalActionContainer();
-          resolve(userId);
+        showGlobalActionSelection({
+          userIds,
+          walletMeta: options.walletMeta,
+          payload: options.payload,
+          onSelect: (userId) => {
+            clearNoWalletState();
+            clearGlobalActionContainer();
+            resolve({ action: "select", userId });
+          },
+          onCancel: () => {
+            clearNoWalletState();
+            clearGlobalActionContainer();
+            resolve({ action: "cancel", userId: options.lastUserId || "" });
+          },
         });
       });
     }
@@ -379,6 +513,27 @@
     if (initialKind === "globalActionNeedsWallet") {
       const wallets = getAllWallets ? getAllWallets() : {};
       const userIds = Object.keys(wallets).sort((a, b) => a.localeCompare(b));
+      const actionApi = window.dbWalletActionCodes || null;
+      const payload =
+        actionApi && typeof actionApi.decodeGlobalActionHash === "function"
+          ? actionApi.decodeGlobalActionHash(initialRoute.raw || "")
+          : null;
+      const lastUserId = getLastUserId();
+      const walletMeta = {};
+
+      userIds.forEach((id) => {
+        const w = wallets[id];
+        const walletId = w && typeof w.walletId === "string" ? w.walletId : "";
+        const walletIdShort =
+          walletId && walletId.length > 6 ? walletId.slice(0, 6) : walletId;
+        const eventCount = Array.isArray(w && w.events) ? w.events.length : 0;
+        const parts = [];
+        if (walletIdShort) parts.push(`ID ${walletIdShort}…`);
+        parts.push(`${eventCount} Einträge`);
+        walletMeta[id] = {
+          subtitle: parts.join(" · "),
+        };
+      });
 
       if (userIds.length === 0) {
         setNoWalletState();
@@ -393,10 +548,31 @@
         initialUserId = userIds[0];
         initialWallet = wallets[initialUserId] || null;
       } else {
-        const selectedUserId = await awaitGlobalActionWalletSelection(userIds);
-        if (!selectedUserId) return;
-        initialUserId = selectedUserId;
-        initialWallet = wallets[selectedUserId] || null;
+        const selection = await awaitGlobalActionWalletSelection({
+          userIds,
+          payload,
+          walletMeta,
+          lastUserId,
+        });
+        if (!selection || selection.action === "cancel") {
+          pendingGlobalHash = "";
+          const fallback =
+            selection && selection.userId ? selection.userId : "";
+          if (fallback && wallets[fallback]) {
+            initialUserId = fallback;
+            initialWallet = wallets[fallback] || null;
+            replaceHashSilently(fallback);
+          } else {
+            setNoWalletState();
+            showGlobalActionMessage(
+              "Bitte zuerst ein Wallet importieren oder öffnen.",
+            );
+            return;
+          }
+        } else {
+          initialUserId = selection.userId;
+          initialWallet = wallets[selection.userId] || null;
+        }
       }
     }
 
@@ -448,6 +624,7 @@
         replaceHashSilently(userId);
       }
     }
+    setLastUserId(userId);
     ensureDeviceSeq(wallet);
     try {
       if (typeof touchLocalDevice === "function") touchLocalDevice(wallet);
@@ -702,6 +879,7 @@
       }
 
       userId = target;
+      setLastUserId(userId);
       wallet = loadWallet(userId);
       ensureDeviceSeq(wallet);
       try {
