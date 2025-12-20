@@ -325,50 +325,31 @@
       const header = document.createElement("div");
       header.className = "global-action-header";
 
-      const title = document.createElement("div");
-      title.className = "global-action-title";
-      title.textContent = "Wallet auswählen ✨";
-
-      const previewLine = document.createElement("div");
-      previewLine.className = "global-action-preview";
-      const strong = document.createElement("strong");
-      strong.textContent =
-        preview.type === "d"
-          ? `+${preview.amount} Getränke`
-          : `+${preview.amount} Guthaben`;
+      const headline = document.createElement("div");
+      headline.className = "global-action-headline";
       if (preview.type === "d") {
-        previewLine.append("Du hast gerade ");
-        previewLine.appendChild(strong);
-        previewLine.append(" am Start 🥤");
+        headline.textContent = `Yay! Du hast gerade +${preview.amount} Getränke am Start 🥤`;
       } else {
-        previewLine.append("Gutschein-Boost: ");
-        previewLine.appendChild(strong);
-        previewLine.append(" 💰");
+        headline.textContent = `Nice! Gutschein-Boost: +${preview.amount} Guthaben 💰`;
       }
-
-      const subtitle = document.createElement("div");
-      subtitle.className = "global-action-subtitle";
-      subtitle.textContent =
-        preview.type === "d"
-          ? "Welchem Wallet sollen wir das zuordnen?"
-          : "Welchem Wallet willst du das gutschreiben?";
 
       const labelLine = document.createElement("div");
       labelLine.className = "global-action-label";
       if (preview.label) {
-        labelLine.textContent = `„${preview.label}“`;
+        labelLine.textContent = `Code-Name: „${preview.label}“`;
       }
 
-      const reassure = document.createElement("div");
-      reassure.className = "global-action-reassure";
-      reassure.textContent =
-        "Keine Sorge: Der Code wird genau einmal angewendet.";
+      const question = document.createElement("div");
+      question.className = "global-action-subtitle";
+      question.textContent = "Auf welches Wallet sollen wir das buchen?";
 
-      header.appendChild(title);
-      header.appendChild(previewLine);
-      header.appendChild(subtitle);
+      header.appendChild(headline);
       if (preview.label) header.appendChild(labelLine);
-      header.appendChild(reassure);
+      header.appendChild(question);
+
+      const prompt = document.createElement("div");
+      prompt.className = "global-action-prompt";
+      prompt.textContent = "Wähle ein Wallet aus ✨";
 
       const list = document.createElement("div");
       list.id = "global-action-wallet-select";
@@ -387,10 +368,26 @@
 
         const sub = document.createElement("div");
         sub.className = "global-action-card-sub";
-        sub.textContent = meta.subtitle || "";
+        const walletIdSnippet =
+          typeof meta.walletIdSnippet === "string" ? meta.walletIdSnippet : "";
+        sub.textContent = walletIdSnippet
+          ? `Wallet-ID: ${walletIdSnippet}`
+          : "";
+
+        const metaLine = document.createElement("div");
+        metaLine.className = "global-action-card-meta";
+        const eventCount =
+          typeof meta.eventCount === "number" &&
+          Number.isFinite(meta.eventCount)
+            ? meta.eventCount
+            : null;
+        if (eventCount !== null) {
+          metaLine.textContent = `Einträge: ${eventCount}`;
+        }
 
         btn.appendChild(name);
         if (sub.textContent) btn.appendChild(sub);
+        if (metaLine.textContent) btn.appendChild(metaLine);
 
         btn.addEventListener("click", () => {
           if (btn.disabled) return;
@@ -417,6 +414,7 @@
       }
 
       el.appendChild(header);
+      el.appendChild(prompt);
       el.appendChild(list);
       if (actions.childNodes.length) {
         el.appendChild(actions);
@@ -524,14 +522,14 @@
       userIds.forEach((id) => {
         const w = wallets[id];
         const walletId = w && typeof w.walletId === "string" ? w.walletId : "";
-        const walletIdShort =
-          walletId && walletId.length > 6 ? walletId.slice(0, 6) : walletId;
+        const walletIdSnippet =
+          walletId && walletId.length > 8
+            ? `${walletId.slice(0, 4)}…${walletId.slice(-4)}`
+            : walletId;
         const eventCount = Array.isArray(w && w.events) ? w.events.length : 0;
-        const parts = [];
-        if (walletIdShort) parts.push(`ID ${walletIdShort}…`);
-        parts.push(`${eventCount} Einträge`);
         walletMeta[id] = {
-          subtitle: parts.join(" · "),
+          walletIdSnippet,
+          eventCount,
         };
       });
 
