@@ -246,7 +246,6 @@
       showGlobalActionMessage(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
-      window.location.hash = "";
       return false;
     }
     if (

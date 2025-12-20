@@ -442,6 +442,7 @@
             JSON.stringify(legacyDecoded),
           );
 
+          let globalHash1 = "";
           if (
             typeof actionCodes.encodeGlobalActionHash === "function" &&
             typeof actionCodes.decodeGlobalActionHash === "function" &&
@@ -454,8 +455,7 @@
               n: code.amount,
               l: code.label,
             };
-            const globalHash1 =
-              actionCodes.encodeGlobalActionHash(globalPayload);
+            globalHash1 = actionCodes.encodeGlobalActionHash(globalPayload);
             const globalHash2 =
               actionCodes.encodeGlobalActionHash(globalPayload);
             addCheck(
@@ -515,6 +515,66 @@
               appliedNoWallet === false,
               `applied=${appliedNoWallet}`,
             );
+
+            const uiApi = window.dbWalletUi || null;
+            if (
+              uiApi &&
+              typeof uiApi.applyGlobalActionHash === "function" &&
+              summaryApi &&
+              typeof summaryApi.computeSummary === "function"
+            ) {
+              const tempWallet = storage.loadWallet(
+                "selfcheck-ui-" + randomId(),
+              );
+              const beforeTotal = summaryApi.computeSummary(tempWallet).total;
+              const beforeHash = window.location.hash;
+              const beforeUserId =
+                typeof uiApi.getCurrentUserId === "function"
+                  ? uiApi.getCurrentUserId()
+                  : "";
+
+              const appliedRes = uiApi.applyGlobalActionHash(globalHash1, {
+                wallet: tempWallet,
+                userId: "selfcheck-ui",
+                skipPersist: true,
+                skipHashCleanup: true,
+                skipMessage: true,
+              });
+              const afterTotal = summaryApi.computeSummary(tempWallet).total;
+              const afterHash = window.location.hash;
+              const afterUserId =
+                typeof uiApi.getCurrentUserId === "function"
+                  ? uiApi.getCurrentUserId()
+                  : "";
+
+              addCheck(
+                result,
+                "global action ui apply",
+                appliedRes && appliedRes.applied && afterTotal > beforeTotal,
+                `before=${beforeTotal} after=${afterTotal}`,
+              );
+              addCheck(
+                result,
+                "global action keeps hash/user",
+                beforeHash === afterHash && beforeUserId === afterUserId,
+                `hash=${afterHash || "(leer)"}`,
+              );
+
+              const noWalletRes = uiApi.applyGlobalActionHash(globalHash1, {
+                wallet: null,
+                skipPersist: true,
+                skipHashCleanup: true,
+                skipMessage: true,
+              });
+              addCheck(
+                result,
+                "global action ui no wallet",
+                noWalletRes && noWalletRes.reason === "no-wallet",
+                JSON.stringify(noWalletRes || {}),
+              );
+            } else {
+              addCheck(result, "global action ui hook", true, "skipped");
+            }
           }
 
           const actionHash = actionCodes.encodeActionHash({
@@ -532,6 +592,29 @@
             actionWalletId === wallet.walletId,
             `walletId=${actionWalletId}`,
           );
+
+          if (
+            globalHash1 &&
+            hashRouter &&
+            typeof hashRouter.getHashKind === "function" &&
+            typeof hashRouter.parseWalletIdFromHash === "function"
+          ) {
+            const kind = hashRouter.getHashKind(globalHash1);
+            const acgWalletId =
+              await hashRouter.parseWalletIdFromHash(globalHash1);
+            addCheck(
+              result,
+              "hash kind acg",
+              kind === "action-global",
+              `kind=${kind || "?"}`,
+            );
+            addCheck(
+              result,
+              "hash parse acg",
+              acgWalletId === "",
+              `walletId=${acgWalletId || "leer"}`,
+            );
+          }
         }
 
         if (

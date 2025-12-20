@@ -88,6 +88,23 @@
 
   let redirectedToPreview = false;
 
+  function isGlobalActionHash(hash) {
+    return typeof hash === "string" && hash.startsWith("acg:");
+  }
+
+  function replaceHashSilently(nextHash) {
+    const target = String(nextHash || "").trim();
+    if (!target) return false;
+    const current = window.location.hash.slice(1);
+    if (current === target) return true;
+    if (window.history && typeof window.history.replaceState === "function") {
+      const base = String(window.location.href || "").split("#")[0];
+      window.history.replaceState(null, "", base + "#" + target);
+      return true;
+    }
+    return false;
+  }
+
   function getUserIdFromHash() {
     const hash = window.location.hash.slice(1);
     if (
@@ -96,7 +113,7 @@
       hash.startsWith("i2:") ||
       hash.startsWith("i2u:") ||
       hash.startsWith("ac:") ||
-      hash.startsWith("acg:")
+      isGlobalActionHash(hash)
     ) {
       return null;
     }
@@ -104,6 +121,8 @@
   }
 
   async function ensureUserId() {
+    const currentHash = window.location.hash.slice(1);
+    if (isGlobalActionHash(currentHash)) return null;
     const importedRes = await tryImportFromHash({ applyTheme });
     if (importedRes && importedRes.userId) return importedRes.userId;
     if (importedRes && importedRes.redirectedToPreview) {
@@ -213,7 +232,7 @@
     }
 
     const initialHash = window.location.hash.slice(1);
-    if (initialHash.startsWith("acg:")) {
+    if (isGlobalActionHash(initialHash)) {
       showGlobalActionMessage(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
@@ -517,6 +536,62 @@
       return true;
     }
 
+    function handleGlobalActionHash(hash, options = {}) {
+      const actionApi = window.dbWalletActionCodes || null;
+      const payload =
+        actionApi && typeof actionApi.decodeGlobalActionHash === "function"
+          ? actionApi.decodeGlobalActionHash(hash)
+          : null;
+      const skipMessage = !!options.skipMessage;
+
+      if (!payload) {
+        if (!skipMessage) {
+          showGlobalActionMessage(
+            "Bitte zuerst ein Wallet importieren oder öffnen.",
+          );
+        }
+        return { handled: true, applied: false, reason: "invalid" };
+      }
+
+      const targetWallet = options.wallet || wallet;
+      if (!targetWallet) {
+        if (!skipMessage) {
+          showGlobalActionMessage(
+            "Bitte zuerst ein Wallet importieren oder öffnen.",
+          );
+        }
+        return { handled: true, applied: false, reason: "no-wallet" };
+      }
+      if (!Array.isArray(targetWallet.events)) targetWallet.events = [];
+
+      const type = payload.t === "d" ? "d" : "g";
+      const amount =
+        typeof payload.n === "number" && Number.isFinite(payload.n)
+          ? Math.max(1, Math.round(payload.n))
+          : 1;
+
+      targetWallet.events.push(newEvent(targetWallet, type, amount));
+
+      const isActiveWallet = targetWallet === wallet;
+      if (isActiveWallet && !options.skipPersist) {
+        saveWallet(wallet);
+        invalidateCaches();
+        resetAmount();
+        clearExport();
+        refreshSummary();
+      }
+
+      if (isActiveWallet && !options.skipHashCleanup) {
+        const targetUserId =
+          typeof options.userId === "string" && options.userId.trim()
+            ? options.userId.trim()
+            : userId;
+        if (targetUserId) replaceHashSilently(targetUserId);
+      }
+
+      return { handled: true, applied: true, reason: "applied" };
+    }
+
     let handlingHash = false;
     async function handleHashChange() {
       if (handlingHash) return;
@@ -525,37 +600,8 @@
         const hash = window.location.hash.slice(1);
         if (!hash) return;
 
-        if (hash.startsWith("acg:")) {
-          const actionApi = window.dbWalletActionCodes || null;
-          const payload =
-            actionApi && typeof actionApi.decodeGlobalActionHash === "function"
-              ? actionApi.decodeGlobalActionHash(hash)
-              : null;
-          if (!payload || !wallet) {
-            showGlobalActionMessage(
-              "Bitte zuerst ein Wallet importieren oder öffnen.",
-            );
-            if (userId && window.location.hash.slice(1) !== userId) {
-              window.location.hash = "#" + userId;
-            }
-            return;
-          }
-
-          const type = payload.t === "d" ? "d" : "g";
-          const amount =
-            typeof payload.n === "number" && Number.isFinite(payload.n)
-              ? Math.max(1, Math.round(payload.n))
-              : 1;
-
-          wallet.events.push(newEvent(wallet, type, amount));
-          saveWallet(wallet);
-          invalidateCaches();
-          resetAmount();
-          clearExport();
-          refreshSummary();
-          if (userId && window.location.hash.slice(1) !== userId) {
-            window.location.hash = "#" + userId;
-          }
+        if (isGlobalActionHash(hash)) {
+          handleGlobalActionHash(hash);
           return;
         }
 
@@ -662,6 +708,13 @@
 
     updateHeaderUi();
     refreshSummary();
+
+    window.dbWalletUi = {
+      getCurrentUserId: () => userId,
+      getCurrentWallet: () => wallet,
+      applyGlobalActionHash: (hash, options) =>
+        handleGlobalActionHash(hash, options),
+    };
 
     function getAmount() {
       const n = parseInt(elAmount.value, 10);
