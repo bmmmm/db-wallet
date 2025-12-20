@@ -725,6 +725,75 @@
         }
 
         if (
+          hashRouter &&
+          typeof hashRouter.classifyHash === "function" &&
+          storage &&
+          typeof storage.getAllWallets === "function" &&
+          document.getElementById("btn-drink")
+        ) {
+          const route = hashRouter.classifyHash(window.location.hash.slice(1));
+          const wallets = storage.getAllWallets();
+          const userIds = Object.keys(wallets)
+            .filter((id) => (testUserId ? id !== testUserId : true))
+            .sort((a, b) => a.localeCompare(b));
+          const selectEl = document.getElementById(
+            "global-action-wallet-select",
+          );
+          const messageEl = document.getElementById("global-action-message");
+          const lastGlobal =
+            document.body &&
+            document.body.dataset &&
+            typeof document.body.dataset.lastGlobalAction === "string"
+              ? document.body.dataset.lastGlobalAction
+              : "";
+
+          if (route.kind === "globalAction") {
+            if (userIds.length === 0) {
+              addCheck(
+                result,
+                "acg no wallet message",
+                !!messageEl &&
+                  String(messageEl.textContent || "").includes(
+                    "Bitte zuerst ein Wallet importieren oder öffnen.",
+                  ),
+                messageEl ? messageEl.textContent : "missing",
+              );
+              addCheck(
+                result,
+                "acg no wallet does not create",
+                userIds.length === 0,
+                `wallets=${userIds.length}`,
+              );
+            } else if (userIds.length === 1) {
+              addCheck(
+                result,
+                "acg single should auto select",
+                false,
+                "hash still acg despite one wallet",
+              );
+            } else {
+              addCheck(
+                result,
+                "acg multi wallet select ui",
+                !!selectEl && selectEl.querySelectorAll("button").length > 1,
+                selectEl ? "ok" : "missing",
+              );
+            }
+          } else if (userIds.length === 1 && lastGlobal) {
+            const onlyUserId = userIds[0];
+            const currentHash = window.location.hash.slice(1);
+            addCheck(
+              result,
+              "acg single auto applied",
+              currentHash === onlyUserId,
+              `hash=${currentHash}`,
+            );
+          } else {
+            addCheck(result, "acg entry checks", true, "skipped");
+          }
+        }
+
+        if (
           helpers &&
           typeof helpers.base64UrlEncode === "function" &&
           hashRouter &&

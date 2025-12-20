@@ -88,6 +88,9 @@
   } = summaryApi;
 
   let redirectedToPreview = false;
+  let lastHandledGlobalHash = "";
+  let lastHandledGlobalHashAt = 0;
+  const GLOBAL_ACTION_DUP_WINDOW_MS = 750;
 
   function replaceHashSilently(nextHash) {
     const target = String(nextHash || "").trim();
@@ -100,6 +103,25 @@
       return true;
     }
     return false;
+  }
+
+  function isDuplicateGlobalActionHash(hash) {
+    if (!hash) return false;
+    if (hash !== lastHandledGlobalHash) return false;
+    return Date.now() - lastHandledGlobalHashAt < GLOBAL_ACTION_DUP_WINDOW_MS;
+  }
+
+  function markGlobalActionHandled(hash) {
+    lastHandledGlobalHash = String(hash || "");
+    lastHandledGlobalHashAt = Date.now();
+    if (
+      typeof document !== "undefined" &&
+      document &&
+      document.body &&
+      lastHandledGlobalHash
+    ) {
+      document.body.dataset.lastGlobalAction = lastHandledGlobalHash;
+    }
   }
 
   function classifyHashValue(raw) {
@@ -211,9 +233,7 @@
     ];
     if (requiredEls.some((el) => !el)) return;
 
-    function showGlobalActionMessage(message) {
-      const text = String(message || "").trim();
-      if (!text) return;
+    function ensureGlobalActionContainer() {
       let el = document.getElementById("global-action-message");
       if (!el) {
         el = document.createElement("div");
@@ -226,7 +246,24 @@
           document.body.appendChild(el);
         }
       }
+      return el;
+    }
+
+    function clearGlobalActionContainer() {
+      const el = document.getElementById("global-action-message");
+      if (!el) return;
+      el.textContent = "";
+      if (el.parentNode) {
+        el.parentNode.removeChild(el);
+      }
+    }
+
+    function showGlobalActionMessage(message) {
+      const text = String(message || "").trim();
+      if (!text) return null;
+      const el = ensureGlobalActionContainer();
       el.textContent = text;
+      return el;
     }
 
     function setNoWalletState() {
@@ -235,9 +272,135 @@
       }
     }
 
+    function clearNoWalletState() {
+      if (document && document.body && document.body.dataset) {
+        delete document.body.dataset.noWallet;
+      }
+    }
+
+    function showGlobalActionSelection(userIds, onSelect) {
+      const el = ensureGlobalActionContainer();
+      el.textContent = "";
+      el.dataset.mode = "select";
+
+      const title = document.createElement("div");
+      title.className = "global-action-title";
+      title.textContent = "Wähle ein Wallet für diesen Code";
+
+      const list = document.createElement("div");
+      list.id = "global-action-wallet-select";
+      list.className = "action-buttons";
+
+      userIds.forEach((userId) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = userId;
+        btn.addEventListener("click", () => {
+          if (btn.disabled) return;
+          const buttons = list.querySelectorAll("button");
+          buttons.forEach((b) => {
+            b.disabled = true;
+          });
+          onSelect(userId);
+        });
+        list.appendChild(btn);
+      });
+
+      el.appendChild(title);
+      el.appendChild(list);
+    }
+
+    async function awaitGlobalActionWalletSelection(userIds) {
+      if (!Array.isArray(userIds) || userIds.length === 0) return "";
+      setNoWalletState();
+      return new Promise((resolve) => {
+        showGlobalActionSelection(userIds, (userId) => {
+          clearNoWalletState();
+          clearGlobalActionContainer();
+          resolve(userId);
+        });
+      });
+    }
+
+    function applyGlobalActionToWallet(targetWallet, hash, options = {}) {
+      const rawHash = String(hash || "");
+      if (!rawHash) return false;
+      if (isDuplicateGlobalActionHash(rawHash)) {
+        return false;
+      }
+      const actionApi = window.dbWalletActionCodes || null;
+      const payload =
+        actionApi && typeof actionApi.decodeGlobalActionHash === "function"
+          ? actionApi.decodeGlobalActionHash(rawHash)
+          : null;
+      if (!payload) {
+        if (!options.skipMessage) {
+          showGlobalActionMessage(
+            "Bitte zuerst ein Wallet importieren oder öffnen.",
+          );
+        }
+        return false;
+      }
+      if (!targetWallet) {
+        if (!options.skipMessage) {
+          showGlobalActionMessage(
+            "Bitte zuerst ein Wallet importieren oder öffnen.",
+          );
+        }
+        return false;
+      }
+      if (!Array.isArray(targetWallet.events)) targetWallet.events = [];
+
+      const type = payload.t === "d" ? "d" : "g";
+      const amount =
+        typeof payload.n === "number" && Number.isFinite(payload.n)
+          ? Math.max(1, Math.round(payload.n))
+          : 1;
+
+      targetWallet.events.push(newEvent(targetWallet, type, amount));
+      markGlobalActionHandled(rawHash);
+      if (!options.skipPersist) {
+        saveWallet(targetWallet);
+      }
+      return true;
+    }
+
     const initialHash = window.location.hash.slice(1);
     const initialRoute = classifyHashValue(initialHash);
-    if (initialRoute.kind === "globalAction" || initialRoute.kind === "none") {
+    const initialKind =
+      initialRoute.kind === "globalAction"
+        ? "globalActionNeedsWallet"
+        : initialRoute.kind;
+
+    let initialUserId = "";
+    let initialWallet = null;
+    let pendingGlobalHash = "";
+
+    if (initialKind === "globalActionNeedsWallet") {
+      const wallets = getAllWallets ? getAllWallets() : {};
+      const userIds = Object.keys(wallets).sort((a, b) => a.localeCompare(b));
+
+      if (userIds.length === 0) {
+        setNoWalletState();
+        showGlobalActionMessage(
+          "Bitte zuerst ein Wallet importieren oder öffnen.",
+        );
+        return;
+      }
+
+      pendingGlobalHash = initialRoute.raw || "";
+      if (userIds.length === 1) {
+        initialUserId = userIds[0];
+        initialWallet = wallets[initialUserId] || null;
+      } else {
+        const selectedUserId = await awaitGlobalActionWalletSelection(userIds);
+        if (!selectedUserId) return;
+        initialUserId = selectedUserId;
+        initialWallet = wallets[selectedUserId] || null;
+      }
+    }
+
+    if (initialKind === "none") {
       setNoWalletState();
       showGlobalActionMessage(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
@@ -268,15 +431,22 @@
     const exportUi = window.dbWalletExportUI || null;
     const historyUi = window.dbWalletHistoryUI || null;
 
-    let userId = await resolveInitialUserId();
+    let userId = initialUserId || (await resolveInitialUserId());
     if (redirectedToPreview || !userId) return;
-    let wallet = loadWallet(userId);
+    let wallet = initialWallet || loadWallet(userId);
     if (!wallet) {
       setNoWalletState();
       showGlobalActionMessage(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
       return;
+    }
+
+    if (pendingGlobalHash) {
+      const applied = applyGlobalActionToWallet(wallet, pendingGlobalHash);
+      if (applied) {
+        replaceHashSilently(userId);
+      }
     }
     ensureDeviceSeq(wallet);
     try {
@@ -550,6 +720,9 @@
     }
 
     function handleGlobalActionHash(hash, options = {}) {
+      if (isDuplicateGlobalActionHash(hash)) {
+        return { handled: true, applied: false, reason: "duplicate" };
+      }
       const actionApi = window.dbWalletActionCodes || null;
       const payload =
         actionApi && typeof actionApi.decodeGlobalActionHash === "function"
@@ -584,6 +757,7 @@
           : 1;
 
       targetWallet.events.push(newEvent(targetWallet, type, amount));
+      markGlobalActionHandled(hash);
 
       const isActiveWallet = targetWallet === wallet;
       if (isActiveWallet && !options.skipPersist) {

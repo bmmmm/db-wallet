@@ -782,3 +782,8 @@ hr {
 body[data-no-wallet="1"] > :not(#global-action-message) {
     display: none;
 }
+
+.global-action-title {
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+}
