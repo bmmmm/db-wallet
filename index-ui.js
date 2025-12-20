@@ -237,34 +237,48 @@
     return "";
   }
 
+  function classifyHashValue(raw) {
+    if (hashRouter && typeof hashRouter.classifyHash === "function") {
+      return hashRouter.classifyHash(raw);
+    }
+    const value = String(raw || "");
+    if (!value) return { kind: "none" };
+    if (value.startsWith("acg:")) return { kind: "globalAction", raw: value };
+    if (value.startsWith("ac:")) return { kind: "localAction", raw: value };
+    if (
+      value.startsWith("import:") ||
+      value.startsWith("i2:") ||
+      value.startsWith("i2u:")
+    ) {
+      return { kind: "import", raw: value };
+    }
+    const trimmed = value.trim();
+    if (!trimmed) return { kind: "none" };
+    return { kind: "user", userId: trimmed };
+  }
+
   async function handleHashRouting() {
     const hash = window.location.hash.slice(1);
-    if (!hash) {
+    const route = classifyHashValue(hash);
+    if (route.kind === "none" || route.kind === "user") {
       return false;
     }
-    if (hash.startsWith("acg:")) {
+    if (route.kind === "globalAction") {
       showGlobalActionMessage(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
       return false;
     }
-    if (
-      !hash.startsWith("import:") &&
-      !hash.startsWith("i2:") &&
-      !hash.startsWith("i2u:") &&
-      !hash.startsWith("ac:")
-    ) {
-      return false;
-    }
+    if (route.kind !== "import" && route.kind !== "localAction") return false;
 
     let walletId = "";
     try {
-      walletId = await tryParseWalletIdFromHash(hash);
+      walletId = await tryParseWalletIdFromHash(route.raw);
     } catch (e) {
       walletId = "";
     }
 
-    const kind = hash.startsWith("ac:") ? "Action Code" : "Import";
+    const kind = route.kind === "localAction" ? "Action Code" : "Import";
     const knownUserId = walletId ? findUserIdByWalletId(walletId) : null;
 
     let msg = `${kind} Link erkannt.\n\nIn wallet.html öffnen?`;

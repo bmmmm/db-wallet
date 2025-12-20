@@ -11,6 +11,61 @@
     return "";
   }
 
+  function normalizeUserId(input) {
+    let n = String(input || "")
+      .trim()
+      .toLowerCase();
+    n = n.replace(/\s+/g, "-");
+    n = n.replace(/[^a-z0-9_-]/g, "");
+    return n;
+  }
+
+  function isReservedHashPrefix(raw) {
+    return (
+      raw.startsWith("ac:") ||
+      raw.startsWith("acg:") ||
+      raw.startsWith("import:") ||
+      raw.startsWith("i2:") ||
+      raw.startsWith("i2u:")
+    );
+  }
+
+  function isValidUserId(raw) {
+    const value = String(raw || "").trim();
+    if (!value) return false;
+    if (isReservedHashPrefix(value)) return false;
+
+    const storage = window.dbWalletStorage || null;
+    if (
+      storage &&
+      typeof storage.userIdExists === "function" &&
+      storage.userIdExists(value)
+    ) {
+      return true;
+    }
+
+    const normalized = normalizeUserId(value);
+    return !!normalized && normalized === value;
+  }
+
+  function classifyHash(hash) {
+    const raw = String(hash || "");
+    if (!raw) return { kind: "none" };
+    if (raw.startsWith("acg:")) return { kind: "globalAction", raw };
+    if (raw.startsWith("ac:")) return { kind: "localAction", raw };
+    if (
+      raw.startsWith("import:") ||
+      raw.startsWith("i2:") ||
+      raw.startsWith("i2u:")
+    ) {
+      return { kind: "import", raw };
+    }
+    const trimmed = raw.trim();
+    if (!trimmed) return { kind: "none" };
+    if (!isValidUserId(trimmed)) return { kind: "none" };
+    return { kind: "user", userId: trimmed };
+  }
+
   async function parseWalletIdFromHash(hash) {
     const raw = String(hash || "");
     const kind = getHashKind(raw);
@@ -88,6 +143,7 @@
   }
 
   window.dbWalletHashRouter = {
+    classifyHash,
     getHashKind,
     parseWalletIdFromHash,
   };

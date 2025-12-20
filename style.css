@@ -778,3 +778,7 @@ hr {
     padding: 0.65rem 1rem;
     border-radius: 14px;
 }
+
+body[data-no-wallet="1"] > :not(#global-action-message) {
+    display: none;
+}

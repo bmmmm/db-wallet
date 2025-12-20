@@ -30,6 +30,23 @@
     );
   }
 
+  function isReservedHashPrefix(raw) {
+    return (
+      raw.startsWith("import:") ||
+      raw.startsWith("i2:") ||
+      raw.startsWith("i2u:") ||
+      raw.startsWith("ac:") ||
+      raw.startsWith("acg:")
+    );
+  }
+
+  function isValidUserId(userId) {
+    const raw = typeof userId === "string" ? userId.trim() : "";
+    if (!raw) return false;
+    if (isReservedHashPrefix(raw)) return false;
+    return true;
+  }
+
   function userIdExists(userId) {
     if (!userId) return false;
     return !!safeLocalStorageGetItem(STORAGE_PREFIX + userId);
@@ -331,6 +348,9 @@
   }
 
   function loadWallet(userId, parsedOverride) {
+    const rawUserId = typeof userId === "string" ? userId.trim() : "";
+    if (!isValidUserId(rawUserId)) return null;
+    userId = rawUserId;
     const hasParsedOverride =
       parsedOverride && typeof parsedOverride === "object";
     const raw = hasParsedOverride
@@ -506,7 +526,9 @@
 
       if (seenUserIds.has(userId)) continue;
       seenUserIds.add(userId);
-      all[userId] = loadWallet(userId, obj);
+      const loaded = loadWallet(userId, obj);
+      if (!loaded) continue;
+      all[userId] = loaded;
     }
 
     return all;

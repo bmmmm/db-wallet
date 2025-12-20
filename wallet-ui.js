@@ -40,6 +40,7 @@
   const importV2 = window.dbWalletImportV2 || null;
   const summaryApi = window.dbWalletSummary || null;
   const syncApi = window.dbWalletSync || null;
+  const hashRouter = window.dbWalletHashRouter || null;
   if (!helpers || !storage || !importV2 || !summaryApi) return;
 
   const {
@@ -88,10 +89,6 @@
 
   let redirectedToPreview = false;
 
-  function isGlobalActionHash(hash) {
-    return typeof hash === "string" && hash.startsWith("acg:");
-  }
-
   function replaceHashSilently(nextHash) {
     const target = String(nextHash || "").trim();
     if (!target) return false;
@@ -105,41 +102,42 @@
     return false;
   }
 
-  function getUserIdFromHash() {
-    const hash = window.location.hash.slice(1);
-    if (
-      !hash ||
-      hash.startsWith("import:") ||
-      hash.startsWith("i2:") ||
-      hash.startsWith("i2u:") ||
-      hash.startsWith("ac:") ||
-      isGlobalActionHash(hash)
-    ) {
-      return null;
+  function classifyHashValue(raw) {
+    if (hashRouter && typeof hashRouter.classifyHash === "function") {
+      return hashRouter.classifyHash(raw);
     }
-    return hash;
+    const value = String(raw || "");
+    if (!value) return { kind: "none" };
+    if (value.startsWith("acg:")) return { kind: "globalAction", raw: value };
+    if (value.startsWith("ac:")) return { kind: "localAction", raw: value };
+    if (
+      value.startsWith("import:") ||
+      value.startsWith("i2:") ||
+      value.startsWith("i2u:")
+    ) {
+      return { kind: "import", raw: value };
+    }
+    const trimmed = value.trim();
+    if (!trimmed) return { kind: "none" };
+    return { kind: "user", userId: trimmed };
   }
 
-  async function ensureUserId() {
-    const currentHash = window.location.hash.slice(1);
-    if (isGlobalActionHash(currentHash)) return null;
+  async function resolveInitialUserId() {
+    const route = classifyHashValue(window.location.hash.slice(1));
+    if (route.kind === "globalAction" || route.kind === "none") return null;
     const importedRes = await tryImportFromHash({ applyTheme });
     if (importedRes && importedRes.userId) return importedRes.userId;
     if (importedRes && importedRes.redirectedToPreview) {
       redirectedToPreview = true;
       return null;
     }
+    if (route.kind !== "user") return null;
 
-    let userId = getUserIdFromHash();
-    if (userId) {
-      const ensured = ensureNonReservedUserId(userId);
-      if (ensured !== userId) {
-        userId = ensured;
-        window.location.hash = "#" + userId;
-      }
-    } else {
-      userId = "user-" + randomId();
-      window.location.hash = "#" + userId;
+    let userId = route.userId;
+    const ensured = ensureNonReservedUserId(userId);
+    if (ensured !== userId) {
+      userId = ensured;
+      replaceHashSilently(userId);
     }
     return userId;
   }
@@ -231,8 +229,16 @@
       el.textContent = text;
     }
 
+    function setNoWalletState() {
+      if (document && document.body) {
+        document.body.dataset.noWallet = "1";
+      }
+    }
+
     const initialHash = window.location.hash.slice(1);
-    if (isGlobalActionHash(initialHash)) {
+    const initialRoute = classifyHashValue(initialHash);
+    if (initialRoute.kind === "globalAction" || initialRoute.kind === "none") {
+      setNoWalletState();
       showGlobalActionMessage(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
@@ -262,9 +268,16 @@
     const exportUi = window.dbWalletExportUI || null;
     const historyUi = window.dbWalletHistoryUI || null;
 
-    let userId = await ensureUserId();
+    let userId = await resolveInitialUserId();
     if (redirectedToPreview || !userId) return;
     let wallet = loadWallet(userId);
+    if (!wallet) {
+      setNoWalletState();
+      showGlobalActionMessage(
+        "Bitte zuerst ein Wallet importieren oder öffnen.",
+      );
+      return;
+    }
     ensureDeviceSeq(wallet);
     try {
       if (typeof touchLocalDevice === "function") touchLocalDevice(wallet);
@@ -598,19 +611,22 @@
       handlingHash = true;
       try {
         const hash = window.location.hash.slice(1);
-        if (!hash) return;
-
-        if (isGlobalActionHash(hash)) {
-          handleGlobalActionHash(hash);
+        const route = classifyHashValue(hash);
+        if (route.kind === "none") {
+          if (!wallet) {
+            showGlobalActionMessage(
+              "Bitte zuerst ein Wallet importieren oder öffnen.",
+            );
+          }
           return;
         }
 
-        if (
-          hash.startsWith("ac:") ||
-          hash.startsWith("import:") ||
-          hash.startsWith("i2:") ||
-          hash.startsWith("i2u:")
-        ) {
+        if (route.kind === "globalAction") {
+          handleGlobalActionHash(route.raw);
+          return;
+        }
+
+        if (route.kind === "localAction" || route.kind === "import") {
           const res = await tryImportFromHash({
             applyTheme,
             returnToUserId:
@@ -624,7 +640,9 @@
           return;
         }
 
-        await switchToUser(hash);
+        if (route.kind === "user") {
+          await switchToUser(route.userId);
+        }
       } catch (e) {
         // ignore
         if (userId && window.location.hash.slice(1) !== userId) {

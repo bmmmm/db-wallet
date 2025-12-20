@@ -61,6 +61,13 @@
         false,
         "dbWalletHashRouter missing",
       );
+    } else if (typeof hashRouter.classifyHash !== "function") {
+      addCheck(
+        result,
+        "hash classifier available",
+        false,
+        "classifyHash missing",
+      );
     }
 
     const randomId =
@@ -120,6 +127,21 @@
           loaded.events.length === wallet.events.length &&
             loaded.walletId === wallet.walletId,
           `events=${loaded.events.length}`,
+        );
+
+        const emptyWallet = storage.loadWallet("");
+        addCheck(
+          result,
+          "storage rejects empty user",
+          emptyWallet === null,
+          emptyWallet ? "created" : "ok",
+        );
+        const reservedWallet = storage.loadWallet("acg:invalid");
+        addCheck(
+          result,
+          "storage rejects reserved user",
+          reservedWallet === null,
+          reservedWallet ? "created" : "ok",
         );
 
         if (importV2) {
@@ -593,6 +615,25 @@
             `walletId=${actionWalletId}`,
           );
 
+          if (hashRouter && typeof hashRouter.classifyHash === "function") {
+            const acgRoute = globalHash1
+              ? hashRouter.classifyHash(globalHash1)
+              : { kind: "" };
+            const emptyRoute = hashRouter.classifyHash("");
+            addCheck(
+              result,
+              "hash classify acg",
+              acgRoute.kind === "globalAction",
+              `kind=${acgRoute.kind || "?"}`,
+            );
+            addCheck(
+              result,
+              "hash classify empty",
+              emptyRoute.kind === "none",
+              `kind=${emptyRoute.kind || "?"}`,
+            );
+          }
+
           if (
             globalHash1 &&
             hashRouter &&
@@ -639,6 +680,48 @@
             normalized.length === 7 && !normalized._dbwTrimmed,
             `count=${normalized.length}`,
           );
+        }
+
+        const uidEl = document.getElementById("uid");
+        if (
+          uidEl &&
+          hashRouter &&
+          typeof hashRouter.classifyHash === "function"
+        ) {
+          const route = hashRouter.classifyHash(window.location.hash.slice(1));
+          const uiApi = window.dbWalletUi || null;
+          const uiUserId =
+            uiApi && typeof uiApi.getCurrentUserId === "function"
+              ? uiApi.getCurrentUserId()
+              : "";
+
+          if (route.kind === "globalAction" || route.kind === "none") {
+            const noWalletFlag =
+              document.body && document.body.dataset
+                ? document.body.dataset.noWallet === "1"
+                : false;
+            addCheck(
+              result,
+              "no wallet state set",
+              noWalletFlag,
+              `flag=${noWalletFlag}`,
+            );
+            addCheck(
+              result,
+              "no wallet ui init",
+              !uiApi || !uiUserId,
+              `uid=${uiUserId || "(leer)"}`,
+            );
+          }
+
+          if (route.kind === "user" && uiApi) {
+            addCheck(
+              result,
+              "wallet ui user id",
+              typeof uiUserId === "string" && uiUserId.trim() !== "",
+              `uid=${uiUserId || "(leer)"}`,
+            );
+          }
         }
 
         if (
