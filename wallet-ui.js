@@ -255,49 +255,6 @@
       return Promise.resolve({ action: "cancel", userId: "" });
     }
 
-    function applyGlobalActionToWallet(targetWallet, hash, options = {}) {
-      const rawHash = String(hash || "");
-      if (!rawHash) return false;
-      if (isDuplicateGlobalActionHash(rawHash)) {
-        return false;
-      }
-      const actionApi = window.dbWalletActionCodes || null;
-      const payload =
-        actionApi && typeof actionApi.decodeGlobalActionHash === "function"
-          ? actionApi.decodeGlobalActionHash(rawHash)
-          : null;
-      if (!payload) {
-        if (!options.skipMessage) {
-          showGlobalActionMessage(
-            "Bitte zuerst ein Wallet importieren oder öffnen.",
-          );
-        }
-        return false;
-      }
-      if (!targetWallet) {
-        if (!options.skipMessage) {
-          showGlobalActionMessage(
-            "Bitte zuerst ein Wallet importieren oder öffnen.",
-          );
-        }
-        return false;
-      }
-      if (!Array.isArray(targetWallet.events)) targetWallet.events = [];
-
-      const type = payload.t === "d" ? "d" : "g";
-      const amount =
-        typeof payload.n === "number" && Number.isFinite(payload.n)
-          ? Math.max(1, Math.round(payload.n))
-          : 1;
-
-      targetWallet.events.push(newEvent(targetWallet, type, amount));
-      markGlobalActionHandled(rawHash);
-      if (!options.skipPersist) {
-        saveWallet(targetWallet);
-      }
-      return true;
-    }
-
     const initialHash = window.location.hash.slice(1);
     const initialRoute = classifyHashValue(initialHash);
     const initialKind =
@@ -418,10 +375,12 @@
     }
 
     if (pendingGlobalHash) {
-      const applied = applyGlobalActionToWallet(wallet, pendingGlobalHash, {
+      const result = handleGlobalActionHash(pendingGlobalHash, {
+        wallet,
         skipPersist: true,
+        skipHashCleanup: true,
       });
-      if (applied) {
+      if (result && result.applied) {
         replaceHashSilently(userId);
       }
     }
