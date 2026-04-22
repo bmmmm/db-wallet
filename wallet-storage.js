@@ -182,7 +182,7 @@
       (d) => d && d.deviceKey === deviceKey,
     );
     const nextEntry = { deviceKey, symbol: normalized, lastSeenAt: now };
-    const next = existingIdx >= 0 ? devices.slice() : devices.slice();
+    const next = devices.slice();
     if (existingIdx >= 0) next[existingIdx] = nextEntry;
     else next.unshift(nextEntry);
     wallet.devices = next;

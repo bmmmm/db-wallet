@@ -1011,6 +1011,27 @@
       }
     }
 
+    try {
+      if (typeof caches !== "undefined" && caches && typeof caches.keys === "function") {
+        const keys = await caches.keys();
+        const scripts = Array.from(document.scripts || [])
+          .map((s) => s.src)
+          .filter((s) => s && s.startsWith(location.origin));
+        const missing = [];
+        for (const url of scripts) {
+          let hit = false;
+          for (const k of keys) {
+            const c = await caches.open(k);
+            if (await c.match(url)) { hit = true; break; }
+          }
+          if (!hit && keys.length > 0) missing.push(url.replace(location.origin, ""));
+        }
+        addCheck(result, "SW APP_SHELL covers loaded scripts", missing.length === 0, missing.length ? `missing: ${missing.join(", ")}` : "all scripts cached");
+      }
+    } catch (e) {
+      addError(result, e);
+    }
+
     if (!quiet) {
       const okCount = result.checks.filter((c) => c.ok).length;
       console.log(
