@@ -897,6 +897,7 @@
       getCurrentWallet: () => wallet,
       applyGlobalActionHash: (hash, options) =>
         handleGlobalActionHash(hash, options),
+      handleWalletStateChange: () => handleWalletStateChange(),
     };
 
     function getAmount() {
