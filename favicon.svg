@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="db-wallet">
+  <rect width="512" height="512" rx="96" fill="#14121c"/>
+  <path d="M156 144h200l-24 256a32 32 0 0 1-32 29H212a32 32 0 0 1-32-29z" fill="none" stroke="#b49cff" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M180 220h152" stroke="#b49cff" stroke-width="12" stroke-linecap="round"/>
+  <path d="M256 144V96m-32 16l32-32 32 32" fill="none" stroke="#9ad6ff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

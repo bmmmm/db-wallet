@@ -1,0 +1,15 @@
+{
+  "name": "db-wallet",
+  "short_name": "db-wallet",
+  "description": "Browser-only Getränke-Wallet — kein Backend, kein Server, alles lokal.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14121c",
+  "theme_color": "#14121c",
+  "lang": "de",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

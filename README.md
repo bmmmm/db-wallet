@@ -174,7 +174,8 @@ Summary-Parität, Tombstones/Undo und Action-Code-Payloads.
 | [`wallet-device-ui.js`](./wallet-device-ui.js) | Geräte-Symbol-Picker (Top-Row, sichtbare Device-ID)                       |
 | [`wallet-sync-ui.js`](./wallet-sync-ui.js)     | Sync-Status UI (Ampel + ASCII-Timeline + „✅ passt“)                       |
 | [`wallet-export-ui.js`](./wallet-export-ui.js) | Export UI (Link/QR/JSON, QR-Session-Cache, PNG-Download)                  |
-| [`wallet-helpers.js`](./wallet-helpers.js)     | Helper (Base64URL, gzip, Storage-Safety, Registry)                        |
+| [`wallet-helpers.js`](./wallet-helpers.js)     | Helper (Base64URL, gzip, Storage-Safety, Registry, fnv1a64/hash53/parseCompactEventId) |
+| [`wallet-messages.js`](./wallet-messages.js)   | Zentrale UI-Message-API (`showGlobal` / `clearGlobal` / `ensureContainer`) |
 | [`wallet-storage.js`](./wallet-storage.js)     | Wallet-Storage/Model (load/save, deviceKey, devices-Liste)                |
 | [`wallet-import-v2.js`](./wallet-import-v2.js) | Import/Export-Codec v2 + Hash-Import (inkl. Action Codes)                 |
 | [`wallet-summary.js`](./wallet-summary.js)     | Berechnung von Total/Offen/Guthaben/Diagramm (pure)                       |
@@ -190,7 +191,21 @@ Summary-Parität, Tombstones/Undo und Action-Code-Payloads.
 | [`colors.css`](./colors.css)                   | Styles für die Theme-Vorschau                                             |
 | [`style.css`](./style.css)                     | Basis-UI, responsive Layout                                               |
 | [`qrcodegen.js`](./qrcodegen.js)               | QR-Code-Generator (Nayuki)                                                |
-| [`migration.js`](./migration.js)               | Migration v1 → v2 (für QR-Export)                                         |
+| [`migration.js`](./migration.js)               | Migration v1 → v2 (für QR-Export, nutzt zentrale Helper)                  |
+| [`manifest.json`](./manifest.json)             | PWA-Manifest (Name, Farben, Icon)                                         |
+| [`service-worker.js`](./service-worker.js)     | Offline-Cache (cache-first App-Shell, network-first HTML)                 |
+| [`sw-register.js`](./sw-register.js)           | Service-Worker-Registrierung (https/localhost only)                       |
+| [`favicon.svg`](./favicon.svg)                 | App-Icon (512×512, Theme-Farben)                                          |
+
+## PWA / Offline
+
+`manifest.json` + `service-worker.js` machen db-wallet installierbar und
+offline-fähig. Der SW cached das komplette App-Shell beim ersten Besuch;
+HTML-Navigationen gehen network-first mit Fallback auf den Cache.
+
+Cache-Invalidierung: beim Release die Konstante `VERSION` in
+`service-worker.js` erhöhen — alte Caches werden beim nächsten Besuch
+automatisch aufgeräumt.
 
 ## Deployment (statisch, „Pages“-Style)
 
@@ -223,7 +238,7 @@ Viel Spaß mit deinem minimalistischen, schnellen Getränke-Wallet 🍹🚀
 
 ## LLM Notes (for quick repo understanding)
 
-- File map (core vs UI): Core/codec/storage in `wallet-helpers.js`, `wallet-storage.js`, `wallet-import-v2.js`, `wallet-summary.js`, `wallet-sync.js`, `migration.js`, `action-codes.js`, `hash-router.js`. UI in `index-ui.js`, `wallet-ui.js`, `wallet-device-ui.js`, `wallet-sync-ui.js`, `wallet-export-ui.js`, `wallet-history-ui.js`, `import-preview.js`, `theme.js`.
+- File map (core vs UI): Core/codec/storage in `wallet-helpers.js`, `wallet-storage.js`, `wallet-import-v2.js`, `wallet-summary.js`, `wallet-sync.js`, `migration.js`, `action-codes.js`, `hash-router.js`. UI in `index-ui.js`, `wallet-ui.js`, `wallet-device-ui.js`, `wallet-sync-ui.js`, `wallet-export-ui.js`, `wallet-history-ui.js`, `wallet-messages.js`, `import-preview.js`, `theme.js`. PWA: `manifest.json`, `service-worker.js`, `sw-register.js`, `favicon.svg`.
 - Invariants: storage prefix `db-wallet:`, registry key `db-wallet:registry`, hash formats `#<userId>`, `#import:`, `#i2:`, `#i2u:`, `#ac:`, `#acg:`; event schema `{id,t,n?,ts,ref?}` with tombstones `t:"x"` + `ref`; action code SOFT/HARD limits 6/10; global `#acg:` deterministic and stateless.
 - Entrypoints & flow: `index.html` → `index-ui.js` (list/create/import) and `wallet.html` → `wallet-ui.js` (hash classify → load wallet → compute summary → render UI); `hash-router.js` is the single classifier/parser for hashes.
 - Where to edit: storage/model in `wallet-storage.js`; summary/tombstones in `wallet-summary.js`; action-code encode/decode + UI in `action-codes.js`; hash parsing in `hash-router.js`; UI wiring in `index-ui.js` / `wallet-ui.js` / `wallet-history-ui.js`.

@@ -30,20 +30,13 @@
     );
   }
 
-  function isReservedHashPrefix(raw) {
-    return (
-      raw.startsWith("import:") ||
-      raw.startsWith("i2:") ||
-      raw.startsWith("i2u:") ||
-      raw.startsWith("ac:") ||
-      raw.startsWith("acg:")
-    );
-  }
-
   function isValidUserId(userId) {
     const raw = typeof userId === "string" ? userId.trim() : "";
     if (!raw) return false;
-    if (isReservedHashPrefix(raw)) return false;
+    const router = window.dbWalletHashRouter || null;
+    if (router && typeof router.isReservedHashPrefix === "function") {
+      if (router.isReservedHashPrefix(raw)) return false;
+    }
     return true;
   }
 

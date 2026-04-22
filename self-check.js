@@ -70,6 +70,49 @@
       );
     }
 
+    if (helpers) {
+      const expected = [
+        "fnv1a64",
+        "hash53",
+        "parseCompactEventId",
+        "extractLegacyDeviceKey",
+      ];
+      const missing = expected.filter((k) => typeof helpers[k] !== "function");
+      addCheck(
+        result,
+        "helpers central crypto + id utils",
+        missing.length === 0,
+        missing.length ? `missing=${missing.join(",")}` : "ok",
+      );
+    }
+
+    if (hashRouter) {
+      const prefixes = ["ac:", "acg:", "import:", "i2:", "i2u:"];
+      const ok =
+        typeof hashRouter.isReservedHashPrefix === "function" &&
+        prefixes.every((p) => hashRouter.isReservedHashPrefix(p + "x")) &&
+        !hashRouter.isReservedHashPrefix("peter") &&
+        !hashRouter.isReservedHashPrefix("");
+      addCheck(
+        result,
+        "hashRouter.isReservedHashPrefix covers all prefixes",
+        ok,
+        ok ? "ok" : "mismatch",
+      );
+    }
+
+    const messagesApi = window.dbWalletMessages || null;
+    addCheck(
+      result,
+      "messages api available",
+      !!(
+        messagesApi &&
+        typeof messagesApi.showGlobal === "function" &&
+        typeof messagesApi.clearGlobal === "function"
+      ),
+      messagesApi ? "ok" : "dbWalletMessages missing",
+    );
+
     const randomId =
       helpers && typeof helpers.randomId === "function"
         ? helpers.randomId

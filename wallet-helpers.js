@@ -173,6 +173,45 @@
     safeLocalStorageSetItem(REGISTRY_KEY, JSON.stringify(reg));
   }
 
+  function parseCompactEventId(id) {
+    if (!id || typeof id !== "string") return null;
+    const m = id.match(/^([A-Za-z0-9_-]+)\.([0-9a-z]+)$/);
+    if (!m) return null;
+    const deviceKey = m[1];
+    const seq = parseInt(m[2], 36);
+    if (!deviceKey || isNaN(seq) || seq <= 0 || seq > Number.MAX_SAFE_INTEGER) {
+      return null;
+    }
+    return { deviceKey, seq };
+  }
+
+  function fnv1a64(bytes) {
+    let hash = 0xcbf29ce484222325n;
+    const prime = 0x100000001b3n;
+    for (const b of bytes) {
+      hash ^= BigInt(b);
+      hash = (hash * prime) & 0xffffffffffffffffn;
+    }
+    return hash;
+  }
+
+  function hash53(str) {
+    const bytes = encoder.encode(String(str || ""));
+    const h64 = fnv1a64(bytes);
+    const mask = (1n << 53n) - 1n;
+    const h53 = Number(h64 & mask);
+    return h53 > 0 ? h53 : 1;
+  }
+
+  function extractLegacyDeviceKey(id) {
+    if (!id || typeof id !== "string") return "legacy";
+    const idx = id.indexOf("-");
+    if (idx <= 0) return "legacy";
+    const raw = id.slice(0, idx);
+    const cleaned = raw.replace(/[^a-z0-9_-]/gi, "").slice(0, 16);
+    return cleaned || "legacy";
+  }
+
   window.dbWalletHelpers = {
     STORAGE_PREFIX,
     REGISTRY_KEY,
@@ -191,5 +230,9 @@
     safeLocalStorageGetItem,
     safeLocalStorageSetItem,
     safeLocalStorageRemoveItem,
+    parseCompactEventId,
+    fnv1a64,
+    hash53,
+    extractLegacyDeviceKey,
   };
 })();

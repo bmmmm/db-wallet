@@ -6,6 +6,14 @@
   let rootEl = null;
   let docListenerBound = false;
 
+  function onDocumentClose(e) {
+    if (!expanded) return;
+    const target = e && e.target ? e.target : null;
+    if (rootEl && target && rootEl.contains(target)) return;
+    expanded = false;
+    render();
+  }
+
   function ensureRoot() {
     if (!opts || !opts.elUid) return null;
     if (rootEl && rootEl.isConnected) return rootEl;
@@ -62,13 +70,7 @@
 
     if (!docListenerBound) {
       docListenerBound = true;
-      document.addEventListener("click", (e) => {
-        if (!expanded) return;
-        const target = e && e.target ? e.target : null;
-        if (rootEl && target && rootEl.contains(target)) return;
-        expanded = false;
-        render();
-      });
+      document.addEventListener("click", onDocumentClose);
     }
 
     const deviceKey =

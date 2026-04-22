@@ -58,19 +58,9 @@
 
   const mergeEncoder = new TextEncoder();
 
-  function fnv1a64(bytes) {
-    let hash = 0xcbf29ce484222325n;
-    const prime = 0x100000001b3n;
-    for (const b of bytes) {
-      hash ^= BigInt(b);
-      hash = (hash * prime) & 0xffffffffffffffffn;
-    }
-    return hash;
-  }
-
   function hash53(str) {
     const bytes = mergeEncoder.encode(String(str || ""));
-    const h64 = fnv1a64(bytes);
+    const h64 = helpers.fnv1a64(bytes);
     const mask = (1n << 53n) - 1n;
     const h53 = Number(h64 & mask);
     return h53 > 0 ? h53 : 1;
@@ -175,18 +165,12 @@
     return idx >= 0 && idx < THEME_NAMES.length ? THEME_NAMES[idx] : null;
   }
 
-  function decodeImportV2Bytes(bytes) {
-    if (
-      bytes.length < 5 ||
-      bytes[0] !== 100 || // d
-      bytes[1] !== 98 || // b
-      bytes[2] !== 119 || // w
-      bytes[3] !== 2
-    ) {
-      throw new Error("Invalid v2 payload");
-    }
+  // --- decodeImportV2Bytes internal helpers ---
 
-    let offset = 4;
+  // Reads the fixed header fields up to (but not including) the events section.
+  // Returns { themeIdx, walletV, walletId, userId, deviceKeys, baseTsMin, offset }.
+  function decodeV2Header(bytes, startOffset) {
+    let offset = startOffset;
     const themeIdx = bytes[offset++];
     const [walletV, o1] = readVarUint(bytes, offset);
     offset = o1;
@@ -217,6 +201,13 @@
     const [baseTsMin, o6] = readVarUint(bytes, offset);
     offset = o6;
 
+    return { themeIdx, walletV, walletId, userId, deviceKeys, baseTsMin, offset };
+  }
+
+  // Reads the events section and pushes decoded events into out.events.
+  // Returns the new offset after consuming all event bytes.
+  function decodeV2Events(bytes, decoder, deviceKeys, baseTsMin, startOffset) {
+    let offset = startOffset;
     const [eventCount, o7] = readVarUint(bytes, offset);
     offset = o7;
 
@@ -282,6 +273,199 @@
       events.push(ev);
     }
 
+    return { events, offset };
+  }
+
+  // Reads the optional trailing extension blocks ("ac", "sp", "dv", "xt") and
+  // mutates decoded in place. Tolerates parse errors for forward-compat.
+  function decodeV2Extensions(bytes, decoder, startOffset, decoded) {
+    let offset = startOffset;
+    try {
+      while (offset + 1 < bytes.length) {
+        if (
+          bytes[offset] === 97 && // "a"
+          bytes[offset + 1] === 99 // "c"
+        ) {
+          offset += 2;
+          const [acVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (acVersion === 1 || acVersion === 2) {
+            const [count, o9] = readVarUint(bytes, offset);
+            offset = o9;
+            const actionCodes = [];
+            for (let i = 0; i < count; i++) {
+              const [idLen, o10] = readVarUint(bytes, offset);
+              offset = o10;
+              const id = decoder.decode(bytes.slice(offset, offset + idLen));
+              offset += idLen;
+
+              const [labelLen, o11] = readVarUint(bytes, offset);
+              offset = o11;
+              const label = decoder.decode(
+                bytes.slice(offset, offset + labelLen),
+              );
+              offset += labelLen;
+
+              const [amount, o12] = readVarUint(bytes, offset);
+              offset = o12;
+
+              const [keyLen, o13] = readVarUint(bytes, offset);
+              offset = o13;
+              const key = decoder.decode(
+                bytes.slice(offset, offset + keyLen),
+              );
+              offset += keyLen;
+
+              const [createdAt, o14] = readVarUint(bytes, offset);
+              offset = o14;
+              const [updatedAt, o15] = readVarUint(bytes, offset);
+              offset = o15;
+
+              let type = "g";
+              if (acVersion === 2) {
+                const [typeCode, o16] = readVarUint(bytes, offset);
+                offset = o16;
+                type = typeCode === 1 ? "d" : "g";
+              }
+
+              actionCodes.push({
+                id,
+                label,
+                amount,
+                key,
+                createdAt,
+                updatedAt,
+                type,
+              });
+            }
+            decoded.actionCodes = actionCodes;
+          }
+          continue;
+        }
+
+        if (
+          bytes[offset] === 115 && // "s"
+          bytes[offset + 1] === 112 // "p"
+        ) {
+          offset += 2;
+          const [spVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (spVersion === 1) {
+            const [len, o9] = readVarUint(bytes, offset);
+            offset = o9;
+            const deviceId = decoder.decode(
+              bytes.slice(offset, offset + len),
+            );
+            offset += len;
+            if (deviceId) decoded.deviceId = deviceId;
+          }
+          continue;
+        }
+
+        if (
+          bytes[offset] === 100 && // "d"
+          bytes[offset + 1] === 118 // "v"
+        ) {
+          offset += 2;
+          const [dvVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (dvVersion === 1) {
+            const [count, o9] = readVarUint(bytes, offset);
+            offset = o9;
+            const devices = [];
+            for (let i = 0; i < count; i++) {
+              const [keyLen, o10] = readVarUint(bytes, offset);
+              offset = o10;
+              const deviceKey = decoder.decode(
+                bytes.slice(offset, offset + keyLen),
+              );
+              offset += keyLen;
+
+              const [symCode, o11] = readVarUint(bytes, offset);
+              offset = o11;
+              const symbol =
+                symCode >= 1 && symCode <= DEVICE_SYMBOLS.length
+                  ? DEVICE_SYMBOLS[symCode - 1]
+                  : null;
+
+              const [lastSeenAt, o12] = readVarUint(bytes, offset);
+              offset = o12;
+
+              devices.push({
+                deviceKey,
+                symbol,
+                lastSeenAt,
+              });
+            }
+            decoded.devices = devices;
+          }
+          continue;
+        }
+
+        if (
+          bytes[offset] === 120 && // "x"
+          bytes[offset + 1] === 116 // "t"
+        ) {
+          offset += 2;
+          const [xtVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (xtVersion === 1) {
+            const [count, o9] = readVarUint(bytes, offset);
+            offset = o9;
+            for (let i = 0; i < count; i++) {
+              const [idLen, o10] = readVarUint(bytes, offset);
+              offset = o10;
+              const id = decoder.decode(bytes.slice(offset, offset + idLen));
+              offset += idLen;
+
+              const [refLen, o11] = readVarUint(bytes, offset);
+              offset = o11;
+              const ref = decoder.decode(
+                bytes.slice(offset, offset + refLen),
+              );
+              offset += refLen;
+
+              const [tsMs, o12] = readVarUint(bytes, offset);
+              offset = o12;
+
+              if (id && ref) {
+                decoded.events.push({
+                  id,
+                  t: "x",
+                  ref,
+                  ts: tsMs,
+                });
+              }
+            }
+          }
+          continue;
+        }
+
+        break;
+      }
+    } catch (e) {
+      console.warn("db-wallet: import-v2 extension parse failed", e);
+    }
+  }
+
+  function decodeImportV2Bytes(bytes) {
+    if (
+      bytes.length < 5 ||
+      bytes[0] !== 100 || // d
+      bytes[1] !== 98 || // b
+      bytes[2] !== 119 || // w
+      bytes[3] !== 2
+    ) {
+      throw new Error("Invalid v2 payload");
+    }
+
+    const decoder = new TextDecoder();
+    const header = decodeV2Header(bytes, 4);
+    const { themeIdx, walletV, walletId, userId, deviceKeys, baseTsMin } = header;
+
+    const evResult = decodeV2Events(bytes, decoder, deviceKeys, baseTsMin, header.offset);
+    const { events } = evResult;
+
     const theme = themeNameFromIndex(themeIdx);
     const decoded = {
       userId: userId || "user-" + randomId(),
@@ -296,173 +480,8 @@
     //  - sync peer device id ("sp", v1)
     //  - device list ("dv", v1)
     //  - tombstones ("xt", v1)
-    if (offset < bytes.length) {
-      try {
-        while (offset + 1 < bytes.length) {
-          if (
-            bytes[offset] === 97 && // "a"
-            bytes[offset + 1] === 99 // "c"
-          ) {
-            offset += 2;
-            const [acVersion, o8] = readVarUint(bytes, offset);
-            offset = o8;
-            if (acVersion === 1 || acVersion === 2) {
-              const [count, o9] = readVarUint(bytes, offset);
-              offset = o9;
-              const actionCodes = [];
-              for (let i = 0; i < count; i++) {
-                const [idLen, o10] = readVarUint(bytes, offset);
-                offset = o10;
-                const id = decoder.decode(bytes.slice(offset, offset + idLen));
-                offset += idLen;
-
-                const [labelLen, o11] = readVarUint(bytes, offset);
-                offset = o11;
-                const label = decoder.decode(
-                  bytes.slice(offset, offset + labelLen),
-                );
-                offset += labelLen;
-
-                const [amount, o12] = readVarUint(bytes, offset);
-                offset = o12;
-
-                const [keyLen, o13] = readVarUint(bytes, offset);
-                offset = o13;
-                const key = decoder.decode(
-                  bytes.slice(offset, offset + keyLen),
-                );
-                offset += keyLen;
-
-                const [createdAt, o14] = readVarUint(bytes, offset);
-                offset = o14;
-                const [updatedAt, o15] = readVarUint(bytes, offset);
-                offset = o15;
-
-                let type = "g";
-                if (acVersion === 2) {
-                  const [typeCode, o16] = readVarUint(bytes, offset);
-                  offset = o16;
-                  type = typeCode === 1 ? "d" : "g";
-                }
-
-                actionCodes.push({
-                  id,
-                  label,
-                  amount,
-                  key,
-                  createdAt,
-                  updatedAt,
-                  type,
-                });
-              }
-              decoded.actionCodes = actionCodes;
-            }
-            continue;
-          }
-
-          if (
-            bytes[offset] === 115 && // "s"
-            bytes[offset + 1] === 112 // "p"
-          ) {
-            offset += 2;
-            const [spVersion, o8] = readVarUint(bytes, offset);
-            offset = o8;
-            if (spVersion === 1) {
-              const [len, o9] = readVarUint(bytes, offset);
-              offset = o9;
-              const deviceId = decoder.decode(
-                bytes.slice(offset, offset + len),
-              );
-              offset += len;
-              if (deviceId) decoded.deviceId = deviceId;
-            }
-            continue;
-          }
-
-          if (
-            bytes[offset] === 100 && // "d"
-            bytes[offset + 1] === 118 // "v"
-          ) {
-            offset += 2;
-            const [dvVersion, o8] = readVarUint(bytes, offset);
-            offset = o8;
-            if (dvVersion === 1) {
-              const [count, o9] = readVarUint(bytes, offset);
-              offset = o9;
-              const devices = [];
-              for (let i = 0; i < count; i++) {
-                const [keyLen, o10] = readVarUint(bytes, offset);
-                offset = o10;
-                const deviceKey = decoder.decode(
-                  bytes.slice(offset, offset + keyLen),
-                );
-                offset += keyLen;
-
-                const [symCode, o11] = readVarUint(bytes, offset);
-                offset = o11;
-                const symbol =
-                  symCode >= 1 && symCode <= DEVICE_SYMBOLS.length
-                    ? DEVICE_SYMBOLS[symCode - 1]
-                    : null;
-
-                const [lastSeenAt, o12] = readVarUint(bytes, offset);
-                offset = o12;
-
-                devices.push({
-                  deviceKey,
-                  symbol,
-                  lastSeenAt,
-                });
-              }
-              decoded.devices = devices;
-            }
-            continue;
-          }
-
-          if (
-            bytes[offset] === 120 && // "x"
-            bytes[offset + 1] === 116 // "t"
-          ) {
-            offset += 2;
-            const [xtVersion, o8] = readVarUint(bytes, offset);
-            offset = o8;
-            if (xtVersion === 1) {
-              const [count, o9] = readVarUint(bytes, offset);
-              offset = o9;
-              for (let i = 0; i < count; i++) {
-                const [idLen, o10] = readVarUint(bytes, offset);
-                offset = o10;
-                const id = decoder.decode(bytes.slice(offset, offset + idLen));
-                offset += idLen;
-
-                const [refLen, o11] = readVarUint(bytes, offset);
-                offset = o11;
-                const ref = decoder.decode(
-                  bytes.slice(offset, offset + refLen),
-                );
-                offset += refLen;
-
-                const [tsMs, o12] = readVarUint(bytes, offset);
-                offset = o12;
-
-                if (id && ref) {
-                  events.push({
-                    id,
-                    t: "x",
-                    ref,
-                    ts: tsMs,
-                  });
-                }
-              }
-            }
-            continue;
-          }
-
-          break;
-        }
-      } catch (e) {
-        // ignore trailing extension parse errors
-      }
+    if (evResult.offset < bytes.length) {
+      decodeV2Extensions(bytes, decoder, evResult.offset, decoded);
     }
 
     return decoded;
@@ -601,7 +620,7 @@
           actionCodes = api.normalizeActionCodes(rawActionCodes);
         }
       } catch (e) {
-        // ignore
+        console.warn("db-wallet: encode-v2 normalizeActionCodes failed", e);
       }
 
       out.push(97, 99); // "ac"
@@ -704,7 +723,7 @@
         }
       }
     } catch (e) {
-      // ignore
+      console.warn("db-wallet: encode-v2 device list extension failed", e);
     }
 
     // optional extension: tombstones ("xt", v1)
@@ -781,7 +800,7 @@
         local.actionCodes = remote.actionCodes;
       }
     } catch (e) {
-      // ignore
+      console.warn("db-wallet: import action codes merge failed", e);
     }
     local.walletId =
       (typeof remote.walletId === "string" && remote.walletId
@@ -841,7 +860,7 @@
       peer.commonEventCount = local.events.length;
       local.syncPeers[peerKey] = peer;
     } catch (e) {
-      // ignore
+      console.warn("db-wallet: import sync-peer tracking failed", e);
     }
 
     // device list (synced): merge + normalize + max 6
@@ -850,7 +869,7 @@
         mergeWalletDevices(local, remote && remote.devices);
       }
     } catch (e) {
-      // ignore
+      console.warn("db-wallet: import device list merge failed", e);
     }
 
     return { userId, wallet: local };
@@ -873,6 +892,35 @@
       n: typeof n === "number" ? n : undefined,
       ts: Date.now(),
     };
+  }
+
+  // Decodes a wallet import hash into a typed payload object, or null if
+  // the hash is not a recognized import format. Async because "i2:" requires
+  // gzip decompression.
+  async function parseImportHashPayload(hash) {
+    if (hash.startsWith("i2u:")) {
+      const raw = base64UrlDecodeBytes(hash.slice(4));
+      const remote = decodeImportV2Bytes(raw);
+      return { kind: "i2u", remote, label: "QR-Import (kurz)" };
+    }
+    if (hash.startsWith("i2:")) {
+      const compressed = base64UrlDecodeBytes(hash.slice(3));
+      const raw = await gzipDecompress(compressed);
+      const remote = decodeImportV2Bytes(raw);
+      return { kind: "i2", remote, label: "QR-Import (kurz)" };
+    }
+    if (hash.startsWith("import:")) {
+      const payload = base64UrlDecode(hash.slice(7));
+      const remote = safeParse(payload);
+      if (!remote || typeof remote !== "object") {
+        throw new Error("Invalid import payload");
+      }
+      return { kind: "import", remote, label: "Import-Link erkannt" };
+    }
+    if (hash.startsWith("ac:")) {
+      return { kind: "ac" };
+    }
+    return null;
   }
 
   async function tryImportFromHash(options) {
@@ -1008,7 +1056,7 @@
             if (res && res.changed) saveWallet(wallet);
           }
         } catch (e) {
-          // ignore
+          console.warn("db-wallet: ensureWalletActionCodes failed", e);
         }
 
         const codes = Array.isArray(wallet.actionCodes)
@@ -1055,24 +1103,9 @@
         );
         return { userId: targetUserId, redirectedToPreview: false };
       }
-      if (hash.startsWith("i2u:")) {
-        const raw = base64UrlDecodeBytes(hash.slice(4));
-        const remote = decodeImportV2Bytes(raw);
-        return await handleImportChoice(remote, "QR-Import (kurz)");
-      }
-      if (hash.startsWith("i2:")) {
-        const compressed = base64UrlDecodeBytes(hash.slice(3));
-        const raw = await gzipDecompress(compressed);
-        const remote = decodeImportV2Bytes(raw);
-        return await handleImportChoice(remote, "QR-Import (kurz)");
-      }
-      if (hash.startsWith("import:")) {
-        const payload = base64UrlDecode(hash.slice(7));
-        const remote = safeParse(payload);
-        if (!remote || typeof remote !== "object") {
-          throw new Error("Invalid import payload");
-        }
-        return await handleImportChoice(remote, "Import-Link erkannt");
+      const parsed = await parseImportHashPayload(hash);
+      if (parsed && parsed.kind !== "ac") {
+        return await handleImportChoice(parsed.remote, parsed.label);
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
@@ -1089,7 +1122,7 @@
   window.dbWalletImportV2 = {
     writeVarUint,
     readVarUint,
-    fnv1a64,
+    fnv1a64: helpers.fnv1a64,
     hash53,
     legacyIdToV2Id,
     mergeEvents,
@@ -1097,10 +1130,14 @@
     themeNameFromIndex,
     encodeImportV2Bytes,
     decodeImportV2Bytes,
+    decodeV2Header,
+    decodeV2Events,
+    decodeV2Extensions,
     resolveUserIdForImport,
     applyImportedTheme,
     buildImportedWallet,
     importRemoteWallet,
+    parseImportHashPayload,
     tryImportFromHash,
   };
 })();

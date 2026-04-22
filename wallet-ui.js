@@ -242,37 +242,13 @@
     ];
     if (requiredEls.some((el) => !el)) return;
 
-    function ensureGlobalActionContainer() {
-      let el = document.getElementById("global-action-message");
-      if (!el) {
-        el = document.createElement("div");
-        el.id = "global-action-message";
-        const topRowEl = document.querySelector(".top-row");
-        if (topRowEl && topRowEl.parentNode) {
-          topRowEl.parentNode.insertBefore(el, topRowEl.nextSibling);
-        } else {
-          document.body.appendChild(el);
-        }
-      }
-      el.className = "action-codes-notice global-action-panel";
-      return el;
-    }
-
-    function clearGlobalActionContainer() {
-      const el = document.getElementById("global-action-message");
-      if (!el) return;
-      el.textContent = "";
-      if (el.parentNode) {
-        el.parentNode.removeChild(el);
-      }
-    }
-
     function showGlobalActionMessage(message) {
-      const text = String(message || "").trim();
-      if (!text) return null;
-      const el = ensureGlobalActionContainer();
-      el.textContent = text;
-      return el;
+      const api = window.dbWalletMessages;
+      if (!api || typeof api.showGlobal !== "function") return null;
+      return api.showGlobal(message, {
+        className: "action-codes-notice global-action-panel",
+        anchors: [".top-row", "h1"],
+      });
     }
 
     function setNoWalletState() {
@@ -305,7 +281,7 @@
       const onSelect = options.onSelect;
       const onCancel = options.onCancel;
 
-      const el = ensureGlobalActionContainer();
+      const el = window.dbWalletMessages.ensureContainer({ className: "action-codes-notice global-action-panel", anchors: [".top-row", "h1"] });
       el.textContent = "";
       el.dataset.mode = "select";
 
@@ -429,12 +405,12 @@
           payload: options.payload,
           onSelect: (userId) => {
             clearNoWalletState();
-            clearGlobalActionContainer();
+            window.dbWalletMessages.clearGlobal();
             resolve({ action: "select", userId });
           },
           onCancel: () => {
             clearNoWalletState();
-            clearGlobalActionContainer();
+            window.dbWalletMessages.clearGlobal();
             resolve({ action: "cancel", userId: options.lastUserId || "" });
           },
         });
@@ -873,9 +849,7 @@
         // ignore
       }
       saveWallet(wallet);
-      invalidateCaches();
-      clearExport();
-      refreshSummary();
+      handleWalletStateChange();
       if (actionCodesUi) actionCodesUi.refresh();
       updateHeaderUi();
       updateUidLabel();
@@ -1027,9 +1001,7 @@
       wallet = window.dbWalletMigrateV1toV2(wallet);
       ensureDeviceSeq(wallet);
       saveWallet(wallet);
-      invalidateCaches();
-      clearExport();
-      refreshSummary();
+      handleWalletStateChange();
       updateHeaderUi();
       return true;
     }
@@ -1126,6 +1098,12 @@
       if (historyUi && typeof historyUi.render === "function") {
         historyUi.render();
       }
+    }
+
+    function handleWalletStateChange() {
+      invalidateCaches();
+      clearExport();
+      refreshSummary();
     }
 
     btnHome.addEventListener("click", () => {

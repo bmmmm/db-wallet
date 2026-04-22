@@ -2,13 +2,25 @@
 <html lang="de">
     <head>
         <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta
+            name="description"
+            content="db-wallet — browser-only Getränke-Wallet. Kein Backend, kein Server, alles lokal. Export/Import per Link, QR oder JSON."
+        />
+        <meta name="theme-color" content="#14121c" />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="db-wallet" />
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none'; frame-ancestors 'none';"
+        />
         <title>db-wallet – Start</title>
-        <link rel="icon" href="data:," />
+        <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+        <link rel="manifest" href="manifest.json" />
         <link rel="stylesheet" href="style.css" />
         <link rel="stylesheet" href="themes.css" />
         <script src="theme.js"></script>
-        <script src="import-preview.js"></script>
     </head>
     <body>
         <h1>db-wallet</h1>
@@ -20,10 +32,15 @@
                 Nutzer:in-Namen eingeben oder leer lassen, um einen zufälligen
                 Namen zu erhalten.
             </p>
+            <label for="username" class="sr-only">Nutzer:in-Name</label>
             <input
                 id="username"
                 type="text"
                 placeholder="z. B. peter, kueche, clubraum …"
+                aria-label="Nutzer:in-Name"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
             />
             <button id="btn-start">Weiter</button>
         </section>
@@ -49,6 +66,7 @@
                 type="file"
                 accept="application/json"
                 style="display: none"
+                aria-hidden="true"
             />
             <button id="btn-raw-all">Alle Raw-Daten anzeigen 🧾</button>
             <button id="btn-nuke-all">
@@ -70,13 +88,14 @@
             <div class="theme-buttons" id="theme-buttons"></div>
         </section>
 
-        <script src="wallet-helpers.js"></script>
-        <script src="wallet-storage.js"></script>
-        <script src="wallet-summary.js"></script>
-        <script src="action-codes.js"></script>
-        <script src="wallet-import-v2.js"></script>
-        <script src="hash-router.js"></script>
-        <script src="index-ui.js"></script>
-        <script src="self-check.js"></script>
+        <script src="wallet-helpers.js" defer></script>
+        <script src="hash-router.js" defer></script>
+        <script src="wallet-storage.js" defer></script>
+        <script src="wallet-summary.js" defer></script>
+        <script src="action-codes.js" defer></script>
+        <script src="wallet-import-v2.js" defer></script>
+        <script src="wallet-messages.js" defer></script>
+        <script src="index-ui.js" defer></script>
+        <script src="sw-register.js" defer></script>
     </body>
 </html>

@@ -1,5 +1,6 @@
 (function () {
-  // Hash formats are part of the external contract: ac:, acg:, import:, i2:, i2u:
+  const RESERVED_PREFIXES = ["ac:", "acg:", "import:", "i2u:", "i2:"];
+
   function getHashKind(hash) {
     const raw = String(hash || "");
     if (!raw) return "";
@@ -11,23 +12,12 @@
     return "";
   }
 
-  function normalizeUserId(input) {
-    let n = String(input || "")
-      .trim()
-      .toLowerCase();
-    n = n.replace(/\s+/g, "-");
-    n = n.replace(/[^a-z0-9_-]/g, "");
-    return n;
-  }
-
   function isReservedHashPrefix(raw) {
-    return (
-      raw.startsWith("ac:") ||
-      raw.startsWith("acg:") ||
-      raw.startsWith("import:") ||
-      raw.startsWith("i2:") ||
-      raw.startsWith("i2u:")
-    );
+    const s = String(raw || "");
+    for (const p of RESERVED_PREFIXES) {
+      if (s.startsWith(p)) return true;
+    }
+    return false;
   }
 
   function isValidUserId(raw) {
@@ -44,7 +34,9 @@
       return true;
     }
 
-    const normalized = normalizeUserId(value);
+    let normalized = value.toLowerCase();
+    normalized = normalized.replace(/\s+/g, "-");
+    normalized = normalized.replace(/[^a-z0-9_-]/g, "");
     return !!normalized && normalized === value;
   }
 
@@ -146,5 +138,6 @@
     classifyHash,
     getHashKind,
     parseWalletIdFromHash,
+    isReservedHashPrefix,
   };
 })();
