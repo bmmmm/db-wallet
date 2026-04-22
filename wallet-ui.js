@@ -972,28 +972,46 @@
       });
     }
 
+    const actionsApi = window.dbWalletActions || null;
+    const actionsCtx = actionsApi
+      ? {
+          getWallet: () => wallet,
+          setWallet: (next) => {
+            wallet = next;
+          },
+          getUserId: () => userId,
+          getAmount,
+          getSummary,
+          getDeleteRange: () =>
+            elDeleteRange ? elDeleteRange.value.trim() : "",
+          resetAmount,
+          resetPayUi,
+          clearExport,
+          clearDeleteRange: () => {
+            if (elDeleteRange) elDeleteRange.value = "";
+          },
+          setHistoryEmpty: () => {
+            if (elHistory) {
+              elHistory.textContent = "Noch keine Drinks geloggt. ✨";
+            }
+          },
+          refreshActionCodesUi: () => {
+            if (actionCodesUi) actionCodesUi.refresh();
+          },
+          updateHeaderUi,
+          onStateChanged: handleWalletStateChange,
+          dialogAlert: (msg) => alert(msg),
+          dialogConfirm: (msg) => confirm(msg),
+          dialogPrompt: (msg, def) => prompt(msg, def),
+        }
+      : null;
+
     btnDrink.addEventListener("click", () => {
-      const n = getAmount();
-      wallet.events.push(newEvent(wallet, "d", n));
-      saveWallet(wallet);
-      invalidateCaches();
-      resetAmount();
-      clearExport();
-      refreshSummary();
+      if (actionsApi) actionsApi.bookDrink(actionsCtx);
     });
 
     btnUndo.addEventListener("click", () => {
-      if (typeof undoLastEvent !== "function") return;
-      const removed = undoLastEvent(wallet);
-      if (!removed) {
-        resetAmount();
-        clearExport();
-        return;
-      }
-      invalidateCaches();
-      resetAmount();
-      clearExport();
-      refreshSummary();
+      if (actionsApi) actionsApi.undoLast(actionsCtx);
     });
 
     btnPay.addEventListener("click", () => {
@@ -1016,22 +1034,7 @@
 
     if (btnPayToday) {
       btnPayToday.addEventListener("click", () => {
-        const summaryBefore = getSummary();
-
-        if (summaryBefore.unpaid <= 0) {
-          alert("Keine offenen Getränke zum Bezahlen.");
-          clearExport();
-          return;
-        }
-
-        // Normale Zahlung für offene Getränke (heute)
-        wallet.events.push(newEvent(wallet, "p"));
-        saveWallet(wallet);
-        invalidateCaches();
-        resetAmount();
-        clearExport();
-        resetPayUi();
-        refreshSummary();
+        if (actionsApi) actionsApi.payToday(actionsCtx);
       });
     }
 
@@ -1044,247 +1047,21 @@
 
     if (btnCredit) {
       btnCredit.addEventListener("click", () => {
-        const amountStr = prompt(
-          "Wie viele Getränke möchtest du als Guthaben buchen?",
-          "10",
-        );
-        if (amountStr === null) {
-          clearExport();
-          return;
-        }
-        const n = parseInt(amountStr, 10);
-        if (isNaN(n) || n <= 0) {
-          alert("Ungültige Menge für die Gutschrift.");
-          clearExport();
-          return;
-        }
-        wallet.events.push(newEvent(wallet, "g", n));
-        saveWallet(wallet);
-        invalidateCaches();
-        resetAmount();
-        clearExport();
-        resetPayUi();
-        refreshSummary();
+        if (actionsApi) actionsApi.bookCredit(actionsCtx);
       });
     }
 
     btnReset.addEventListener("click", () => {
-      if (!confirm(`Wirklich alle Getränkedaten für "${userId}" löschen? 🗑️`))
-        return;
-      safeLocalStorageRemoveItem(STORAGE_PREFIX + wallet.userId);
-      if (
-        typeof wallet.userId === "string" &&
-        wallet.userId &&
-        !wallet.userId.includes(":")
-      ) {
-        safeLocalStorageRemoveItem(wallet.userId);
-      }
-      wallet = {
-        userId: wallet.userId,
-        walletId: wallet.walletId || randomWalletId(),
-        deviceId: wallet.deviceId || randomId(),
-        v: 2,
-        seq: {},
-        events: [],
-        actionCodes: [],
-      };
-      saveWallet(wallet);
-      if (actionCodesUi) actionCodesUi.refresh();
-      invalidateCaches();
-      clearExport();
-      elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-      elDeleteRange.value = "";
-      resetAmount();
-      updateHeaderUi();
-      refreshSummary();
+      if (actionsApi) actionsApi.resetWallet(actionsCtx);
     });
 
     btnSelectionDelete.addEventListener("click", () => {
-      const summary = getSummary();
-      const maxIndex = summary.eventsSorted.length;
-      if (maxIndex === 0) {
-        alert(`Keine Logeinträge für "${userId}" vorhanden.`);
-        clearExport();
-        elDeleteRange.value = "";
-        return;
-      }
-
-      const input = elDeleteRange.value.trim();
-      const indices = parseDeleteRange(input, maxIndex);
-
-      if (!indices.size) {
-        alert("Keine gültigen IDs im Eingabefeld gefunden.");
-        clearExport();
-        elDeleteRange.value = "";
-        return;
-      }
-
-      const idsToDelete = new Set();
-      let payCount = 0;
-
-      summary.eventsSorted.forEach((e, i) => {
-        const idx = i + 1;
-        if (indices.has(idx)) {
-          if (!e || e.t === "x") return;
-          idsToDelete.add(e.id);
-          if (e.t === "p") payCount++;
-        }
-      });
-
-      if (!idsToDelete.size) {
-        alert("Keine passenden Logeinträge gefunden.");
-        clearExport();
-        elDeleteRange.value = "";
-        return;
-      }
-
-      let msg = `Wirklich ${idsToDelete.size} Logeintrag/Einträge für "${userId}" löschen? 🧹`;
-      if (payCount > 0) {
-        msg += `\nAchtung: Darunter sind ${payCount} Zahlung(en) 💸.`;
-      }
-
-      if (!confirm(msg)) return;
-
-      const baseTs = Date.now();
-      let added = 0;
-      for (const id of idsToDelete) {
-        if (appendTombstone(wallet, id, baseTs + added)) {
-          added++;
-        }
-      }
-      if (added > 0) saveWallet(wallet);
-      invalidateCaches();
-      clearExport();
-      elDeleteRange.value = "";
-      refreshSummary();
+      if (actionsApi) actionsApi.deleteSelection(actionsCtx);
     });
 
     if (btnEditEntry) {
       btnEditEntry.addEventListener("click", () => {
-        const summary = getSummary();
-        const maxIndex = summary.eventsSorted.length;
-        if (maxIndex === 0) {
-          alert(`Keine Logeinträge für "${userId}" vorhanden.`);
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        const input = elDeleteRange.value.trim();
-        const indices = parseDeleteRange(input, maxIndex);
-
-        if (!indices.size) {
-          alert("Bitte genau eine ID angeben, die bearbeitet werden soll.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        if (indices.size > 1) {
-          alert("Bearbeitung funktioniert nur mit genau einer ID.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        const targetIndex = Array.from(indices)[0]; // 1-basiert
-        const targetEvent = summary.eventsSorted[targetIndex - 1];
-        if (!targetEvent) {
-          alert(
-            "Die ausgewählte ID konnte keinem Logeintrag zugeordnet werden.",
-          );
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-        if (targetEvent.t === "x") {
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        const currentDateStr = dateStrFromTimestamp(targetEvent.ts);
-        const newDateStr = prompt(
-          `Neues Datum für Eintrag #${targetIndex} (YYYY-MM-DD):`,
-          currentDateStr,
-        );
-        if (newDateStr === null) {
-          // Abgebrochen
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDateStr)) {
-          alert("Ungültiges Datumsformat. Erwartet wird YYYY-MM-DD.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        // Datum mit aktueller Uhrzeit kombinieren
-        const now = new Date();
-        const parts = newDateStr.split("-");
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1; // 0-basiert
-        const day = parseInt(parts[2], 10);
-        const testDate = new Date(
-          year,
-          month,
-          day,
-          now.getHours(),
-          now.getMinutes(),
-          now.getSeconds(),
-          now.getMilliseconds(),
-        );
-        if (isNaN(testDate.getTime())) {
-          alert("Ungültiges Datum.");
-          clearExport();
-          elDeleteRange.value = "";
-          return;
-        }
-
-        let newAmount = targetEvent.n;
-        if (targetEvent.t !== "p") {
-          const defaultAmount =
-            typeof targetEvent.n === "number" ? targetEvent.n : 1;
-          const amountStr = prompt(
-            `Neue Menge für Eintrag #${targetIndex}:`,
-            String(defaultAmount),
-          );
-          if (amountStr === null) {
-            clearExport();
-            elDeleteRange.value = "";
-            return;
-          }
-          const parsed = parseInt(amountStr, 10);
-          if (isNaN(parsed) || parsed <= 0) {
-            alert("Ungültige Menge.");
-            clearExport();
-            elDeleteRange.value = "";
-            return;
-          }
-          newAmount = parsed;
-        }
-
-        const newTs = testDate.getTime();
-        const targetId = targetEvent.id;
-
-        wallet.events = wallet.events.map((e) => {
-          if (e.id === targetId) {
-            return {
-              ...e,
-              ts: newTs,
-              n: e.t === "p" ? undefined : newAmount,
-            };
-          }
-          return e;
-        });
-
-        saveWallet(wallet);
-        invalidateCaches();
-        clearExport();
-        elDeleteRange.value = "";
-        refreshSummary();
+        if (actionsApi) actionsApi.editEntry(actionsCtx);
       });
     }
   });
