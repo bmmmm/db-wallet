@@ -63,21 +63,12 @@
   }
 
   function showGlobalActionMessage(message) {
-    const text = String(message || "").trim();
-    if (!text) return;
-    let el = document.getElementById("global-action-message");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "global-action-message";
-      el.className = "action-codes-notice";
-      const title = document.querySelector("h1");
-      if (title && title.parentNode) {
-        title.parentNode.insertBefore(el, title.nextSibling);
-      } else {
-        document.body.appendChild(el);
-      }
-    }
-    el.textContent = text;
+    const api = window.dbWalletMessages;
+    if (!api || typeof api.showGlobal !== "function") return null;
+    return api.showGlobal(message, {
+      className: "action-codes-notice",
+      anchors: ["h1"],
+    });
   }
 
   function renderExistingUsers() {

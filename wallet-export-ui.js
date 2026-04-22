@@ -217,14 +217,19 @@
     );
     const filename = `db-wallet-${safeUserId}-${date}.png`;
 
+    const triggerDownload = (href, fname) => {
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = fname;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
     const saveBlob = (blob) => {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      const objectUrl = URL.createObjectURL(blob);
+      triggerDownload(objectUrl, filename);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     };
 
     if (canvas.toBlob) {
@@ -232,12 +237,8 @@
         if (blob) saveBlob(blob);
       }, "image/png");
     } else {
-      const a = document.createElement("a");
-      a.href = canvas.toDataURL("image/png");
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const dataUrl = canvas.toDataURL("image/png");
+      triggerDownload(dataUrl, filename);
     }
   }
 

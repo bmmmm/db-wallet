@@ -2,13 +2,26 @@
 <html lang="de">
     <head>
         <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta
+            name="description"
+            content="db-wallet — dein lokales Getränke-Wallet. Drinks buchen, Guthaben verwalten, Export/Import per Link, QR oder JSON."
+        />
+        <meta name="theme-color" content="#14121c" />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="db-wallet" />
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none'; frame-ancestors 'none';"
+        />
         <title>db-wallet – Getränke</title>
-        <link rel="icon" href="data:," />
+        <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+        <link rel="manifest" href="manifest.json" />
         <link rel="stylesheet" href="style.css" />
         <link rel="stylesheet" href="themes.css" />
         <script src="theme.js"></script>
-        <script src="import-preview.js"></script>
+        <script src="import-preview.js" defer></script>
     </head>
     <body>
         <h1>dein Getränke-Wallet 🥤</h1>
@@ -21,8 +34,8 @@
             <button id="btn-migrate" style="display: none">
                 Auf v2 migrieren
             </button>
-            <button id="btn-home">Zur Startseite 🏠</button>
-            <button id="btn-info">Info ℹ️</button>
+            <button id="btn-home" aria-label="Zur Startseite">Zur Startseite 🏠</button>
+            <button id="btn-info" aria-label="Info">Info ℹ️</button>
         </div>
         <details id="action-codes-panel" class="action-codes-panel">
             <summary class="action-codes-summary">Action Codes</summary>
@@ -46,32 +59,33 @@
             </summary>
             <div class="wallet-actions">
                 <label for="amount">Menge (Getränke):</label>
-                <input id="amount" type="number" min="1" value="1" />
+                <input id="amount" type="number" min="1" value="1" inputmode="numeric" />
 
                 <div class="action-buttons">
-                    <button id="btn-drink">+ Trinken 🥤</button>
+                    <button id="btn-drink" aria-label="Trinken hinzufügen">+ Trinken 🥤</button>
                     <button
                         id="btn-undo"
                         title="Letzte Buchung rückgängig machen"
+                        aria-label="Letzte Buchung rückgängig machen"
                     >
                         ↩️ Rückgängig
                     </button>
-                    <button id="btn-pay">Bezahlen 💸</button>
+                    <button id="btn-pay" aria-label="Bezahlen">Bezahlen 💸</button>
                 </div>
                 <div id="pay-options" class="pay-options" style="display: none">
-                    <button id="btn-pay-today">heute bezahlen 💰</button>
-                    <button id="btn-credit">Guthaben aufladen 💰</button>
+                    <button id="btn-pay-today" aria-label="Heute bezahlen">heute bezahlen 💰</button>
+                    <button id="btn-credit" aria-label="Guthaben aufladen">Guthaben aufladen 💰</button>
                     <button id="btn-pay-cancel">Bezahlen abbrechen</button>
                 </div>
 
                 <!-- Ausgabe-Modus -->
                 <div>
                     <span class="history-mode-label">Ausgabe:</span>
-                    <button id="mode-diagram" class="mode-btn active">
+                    <button id="mode-diagram" class="mode-btn active" aria-label="Diagramm-Ansicht">
                         Diagramm 📊
                     </button>
-                    <button id="mode-log" class="mode-btn">Historie 📜</button>
-                    <button id="mode-raw" class="mode-btn">Raw-Log 🛠️</button>
+                    <button id="mode-log" class="mode-btn" aria-label="Historie-Ansicht">Historie 📜</button>
+                    <button id="mode-raw" class="mode-btn" aria-label="Raw-Log-Ansicht">Raw-Log 🛠️</button>
                 </div>
 
                 <div class="raw-toggle">
@@ -105,15 +119,18 @@
                             id="delete-range"
                             type="text"
                             placeholder="IDs aus der Historie-Ansicht eingeben …"
+                            autocomplete="off"
+                            autocapitalize="off"
+                            spellcheck="false"
                         />
                         <br />
-                        <button id="btn-edit-entry">
+                        <button id="btn-edit-entry" aria-label="Ausgewählten Eintrag bearbeiten">
                             Ausgewählten Eintrag bearbeiten ✏️
                         </button>
-                        <button id="btn-selection-delete">
+                        <button id="btn-selection-delete" aria-label="Ausgewählte Einträge löschen">
                             Ausgewählte Einträge löschen 🧹
                         </button>
-                        <button id="btn-reset">
+                        <button id="btn-reset" aria-label="Alle Daten dieser Nutzer:in löschen">
                             Alle Daten für diese:n Nutzer:in löschen 🗑️
                         </button>
                     </div>
@@ -127,21 +144,22 @@
             <!-- Export-Bereich -->
             <button id="btn-export">Export</button>
             <span id="export-options" style="display: none">
-                <button id="btn-export-link">Export-Link (klassisch) 🔗</button>
-                <button id="btn-export-link-qr">
+                <button id="btn-export-link" aria-label="Export-Link (klassisch)">Export-Link (klassisch) 🔗</button>
+                <button id="btn-export-link-qr" aria-label="QR-Code anzeigen">
                     QR-Code (kurz) anzeigen 📱
                 </button>
-                <button id="btn-export-json">Als JSON herunterladen 📄</button>
+                <button id="btn-export-json" aria-label="Als JSON herunterladen">Als JSON herunterladen 📄</button>
             </span>
             <input
                 id="export-url"
                 readonly
                 placeholder="Hier erscheint dein Export-Link"
                 style="display: none"
+                aria-label="Export-Link"
             />
             <div id="qr-box" class="qr-box" style="display: none">
                 <div class="qr-hint" id="qr-hint"></div>
-                <canvas id="qr-canvas"></canvas>
+                <canvas id="qr-canvas" aria-label="QR-Code"></canvas>
                 <input
                     id="qr-url"
                     type="text"
@@ -170,20 +188,22 @@
             </section>
         </details>
 
-        <script src="qrcodegen.js"></script>
-        <script src="migration.js"></script>
-        <script src="wallet-helpers.js"></script>
-        <script src="action-codes.js"></script>
-        <script src="wallet-storage.js"></script>
-        <script src="wallet-import-v2.js"></script>
-        <script src="wallet-summary.js"></script>
-        <script src="wallet-sync.js"></script>
-        <script src="hash-router.js"></script>
-        <script src="./wallet-device-ui.js"></script>
-        <script src="./wallet-sync-ui.js"></script>
-        <script src="./wallet-export-ui.js"></script>
-        <script src="./wallet-history-ui.js"></script>
-        <script src="wallet-ui.js"></script>
-        <script src="self-check.js"></script>
+        <script src="qrcodegen.js" defer></script>
+        <script src="wallet-helpers.js" defer></script>
+        <script src="hash-router.js" defer></script>
+        <script src="migration.js" defer></script>
+        <script src="action-codes.js" defer></script>
+        <script src="wallet-storage.js" defer></script>
+        <script src="wallet-import-v2.js" defer></script>
+        <script src="wallet-summary.js" defer></script>
+        <script src="wallet-sync.js" defer></script>
+        <script src="wallet-messages.js" defer></script>
+        <script src="./wallet-device-ui.js" defer></script>
+        <script src="./wallet-sync-ui.js" defer></script>
+        <script src="./wallet-export-ui.js" defer></script>
+        <script src="./wallet-history-ui.js" defer></script>
+        <script src="wallet-ui.js" defer></script>
+        <script src="self-check.js" defer></script>
+        <script src="sw-register.js" defer></script>
     </body>
 </html>
