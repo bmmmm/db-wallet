@@ -219,17 +219,7 @@
     return ensureWalletDevices(wallet);
   }
 
-  function parseCompactEventId(id) {
-    if (!id || typeof id !== "string") return null;
-    const m = id.match(/^([A-Za-z0-9_-]+)\.([0-9a-z]+)$/);
-    if (!m) return null;
-    const deviceKey = m[1];
-    const seq = parseInt(m[2], 36);
-    if (!deviceKey || isNaN(seq) || seq <= 0 || seq > Number.MAX_SAFE_INTEGER) {
-      return null;
-    }
-    return { deviceKey, seq };
-  }
+  const parseCompactEventId = helpers.parseCompactEventId;
 
   function ensureDeviceSeq(wallet) {
     if (!wallet || typeof wallet !== "object") return;
