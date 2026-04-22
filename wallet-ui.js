@@ -732,7 +732,7 @@
         return { handled: true, applied: false, reason: "invalid" };
       }
 
-      const targetWallet = options.wallet || wallet;
+      const targetWallet = "wallet" in options ? options.wallet : wallet;
       if (!targetWallet) {
         if (!skipMessage) {
           showGlobalActionMessage(
