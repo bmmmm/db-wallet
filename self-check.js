@@ -638,7 +638,15 @@
                 `hash=${afterHash || "(leer)"}`,
               );
 
-              const noWalletRes = uiApi.applyGlobalActionHash(globalHash1, {
+              // Use a distinct hash so the dup-guard (750ms window) does not
+              // swallow the call that is meant to exercise the no-wallet branch.
+              const noWalletHash = actionCodes.encodeGlobalActionHash({
+                v: 1,
+                t: code.type,
+                n: (code.amount || 1) + 1,
+                l: code.label,
+              });
+              const noWalletRes = uiApi.applyGlobalActionHash(noWalletHash, {
                 wallet: null,
                 skipPersist: true,
                 skipHashCleanup: true,
