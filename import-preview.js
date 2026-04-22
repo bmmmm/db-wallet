@@ -205,151 +205,20 @@
     return true;
   }
 
-  function normalizeWalletForSummary(wallet) {
-    const src = wallet && typeof wallet === "object" ? wallet : {};
-    const eventsRaw = Array.isArray(src.events) ? src.events : [];
-
-    const events = [];
-    for (const ev of eventsRaw) {
-      if (!ev || typeof ev !== "object") continue;
-      const t = typeof ev.t === "string" ? ev.t : "";
-      if (!t) continue;
-      const id = typeof ev.id === "string" ? ev.id : "";
-      let ts =
-        typeof ev.ts === "number" && Number.isFinite(ev.ts) ? ev.ts : NaN;
-      if (!Number.isFinite(ts)) {
-        const parsed =
-          typeof ev.ts === "string" && ev.ts.trim() !== ""
-            ? Number(ev.ts)
-            : NaN;
-        ts = Number.isFinite(parsed) ? parsed : 0;
-      }
-      const n =
-        typeof ev.n === "number" && Number.isFinite(ev.n)
-          ? ev.n
-          : typeof ev.n === "string" && ev.n.trim() !== ""
-            ? Number(ev.n)
-            : undefined;
-      events.push({ id, t, n, ts });
-    }
-
-    return {
-      userId: typeof src.userId === "string" ? src.userId : "",
-      v:
-        typeof src.v === "number" && Number.isFinite(src.v) && src.v > 0
-          ? src.v
-          : 1,
-      events,
-    };
-  }
-
-  function computeSummaryFromNormalized(normalized) {
-    const eventsSorted = normalized.events.slice().sort((a, b) => {
-      return a.ts - b.ts || a.id.localeCompare(b.id);
-    });
-
-    let total = 0;
-    const perDayMap = new Map();
-    let balance = 0;
-
-    function dayKey(ts) {
-      const d = new Date(ts);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    }
-
-    for (const e of eventsSorted) {
-      const key = dayKey(e.ts);
-      if (!perDayMap.has(key)) {
-        perDayMap.set(key, {
-          date: key,
-          drinks: 0,
-          drinkCount: 0,
-          paid: false,
-        });
-      }
-      const day = perDayMap.get(key);
-
-      if (e.t === "d") {
-        const n =
-          typeof e.n === "number" && isFinite(e.n)
-            ? Math.max(1, Math.round(e.n))
-            : 1;
-        total += n;
-        day.drinks += n;
-        day.drinkCount += n;
-        balance += n;
-      } else if (e.t === "s") {
-        const n =
-          typeof e.n === "number" && isFinite(e.n)
-            ? Math.max(1, Math.round(e.n))
-            : 1;
-        total -= n;
-        day.drinks -= n;
-        balance -= n;
-      } else if (e.t === "p") {
-        day.paid = true;
-        if (balance > 0) balance = 0;
-      } else if (e.t === "g") {
-        const n =
-          typeof e.n === "number" && isFinite(e.n)
-            ? Math.max(1, Math.round(e.n))
-            : 1;
-        balance -= n;
-      }
-    }
-
-    for (const d of perDayMap.values()) {
-      if (d.drinks < 0) d.drinks = 0;
-    }
-    if (total < 0) total = 0;
-
-    const unpaid = Math.max(balance, 0);
-    const credit = Math.max(-balance, 0);
-    const perDay = Array.from(perDayMap.values()).sort((a, b) =>
-      a.date.localeCompare(b.date),
-    );
-
-    return {
-      userId: normalized.userId,
-      v: normalized.v,
-      total,
-      unpaid,
-      credit,
-      perDay,
-      eventsSorted,
-    };
-  }
-
   function computeSummary(wallet) {
     const summaryApi = window.dbWalletSummary || null;
     if (summaryApi && typeof summaryApi.computeSummarySafe === "function") {
       return summaryApi.computeSummarySafe(wallet);
     }
-    if (
-      summaryApi &&
-      typeof summaryApi.normalizeWalletForSummary === "function" &&
-      typeof summaryApi.computeSummary === "function"
-    ) {
-      const normalized = summaryApi.normalizeWalletForSummary(wallet);
-      const base = summaryApi.computeSummary({
-        events: normalized.events,
-      });
-      return {
-        userId: normalized.userId,
-        v: normalized.v,
-        total: base.total,
-        unpaid: base.unpaid,
-        credit: base.credit,
-        perDay: base.perDay,
-        eventsSorted: base.eventsSorted,
-      };
-    }
-
-    const normalized = normalizeWalletForSummary(wallet);
-    return computeSummaryFromNormalized(normalized);
+    return {
+      userId: wallet && typeof wallet.userId === "string" ? wallet.userId : "",
+      v: 1,
+      total: 0,
+      unpaid: 0,
+      credit: 0,
+      perDay: [],
+      eventsSorted: [],
+    };
   }
 
   function applyThemeTransient(themeName) {
