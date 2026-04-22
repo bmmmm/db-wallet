@@ -407,731 +407,740 @@
     };
   }
 
-  function initActionCodesUi(options) {
-    const container = options && options.container;
-    const getWallet =
-      options && typeof options.getWallet === "function"
-        ? options.getWallet
-        : () => null;
-    const persistWallet =
-      options && typeof options.persistWallet === "function"
-        ? options.persistWallet
-        : () => {};
-    const getBaseUrl =
-      options && typeof options.getBaseUrl === "function"
-        ? options.getBaseUrl
-        : () => String(window.location.href || "").split("#")[0];
+  function persistIfChanged(ctx, wallet) {
+    const current = Array.isArray(wallet && wallet.actionCodes)
+      ? wallet.actionCodes
+      : [];
+    if (current.length > HARD_LIMIT) ctx.showTrimNotice = true;
+    const res = ensureWalletActionCodes(wallet);
+    if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
+    if (res && res.changed) ctx.persistWallet(wallet);
+  }
 
-    if (!container) return { refresh: () => {} };
-    let showTrimNotice = false;
-    let showSoftLimitNotice = false;
-    let selectedType = "d";
-    let selectedScope = "local";
-    let createOpen = false;
-    let editingId = "";
-    let pendingDeleteId = "";
-    let globalCodes = [];
+  function actionUrlFor(ctx, code) {
+    const wallet = ctx.getWallet();
+    const scope = normalizeScope(code && code.scope);
+    if (scope === "global") {
+      const label =
+        code && typeof code.label === "string" ? code.label.trim() : "";
+      const amountRaw = clampGlobalAmount(code && code.amount);
+      const amount = amountRaw === null ? 1 : amountRaw;
+      const payload = {
+        v: GLOBAL_ACTION_VERSION,
+        t: normalizeType(code && code.type),
+        n: amount,
+      };
+      if (label) payload.l = label;
+      const hash = encodeGlobalActionHash(payload);
+      return hash ? ctx.getBaseUrl() + "#" + hash : "";
+    }
+    const payload = buildActionPayload(wallet, code);
+    return ctx.getBaseUrl() + "#" + encodeActionHash(payload);
+  }
 
-    function persistIfChanged(wallet) {
-      const current = Array.isArray(wallet && wallet.actionCodes)
-        ? wallet.actionCodes
-        : [];
-      if (current.length > HARD_LIMIT) showTrimNotice = true;
-      const res = ensureWalletActionCodes(wallet);
-      if (res && res.trimmedCount > 0) showTrimNotice = true;
-      if (res && res.changed) persistWallet(wallet);
+  function buildTypeToggle(initialType, onChange) {
+    let currentType = normalizeType(initialType);
+    const wrapper = document.createElement("div");
+    wrapper.className = "action-code-type-toggle";
+
+    const btnTypeDrink = document.createElement("button");
+    btnTypeDrink.type = "button";
+    btnTypeDrink.textContent = "🥤 Trinken";
+    btnTypeDrink.className = "mode-btn";
+    btnTypeDrink.setAttribute("aria-pressed", "false");
+
+    const btnTypeCredit = document.createElement("button");
+    btnTypeCredit.type = "button";
+    btnTypeCredit.textContent = "💰 Guthaben";
+    btnTypeCredit.className = "mode-btn";
+    btnTypeCredit.setAttribute("aria-pressed", "false");
+
+    function sync() {
+      currentType = currentType === "g" ? "g" : "d";
+      const isDrink = currentType === "d";
+      btnTypeDrink.classList.toggle("active", isDrink);
+      btnTypeCredit.classList.toggle("active", !isDrink);
+      btnTypeDrink.setAttribute("aria-pressed", isDrink ? "true" : "false");
+      btnTypeCredit.setAttribute("aria-pressed", isDrink ? "false" : "true");
     }
 
-    function actionUrlFor(code) {
-      const wallet = getWallet();
-      const scope = normalizeScope(code && code.scope);
+    btnTypeDrink.addEventListener("click", () => {
+      currentType = "d";
+      sync();
+      if (onChange) onChange(currentType);
+    });
+    btnTypeCredit.addEventListener("click", () => {
+      currentType = "g";
+      sync();
+      if (onChange) onChange(currentType);
+    });
+
+    sync();
+    wrapper.appendChild(btnTypeDrink);
+    wrapper.appendChild(btnTypeCredit);
+
+    return {
+      el: wrapper,
+      getType: () => currentType,
+      setType: (type) => {
+        currentType = normalizeType(type);
+        sync();
+      },
+    };
+  }
+
+  function buildScopeToggle(initialScope, onChange) {
+    let currentScope = normalizeScope(initialScope);
+    const wrapper = document.createElement("div");
+    wrapper.className = "action-code-scope-toggle";
+
+    const btnLocal = document.createElement("button");
+    btnLocal.type = "button";
+    btnLocal.textContent = "🔒 Lokal";
+    btnLocal.className = "mode-btn";
+    btnLocal.setAttribute("aria-pressed", "false");
+
+    const btnGlobal = document.createElement("button");
+    btnGlobal.type = "button";
+    btnGlobal.textContent = "🌍 Global";
+    btnGlobal.className = "mode-btn";
+    btnGlobal.setAttribute("aria-pressed", "false");
+
+    function sync() {
+      currentScope = normalizeScope(currentScope);
+      const isLocal = currentScope === "local";
+      btnLocal.classList.toggle("active", isLocal);
+      btnGlobal.classList.toggle("active", !isLocal);
+      btnLocal.setAttribute("aria-pressed", isLocal ? "true" : "false");
+      btnGlobal.setAttribute("aria-pressed", isLocal ? "false" : "true");
+    }
+
+    btnLocal.addEventListener("click", () => {
+      currentScope = "local";
+      sync();
+      if (onChange) onChange(currentScope);
+    });
+    btnGlobal.addEventListener("click", () => {
+      currentScope = "global";
+      sync();
+      if (onChange) onChange(currentScope);
+    });
+
+    sync();
+    wrapper.appendChild(btnLocal);
+    wrapper.appendChild(btnGlobal);
+
+    return {
+      el: wrapper,
+      getScope: () => currentScope,
+      setScope: (scope) => {
+        currentScope = normalizeScope(scope);
+        sync();
+      },
+    };
+  }
+
+  function buildCreateForm(ctx) {
+    const form = document.createElement("div");
+    form.className = "action-code-form";
+
+    const amountInput = document.createElement("input");
+    amountInput.type = "number";
+    amountInput.min = "1";
+    amountInput.value = "10";
+
+    const labelInput = document.createElement("input");
+    labelInput.type = "text";
+
+    let autoLabel = defaultLabelForType(ctx.selectedType, amountInput.value);
+    labelInput.value = autoLabel;
+
+    const amountField = document.createElement("label");
+    amountField.className = "action-code-form-field";
+    const amountText = document.createElement("span");
+    amountText.textContent = amountPromptForType(ctx.selectedType);
+    amountField.appendChild(amountText);
+    amountField.appendChild(amountInput);
+
+    const labelField = document.createElement("label");
+    labelField.className = "action-code-form-field";
+    const labelText = document.createElement("span");
+    labelText.textContent = "Name für den Action Code:";
+    labelField.appendChild(labelText);
+    labelField.appendChild(labelInput);
+
+    const scopeToggle = buildScopeToggle(ctx.selectedScope, (nextScope) => {
+      ctx.selectedScope = nextScope;
+      updateAmountLimit();
+    });
+    const typeToggle = buildTypeToggle(ctx.selectedType, (nextType) => {
+      ctx.selectedType = nextType;
+      updateDefaults();
+      amountText.textContent = amountPromptForType(nextType);
+    });
+
+    function updateDefaults() {
+      const nextDefault = defaultLabelForType(
+        typeToggle.getType(),
+        amountInput.value,
+      );
+      const current = labelInput.value.trim();
+      if (!current || current === autoLabel) {
+        labelInput.value = nextDefault;
+      }
+      autoLabel = nextDefault;
+    }
+
+    function updateAmountLimit() {
+      const scope = scopeToggle.getScope();
       if (scope === "global") {
-        const label =
-          code && typeof code.label === "string" ? code.label.trim() : "";
-        const amountRaw = clampGlobalAmount(code && code.amount);
-        const amount = amountRaw === null ? 1 : amountRaw;
-        const payload = {
-          v: GLOBAL_ACTION_VERSION,
-          t: normalizeType(code && code.type),
-          n: amount,
-        };
-        if (label) payload.l = label;
-        const hash = encodeGlobalActionHash(payload);
-        return hash ? getBaseUrl() + "#" + hash : "";
+        amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
+        const normalized = clampGlobalAmount(amountInput.value);
+        if (normalized !== null) {
+          amountInput.value = String(normalized);
+        }
+      } else {
+        amountInput.removeAttribute("max");
       }
-      const payload = buildActionPayload(wallet, code);
-      return getBaseUrl() + "#" + encodeActionHash(payload);
     }
 
-    function buildTypeToggle(initialType, onChange) {
-      let currentType = normalizeType(initialType);
-      const wrapper = document.createElement("div");
-      wrapper.className = "action-code-type-toggle";
+    amountInput.addEventListener("input", () => {
+      updateDefaults();
+      updateAmountLimit();
+    });
 
-      const btnTypeDrink = document.createElement("button");
-      btnTypeDrink.type = "button";
-      btnTypeDrink.textContent = "🥤 Trinken";
-      btnTypeDrink.className = "mode-btn";
-      btnTypeDrink.setAttribute("aria-pressed", "false");
+    const fields = document.createElement("div");
+    fields.className = "action-code-form-fields";
+    fields.appendChild(amountField);
+    fields.appendChild(labelField);
 
-      const btnTypeCredit = document.createElement("button");
-      btnTypeCredit.type = "button";
-      btnTypeCredit.textContent = "💰 Guthaben";
-      btnTypeCredit.className = "mode-btn";
-      btnTypeCredit.setAttribute("aria-pressed", "false");
+    const actions = document.createElement("div");
+    actions.className = "action-code-form-actions";
 
-      function sync() {
-        currentType = currentType === "g" ? "g" : "d";
-        const isDrink = currentType === "d";
-        btnTypeDrink.classList.toggle("active", isDrink);
-        btnTypeCredit.classList.toggle("active", !isDrink);
-        btnTypeDrink.setAttribute("aria-pressed", isDrink ? "true" : "false");
-        btnTypeCredit.setAttribute("aria-pressed", isDrink ? "false" : "true");
-      }
-
-      btnTypeDrink.addEventListener("click", () => {
-        currentType = "d";
-        sync();
-        if (onChange) onChange(currentType);
-      });
-      btnTypeCredit.addEventListener("click", () => {
-        currentType = "g";
-        sync();
-        if (onChange) onChange(currentType);
-      });
-
-      sync();
-      wrapper.appendChild(btnTypeDrink);
-      wrapper.appendChild(btnTypeCredit);
-
-      return {
-        el: wrapper,
-        getType: () => currentType,
-        setType: (type) => {
-          currentType = normalizeType(type);
-          sync();
-        },
-      };
-    }
-
-    function buildScopeToggle(initialScope, onChange) {
-      let currentScope = normalizeScope(initialScope);
-      const wrapper = document.createElement("div");
-      wrapper.className = "action-code-scope-toggle";
-
-      const btnLocal = document.createElement("button");
-      btnLocal.type = "button";
-      btnLocal.textContent = "🔒 Lokal";
-      btnLocal.className = "mode-btn";
-      btnLocal.setAttribute("aria-pressed", "false");
-
-      const btnGlobal = document.createElement("button");
-      btnGlobal.type = "button";
-      btnGlobal.textContent = "🌍 Global";
-      btnGlobal.className = "mode-btn";
-      btnGlobal.setAttribute("aria-pressed", "false");
-
-      function sync() {
-        currentScope = normalizeScope(currentScope);
-        const isLocal = currentScope === "local";
-        btnLocal.classList.toggle("active", isLocal);
-        btnGlobal.classList.toggle("active", !isLocal);
-        btnLocal.setAttribute("aria-pressed", isLocal ? "true" : "false");
-        btnGlobal.setAttribute("aria-pressed", isLocal ? "false" : "true");
-      }
-
-      btnLocal.addEventListener("click", () => {
-        currentScope = "local";
-        sync();
-        if (onChange) onChange(currentScope);
-      });
-      btnGlobal.addEventListener("click", () => {
-        currentScope = "global";
-        sync();
-        if (onChange) onChange(currentScope);
-      });
-
-      sync();
-      wrapper.appendChild(btnLocal);
-      wrapper.appendChild(btnGlobal);
-
-      return {
-        el: wrapper,
-        getScope: () => currentScope,
-        setScope: (scope) => {
-          currentScope = normalizeScope(scope);
-          sync();
-        },
-      };
-    }
-
-    function refresh() {
-      const wallet = getWallet();
-      if (!wallet) return;
-
-      persistIfChanged(wallet);
-
-      const localCodes = Array.isArray(wallet.actionCodes)
-        ? wallet.actionCodes
-        : [];
-      const codes = localCodes.concat(globalCodes);
-      if (localCodes.length < SOFT_LIMIT) showSoftLimitNotice = false;
-      if (editingId && !codes.find((c) => c && c.id === editingId)) {
-        editingId = "";
-      }
-      if (
-        pendingDeleteId &&
-        !codes.find((c) => c && c.id === pendingDeleteId)
-      ) {
-        pendingDeleteId = "";
-      }
-
-      container.innerHTML = "";
-      container.classList.add("action-codes-body-inner");
-
-      const toolbar = document.createElement("div");
-      toolbar.className = "action-codes-toolbar";
-
-      const btnAdd = document.createElement("button");
-      btnAdd.type = "button";
-      btnAdd.textContent = "New action code";
-      btnAdd.addEventListener("click", () => {
-        const walletNow = getWallet();
-        if (!walletNow) return;
-        persistIfChanged(walletNow);
+    const btnSave = document.createElement("button");
+    btnSave.type = "button";
+    btnSave.textContent = "Speichern";
+    btnSave.addEventListener("click", () => {
+      const walletNow = ctx.getWallet();
+      if (!walletNow) return;
+      const scope = scopeToggle.getScope();
+      if (scope === "global") {
+        const created = buildGlobalCode({
+          type: typeToggle.getType(),
+          amount: amountInput.value,
+          label: labelInput.value,
+        });
+        ctx.globalCodes.push(created);
+      } else {
+        persistIfChanged(ctx, walletNow);
         const currentCodes = Array.isArray(walletNow.actionCodes)
           ? walletNow.actionCodes
           : [];
-        if (currentCodes.length >= SOFT_LIMIT) {
-          showSoftLimitNotice = true;
+        const hadNoCodes = currentCodes.length === 0;
+        const created = buildActionCode({
+          type: typeToggle.getType(),
+          amount: amountInput.value,
+          label: labelInput.value,
+        });
+        if (!Array.isArray(walletNow.actionCodes))
+          walletNow.actionCodes = [];
+        walletNow.actionCodes.push(created);
+        const res = ensureWalletActionCodes(walletNow);
+        if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
+        ctx.persistWallet(walletNow);
+        if (hadNoCodes) {
+          const details =
+            typeof ctx.container.closest === "function"
+              ? ctx.container.closest("details")
+              : null;
+          if (details) details.open = true;
         }
-        createOpen = !createOpen;
-        editingId = "";
-        pendingDeleteId = "";
-        refresh();
-      });
-
-      toolbar.appendChild(btnAdd);
-
-      const hint = document.createElement("div");
-      hint.className = "action-codes-hint";
-      hint.textContent =
-        "Diese QR-Codes buchen Drinks oder Guthaben auf dieses Wallet. Nach Änderungen bitte neu scannen/ausdrucken.";
-
-      const notice = document.createElement("div");
-      notice.className = "action-codes-notice";
-      notice.textContent =
-        "Hinweis: Für Import/Export werden nur die 10 zuletzt aktiven Action Codes gespeichert. Ältere Codes wurden entfernt.";
-
-      const softNotice = document.createElement("div");
-      softNotice.className = "action-codes-notice";
-      softNotice.textContent =
-        "Empfohlen: max. 6 Action Codes. Ab 10 werden automatisch nur die 10 zuletzt aktiven gespeichert (ältere werden entfernt).";
-
-      const createForm = document.createElement("div");
-      createForm.className = "action-code-form";
-
-      if (createOpen) {
-        const scopeToggle = buildScopeToggle(selectedScope, (nextScope) => {
-          selectedScope = nextScope;
-          updateCreateAmountLimit();
-        });
-        const typeToggle = buildTypeToggle(selectedType, (nextType) => {
-          selectedType = nextType;
-          updateCreateDefaults();
-          updateCreateAmountLabel();
-        });
-
-        const amountInput = document.createElement("input");
-        amountInput.type = "number";
-        amountInput.min = "1";
-        amountInput.value = "10";
-
-        const labelInput = document.createElement("input");
-        labelInput.type = "text";
-
-        let autoLabel = defaultLabelForType(selectedType, amountInput.value);
-        labelInput.value = autoLabel;
-
-        function updateCreateDefaults() {
-          const nextDefault = defaultLabelForType(
-            typeToggle.getType(),
-            amountInput.value,
-          );
-          const current = labelInput.value.trim();
-          if (!current || current === autoLabel) {
-            labelInput.value = nextDefault;
-          }
-          autoLabel = nextDefault;
-        }
-
-        function updateCreateAmountLabel() {
-          amountText.textContent = amountPromptForType(typeToggle.getType());
-        }
-
-        function updateCreateAmountLimit() {
-          const scope = scopeToggle.getScope();
-          if (scope === "global") {
-            amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
-            const normalized = clampGlobalAmount(amountInput.value);
-            if (normalized !== null) {
-              amountInput.value = String(normalized);
-            }
-          } else {
-            amountInput.removeAttribute("max");
-          }
-        }
-
-        amountInput.addEventListener("input", () => {
-          updateCreateDefaults();
-          updateCreateAmountLimit();
-        });
-
-        const labelField = document.createElement("label");
-        labelField.className = "action-code-form-field";
-        const labelText = document.createElement("span");
-        labelText.textContent = "Name für den Action Code:";
-        labelField.appendChild(labelText);
-        labelField.appendChild(labelInput);
-
-        const amountField = document.createElement("label");
-        amountField.className = "action-code-form-field";
-        const amountText = document.createElement("span");
-        amountText.textContent = amountPromptForType(selectedType);
-        amountField.appendChild(amountText);
-        amountField.appendChild(amountInput);
-
-        const fields = document.createElement("div");
-        fields.className = "action-code-form-fields";
-        fields.appendChild(amountField);
-        fields.appendChild(labelField);
-
-        const actions = document.createElement("div");
-        actions.className = "action-code-form-actions";
-
-        const btnSave = document.createElement("button");
-        btnSave.type = "button";
-        btnSave.textContent = "Speichern";
-        btnSave.addEventListener("click", () => {
-          const walletNow = getWallet();
-          if (!walletNow) return;
-          const scope = scopeToggle.getScope();
-          if (scope === "global") {
-            const created = buildGlobalCode({
-              type: typeToggle.getType(),
-              amount: amountInput.value,
-              label: labelInput.value,
-            });
-            globalCodes.push(created);
-          } else {
-            persistIfChanged(walletNow);
-            const currentCodes = Array.isArray(walletNow.actionCodes)
-              ? walletNow.actionCodes
-              : [];
-            const hadNoCodes = currentCodes.length === 0;
-            const created = buildActionCode({
-              type: typeToggle.getType(),
-              amount: amountInput.value,
-              label: labelInput.value,
-            });
-            if (!Array.isArray(walletNow.actionCodes))
-              walletNow.actionCodes = [];
-            walletNow.actionCodes.push(created);
-            const res = ensureWalletActionCodes(walletNow);
-            if (res && res.trimmedCount > 0) showTrimNotice = true;
-            persistWallet(walletNow);
-            if (hadNoCodes) {
-              const details =
-                typeof container.closest === "function"
-                  ? container.closest("details")
-                  : null;
-              if (details) details.open = true;
-            }
-          }
-          createOpen = false;
-          refresh();
-        });
-
-        const btnCancel = document.createElement("button");
-        btnCancel.type = "button";
-        btnCancel.textContent = "Abbrechen";
-        btnCancel.addEventListener("click", () => {
-          createOpen = false;
-          refresh();
-        });
-
-        actions.appendChild(btnSave);
-        actions.appendChild(btnCancel);
-
-        updateCreateAmountLimit();
-        createForm.appendChild(scopeToggle.el);
-        createForm.appendChild(typeToggle.el);
-        createForm.appendChild(fields);
-        createForm.appendChild(actions);
       }
+      ctx.createOpen = false;
+      ctx.refresh();
+    });
 
-      const grid = document.createElement("div");
-      grid.className = "action-codes-grid";
+    const btnCancel = document.createElement("button");
+    btnCancel.type = "button";
+    btnCancel.textContent = "Abbrechen";
+    btnCancel.addEventListener("click", () => {
+      ctx.createOpen = false;
+      ctx.refresh();
+    });
 
-      if (!codes.length) {
-        const empty = document.createElement("div");
-        empty.className = "action-codes-empty";
-        empty.textContent =
-          "Noch keine Action Codes – klicke auf “New action code”.";
-        container.appendChild(toolbar);
-        container.appendChild(hint);
-        if (showSoftLimitNotice) {
-          container.appendChild(softNotice);
-          showSoftLimitNotice = false;
-        }
-        if (showTrimNotice) container.appendChild(notice);
-        if (createOpen) container.appendChild(createForm);
-        container.appendChild(empty);
-        return;
+    actions.appendChild(btnSave);
+    actions.appendChild(btnCancel);
+
+    updateAmountLimit();
+    form.appendChild(scopeToggle.el);
+    form.appendChild(typeToggle.el);
+    form.appendChild(fields);
+    form.appendChild(actions);
+
+    return form;
+  }
+
+  function buildEditForm(ctx, code, isGlobal) {
+    const editForm = document.createElement("div");
+    editForm.className = "action-code-form";
+
+    const amountInput = document.createElement("input");
+    amountInput.type = "number";
+    amountInput.min = "1";
+    amountInput.value = String(code.amount || 1);
+
+    const labelInput = document.createElement("input");
+    labelInput.type = "text";
+    labelInput.value =
+      code.label ||
+      defaultLabelForType(code.type, normalizeAmount(code.amount));
+
+    const amountField = document.createElement("label");
+    amountField.className = "action-code-form-field";
+    const amountLabel = document.createElement("span");
+    amountLabel.textContent = amountPromptForType(code.type);
+    amountField.appendChild(amountLabel);
+    amountField.appendChild(amountInput);
+
+    const labelField = document.createElement("label");
+    labelField.className = "action-code-form-field";
+    const labelText = document.createElement("span");
+    labelText.textContent = "Name für den Action Code:";
+    labelField.appendChild(labelText);
+    labelField.appendChild(labelInput);
+
+    const scopeToggle = buildScopeToggle(
+      isGlobal ? "global" : "local",
+      () => updateAmountLimit(),
+    );
+    const typeToggle = buildTypeToggle(code.type, (nextType) => {
+      amountLabel.textContent = amountPromptForType(nextType);
+    });
+
+    amountInput.addEventListener("input", () => updateAmountLimit());
+
+    function updateAmountLimit() {
+      const scope = scopeToggle.getScope();
+      if (scope === "global") {
+        amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
+        const normalized = clampGlobalAmount(amountInput.value);
+        if (normalized !== null) amountInput.value = String(normalized);
+      } else {
+        amountInput.removeAttribute("max");
       }
-
-      if (codes.length === 1) {
-        grid.classList.add("action-codes-grid--single");
-      }
-
-      for (const code of codes) {
-        const isGlobal = normalizeScope(code && code.scope) === "global";
-        const card = document.createElement("div");
-        card.className = "action-code-card";
-        if (codes.length === 1) {
-          card.classList.add("action-code-card--featured");
-        }
-
-        const head = document.createElement("div");
-        head.className = "action-code-head";
-
-        const meta = document.createElement("div");
-        meta.className = "action-code-meta";
-
-        const badge = document.createElement("span");
-        badge.className = "action-code-badge";
-        badge.textContent = isGlobal ? "🌍 Global" : "🔒 Lokal";
-
-        const label = document.createElement("div");
-        label.className = "action-code-label";
-        label.textContent = code.label || `+${code.amount}`;
-
-        const amount = document.createElement("div");
-        amount.className = "action-code-amount";
-        const typeLabel = code.type === "d" ? "Drink" : "Guthaben";
-        amount.textContent = `+${normalizeAmount(code.amount)} Getränke (${typeLabel})`;
-
-        const labelRow = document.createElement("div");
-        labelRow.className = "action-code-label-row";
-        labelRow.appendChild(label);
-        labelRow.appendChild(badge);
-
-        meta.appendChild(labelRow);
-        meta.appendChild(amount);
-
-        const btns = document.createElement("div");
-        btns.className = "action-code-buttons";
-
-        const btnEdit = document.createElement("button");
-        btnEdit.type = "button";
-        btnEdit.textContent = "Bearbeiten";
-        btnEdit.addEventListener("click", () => {
-          editingId = code.id;
-          pendingDeleteId = "";
-          createOpen = false;
-          refresh();
-        });
-
-        const btnDelete = document.createElement("button");
-        btnDelete.type = "button";
-        btnDelete.textContent = "Löschen";
-        btnDelete.addEventListener("click", () => {
-          pendingDeleteId = pendingDeleteId === code.id ? "" : code.id;
-          editingId = "";
-          createOpen = false;
-          refresh();
-        });
-
-        btns.appendChild(btnEdit);
-        btns.appendChild(btnDelete);
-
-        head.appendChild(meta);
-        head.appendChild(btns);
-
-        if (editingId === code.id) {
-          const editForm = document.createElement("div");
-          editForm.className = "action-code-form";
-
-          const scopeToggle = buildScopeToggle(
-            isGlobal ? "global" : "local",
-            () => {
-              updateEditAmountLimit();
-            },
-          );
-          const typeToggle = buildTypeToggle(code.type, (nextType) => {
-            amountLabel.textContent = amountPromptForType(nextType);
-          });
-
-          const amountInput = document.createElement("input");
-          amountInput.type = "number";
-          amountInput.min = "1";
-          amountInput.value = String(code.amount || 1);
-          amountInput.addEventListener("input", () => {
-            updateEditAmountLimit();
-          });
-
-          const labelInput = document.createElement("input");
-          labelInput.type = "text";
-          labelInput.value =
-            code.label ||
-            defaultLabelForType(code.type, normalizeAmount(code.amount));
-
-          const amountField = document.createElement("label");
-          amountField.className = "action-code-form-field";
-          const amountLabel = document.createElement("span");
-          amountLabel.textContent = amountPromptForType(code.type);
-          amountField.appendChild(amountLabel);
-          amountField.appendChild(amountInput);
-
-          const labelField = document.createElement("label");
-          labelField.className = "action-code-form-field";
-          const labelText = document.createElement("span");
-          labelText.textContent = "Name für den Action Code:";
-          labelField.appendChild(labelText);
-          labelField.appendChild(labelInput);
-
-          const fields = document.createElement("div");
-          fields.className = "action-code-form-fields";
-          fields.appendChild(amountField);
-          fields.appendChild(labelField);
-
-          const actions = document.createElement("div");
-          actions.className = "action-code-form-actions";
-
-          function updateEditAmountLimit() {
-            const scope = scopeToggle.getScope();
-            if (scope === "global") {
-              amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
-              const normalized = clampGlobalAmount(amountInput.value);
-              if (normalized !== null) {
-                amountInput.value = String(normalized);
-              }
-            } else {
-              amountInput.removeAttribute("max");
-            }
-          }
-
-          const btnSave = document.createElement("button");
-          btnSave.type = "button";
-          btnSave.textContent = "Speichern";
-          btnSave.addEventListener("click", () => {
-            const walletNow = getWallet();
-            if (!walletNow) return;
-            const scope = scopeToggle.getScope();
-            if (scope === "global") {
-              if (!isGlobal) {
-                const codesNow = Array.isArray(walletNow.actionCodes)
-                  ? walletNow.actionCodes
-                  : [];
-                walletNow.actionCodes = codesNow.filter(
-                  (c) => c && c.id !== code.id,
-                );
-                const res = ensureWalletActionCodes(walletNow);
-                if (res && res.trimmedCount > 0) showTrimNotice = true;
-                persistWallet(walletNow);
-                const created = buildGlobalCode({
-                  type: typeToggle.getType(),
-                  amount: amountInput.value,
-                  label: labelInput.value,
-                });
-                globalCodes.push(created);
-              } else {
-                code.type = normalizeType(typeToggle.getType());
-                const amountRaw = clampGlobalAmount(amountInput.value);
-                code.amount = amountRaw === null ? 1 : amountRaw;
-                const labelRaw = String(labelInput.value || "").trim();
-                code.label =
-                  labelRaw || defaultLabelForType(code.type, code.amount);
-                code.updatedAt = Date.now();
-              }
-            } else {
-              if (isGlobal) {
-                globalCodes = globalCodes.filter((c) => c.id !== code.id);
-                const created = buildActionCode({
-                  type: typeToggle.getType(),
-                  amount: amountInput.value,
-                  label: labelInput.value,
-                });
-                if (!Array.isArray(walletNow.actionCodes))
-                  walletNow.actionCodes = [];
-                walletNow.actionCodes.push(created);
-              } else {
-                const codesNow = Array.isArray(walletNow.actionCodes)
-                  ? walletNow.actionCodes
-                  : [];
-                const target = codesNow.find((c) => c && c.id === code.id);
-                if (!target) return;
-                applyActionCodeEdits(target, {
-                  label: labelInput.value,
-                  amount: amountInput.value,
-                  type: typeToggle.getType(),
-                });
-              }
-              const res = ensureWalletActionCodes(walletNow);
-              if (res && res.trimmedCount > 0) showTrimNotice = true;
-              persistWallet(walletNow);
-            }
-            editingId = "";
-            refresh();
-          });
-
-          const btnCancel = document.createElement("button");
-          btnCancel.type = "button";
-          btnCancel.textContent = "Abbrechen";
-          btnCancel.addEventListener("click", () => {
-            editingId = "";
-            refresh();
-          });
-
-          actions.appendChild(btnSave);
-          actions.appendChild(btnCancel);
-
-          updateEditAmountLimit();
-          editForm.appendChild(scopeToggle.el);
-          editForm.appendChild(typeToggle.el);
-          editForm.appendChild(fields);
-          editForm.appendChild(actions);
-
-          card.appendChild(head);
-          card.appendChild(editForm);
-        } else if (pendingDeleteId === code.id) {
-          const deleteBox = document.createElement("div");
-          deleteBox.className = "action-code-confirm";
-
-          const deleteText = document.createElement("div");
-          deleteText.textContent = `Action Code "${code.label || `+${code.amount}`}" löschen?`;
-
-          const deleteActions = document.createElement("div");
-          deleteActions.className = "action-code-form-actions";
-
-          const btnConfirm = document.createElement("button");
-          btnConfirm.type = "button";
-          btnConfirm.textContent = "Löschen";
-          btnConfirm.addEventListener("click", () => {
-            const walletNow = getWallet();
-            if (!walletNow) return;
-            if (isGlobal) {
-              globalCodes = globalCodes.filter((c) => c.id !== code.id);
-            } else {
-              const codesNow = Array.isArray(walletNow.actionCodes)
-                ? walletNow.actionCodes
-                : [];
-              walletNow.actionCodes = codesNow.filter(
-                (c) => c && c.id !== code.id,
-              );
-              const res = ensureWalletActionCodes(walletNow);
-              if (res && res.trimmedCount > 0) showTrimNotice = true;
-              persistWallet(walletNow);
-            }
-            pendingDeleteId = "";
-            refresh();
-          });
-
-          const btnCancel = document.createElement("button");
-          btnCancel.type = "button";
-          btnCancel.textContent = "Abbrechen";
-          btnCancel.addEventListener("click", () => {
-            pendingDeleteId = "";
-            refresh();
-          });
-
-          deleteActions.appendChild(btnConfirm);
-          deleteActions.appendChild(btnCancel);
-
-          deleteBox.appendChild(deleteText);
-          deleteBox.appendChild(deleteActions);
-
-          card.appendChild(head);
-          card.appendChild(deleteBox);
-        } else {
-          const canvas = document.createElement("canvas");
-          canvas.className = "action-code-canvas";
-
-          const urlInput = document.createElement("input");
-          urlInput.type = "text";
-          urlInput.readOnly = true;
-          urlInput.inputMode = "none";
-          urlInput.className = "action-code-url";
-          urlInput.setAttribute("aria-label", "Action Code Link");
-
-          let url = "";
-          try {
-            url = actionUrlFor(code);
-            urlInput.value = url;
-            renderQrToCanvas(canvas, url);
-          } catch (e) {
-            urlInput.value = "";
-            const msg = String(e && e.message ? e.message : e || "");
-            const fallback = document.createElement("div");
-            fallback.className = "action-code-error";
-            fallback.textContent = msg.includes("QR library missing")
-              ? "QR-Code-Generator fehlt (qrcodegen.js)."
-              : "QR-Code konnte nicht erzeugt werden.";
-            card.appendChild(head);
-            card.appendChild(fallback);
-            grid.appendChild(card);
-            continue;
-          }
-
-          function selectUrl() {
-            try {
-              urlInput.focus({ preventScroll: true });
-            } catch (e) {
-              urlInput.focus();
-            }
-            urlInput.select();
-            try {
-              urlInput.setSelectionRange(0, urlInput.value.length);
-            } catch (e) {}
-          }
-
-          urlInput.addEventListener("focus", selectUrl);
-          urlInput.addEventListener("click", selectUrl);
-
-          canvas.addEventListener("click", () => {
-            if (!url) return;
-            const safeUserId = String(wallet.userId || "user").replace(
-              /[^a-zA-Z0-9_-]/g,
-              "_",
-            );
-            const safeCode = String(code.label || `+${code.amount}`)
-              .replace(/[^a-zA-Z0-9_-]/g, "_")
-              .slice(0, 20);
-            const filename = `db-wallet-${safeUserId}-action-${safeCode}.png`;
-            canvasToPngDownload(canvas, filename);
-          });
-
-          card.appendChild(head);
-          card.appendChild(canvas);
-          card.appendChild(urlInput);
-        }
-
-        grid.appendChild(card);
-      }
-
-      container.appendChild(toolbar);
-      container.appendChild(hint);
-      if (showSoftLimitNotice) {
-        container.appendChild(softNotice);
-        showSoftLimitNotice = false;
-      }
-      if (showTrimNotice) container.appendChild(notice);
-      if (createOpen) container.appendChild(createForm);
-      container.appendChild(grid);
     }
 
-    refresh();
-    return { refresh };
+    const fields = document.createElement("div");
+    fields.className = "action-code-form-fields";
+    fields.appendChild(amountField);
+    fields.appendChild(labelField);
+
+    const actions = document.createElement("div");
+    actions.className = "action-code-form-actions";
+
+    const btnSave = document.createElement("button");
+    btnSave.type = "button";
+    btnSave.textContent = "Speichern";
+    btnSave.addEventListener("click", () => {
+      const walletNow = ctx.getWallet();
+      if (!walletNow) return;
+      const scope = scopeToggle.getScope();
+      if (scope === "global") {
+        if (!isGlobal) {
+          const codesNow = Array.isArray(walletNow.actionCodes)
+            ? walletNow.actionCodes
+            : [];
+          walletNow.actionCodes = codesNow.filter(
+            (c) => c && c.id !== code.id,
+          );
+          const res = ensureWalletActionCodes(walletNow);
+          if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
+          ctx.persistWallet(walletNow);
+          const created = buildGlobalCode({
+            type: typeToggle.getType(),
+            amount: amountInput.value,
+            label: labelInput.value,
+          });
+          ctx.globalCodes.push(created);
+        } else {
+          code.type = normalizeType(typeToggle.getType());
+          const amountRaw = clampGlobalAmount(amountInput.value);
+          code.amount = amountRaw === null ? 1 : amountRaw;
+          const labelRaw = String(labelInput.value || "").trim();
+          code.label =
+            labelRaw || defaultLabelForType(code.type, code.amount);
+          code.updatedAt = Date.now();
+        }
+      } else {
+        if (isGlobal) {
+          ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
+          const created = buildActionCode({
+            type: typeToggle.getType(),
+            amount: amountInput.value,
+            label: labelInput.value,
+          });
+          if (!Array.isArray(walletNow.actionCodes))
+            walletNow.actionCodes = [];
+          walletNow.actionCodes.push(created);
+        } else {
+          const codesNow = Array.isArray(walletNow.actionCodes)
+            ? walletNow.actionCodes
+            : [];
+          const target = codesNow.find((c) => c && c.id === code.id);
+          if (!target) return;
+          applyActionCodeEdits(target, {
+            label: labelInput.value,
+            amount: amountInput.value,
+            type: typeToggle.getType(),
+          });
+        }
+        const res = ensureWalletActionCodes(walletNow);
+        if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
+        ctx.persistWallet(walletNow);
+      }
+      ctx.editingId = "";
+      ctx.refresh();
+    });
+
+    const btnCancel = document.createElement("button");
+    btnCancel.type = "button";
+    btnCancel.textContent = "Abbrechen";
+    btnCancel.addEventListener("click", () => {
+      ctx.editingId = "";
+      ctx.refresh();
+    });
+
+    actions.appendChild(btnSave);
+    actions.appendChild(btnCancel);
+
+    updateAmountLimit();
+    editForm.appendChild(scopeToggle.el);
+    editForm.appendChild(typeToggle.el);
+    editForm.appendChild(fields);
+    editForm.appendChild(actions);
+
+    return editForm;
+  }
+
+  function buildDeleteConfirm(ctx, code, isGlobal) {
+    const deleteBox = document.createElement("div");
+    deleteBox.className = "action-code-confirm";
+
+    const deleteText = document.createElement("div");
+    deleteText.textContent = `Action Code "${code.label || `+${code.amount}`}" löschen?`;
+
+    const deleteActions = document.createElement("div");
+    deleteActions.className = "action-code-form-actions";
+
+    const btnConfirm = document.createElement("button");
+    btnConfirm.type = "button";
+    btnConfirm.textContent = "Löschen";
+    btnConfirm.addEventListener("click", () => {
+      const walletNow = ctx.getWallet();
+      if (!walletNow) return;
+      if (isGlobal) {
+        ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
+      } else {
+        const codesNow = Array.isArray(walletNow.actionCodes)
+          ? walletNow.actionCodes
+          : [];
+        walletNow.actionCodes = codesNow.filter(
+          (c) => c && c.id !== code.id,
+        );
+        const res = ensureWalletActionCodes(walletNow);
+        if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
+        ctx.persistWallet(walletNow);
+      }
+      ctx.pendingDeleteId = "";
+      ctx.refresh();
+    });
+
+    const btnCancel = document.createElement("button");
+    btnCancel.type = "button";
+    btnCancel.textContent = "Abbrechen";
+    btnCancel.addEventListener("click", () => {
+      ctx.pendingDeleteId = "";
+      ctx.refresh();
+    });
+
+    deleteActions.appendChild(btnConfirm);
+    deleteActions.appendChild(btnCancel);
+
+    deleteBox.appendChild(deleteText);
+    deleteBox.appendChild(deleteActions);
+
+    return deleteBox;
+  }
+
+  function buildQrCard(ctx, code) {
+    const canvas = document.createElement("canvas");
+    canvas.className = "action-code-canvas";
+
+    const urlInput = document.createElement("input");
+    urlInput.type = "text";
+    urlInput.readOnly = true;
+    urlInput.inputMode = "none";
+    urlInput.className = "action-code-url";
+    urlInput.setAttribute("aria-label", "Action Code Link");
+
+    let url = "";
+    try {
+      url = actionUrlFor(ctx, code);
+      urlInput.value = url;
+      renderQrToCanvas(canvas, url);
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e || "");
+      const fallback = document.createElement("div");
+      fallback.className = "action-code-error";
+      fallback.textContent = msg.includes("QR library missing")
+        ? "QR-Code-Generator fehlt (qrcodegen.js)."
+        : "QR-Code konnte nicht erzeugt werden.";
+      return { error: fallback };
+    }
+
+    function selectUrl() {
+      try {
+        urlInput.focus({ preventScroll: true });
+      } catch (e) {
+        urlInput.focus();
+      }
+      urlInput.select();
+      try {
+        urlInput.setSelectionRange(0, urlInput.value.length);
+      } catch (e) {}
+    }
+
+    urlInput.addEventListener("focus", selectUrl);
+    urlInput.addEventListener("click", selectUrl);
+
+    const wallet = ctx.getWallet();
+    const safeUserId = String((wallet && wallet.userId) || "user").replace(
+      /[^a-zA-Z0-9_-]/g,
+      "_",
+    );
+
+    canvas.addEventListener("click", () => {
+      if (!url) return;
+      const safeCode = String(code.label || `+${code.amount}`)
+        .replace(/[^a-zA-Z0-9_-]/g, "_")
+        .slice(0, 20);
+      const filename = `db-wallet-${safeUserId}-action-${safeCode}.png`;
+      canvasToPngDownload(canvas, filename);
+    });
+
+    return { canvas, urlInput };
+  }
+
+  function buildActionCard(ctx, code, isSingle) {
+    const isGlobal = normalizeScope(code && code.scope) === "global";
+    const card = document.createElement("div");
+    card.className = "action-code-card";
+    if (isSingle) card.classList.add("action-code-card--featured");
+
+    const head = document.createElement("div");
+    head.className = "action-code-head";
+
+    const meta = document.createElement("div");
+    meta.className = "action-code-meta";
+
+    const badge = document.createElement("span");
+    badge.className = "action-code-badge";
+    badge.textContent = isGlobal ? "🌍 Global" : "🔒 Lokal";
+
+    const label = document.createElement("div");
+    label.className = "action-code-label";
+    label.textContent = code.label || `+${code.amount}`;
+
+    const amount = document.createElement("div");
+    amount.className = "action-code-amount";
+    const typeLabel = code.type === "d" ? "Drink" : "Guthaben";
+    amount.textContent = `+${normalizeAmount(code.amount)} Getränke (${typeLabel})`;
+
+    const labelRow = document.createElement("div");
+    labelRow.className = "action-code-label-row";
+    labelRow.appendChild(label);
+    labelRow.appendChild(badge);
+
+    meta.appendChild(labelRow);
+    meta.appendChild(amount);
+
+    const btns = document.createElement("div");
+    btns.className = "action-code-buttons";
+
+    const btnEdit = document.createElement("button");
+    btnEdit.type = "button";
+    btnEdit.textContent = "Bearbeiten";
+    btnEdit.addEventListener("click", () => {
+      ctx.editingId = code.id;
+      ctx.pendingDeleteId = "";
+      ctx.createOpen = false;
+      ctx.refresh();
+    });
+
+    const btnDelete = document.createElement("button");
+    btnDelete.type = "button";
+    btnDelete.textContent = "Löschen";
+    btnDelete.addEventListener("click", () => {
+      ctx.pendingDeleteId = ctx.pendingDeleteId === code.id ? "" : code.id;
+      ctx.editingId = "";
+      ctx.createOpen = false;
+      ctx.refresh();
+    });
+
+    btns.appendChild(btnEdit);
+    btns.appendChild(btnDelete);
+
+    head.appendChild(meta);
+    head.appendChild(btns);
+
+    card.appendChild(head);
+
+    if (ctx.editingId === code.id) {
+      card.appendChild(buildEditForm(ctx, code, isGlobal));
+    } else if (ctx.pendingDeleteId === code.id) {
+      card.appendChild(buildDeleteConfirm(ctx, code, isGlobal));
+    } else {
+      const qr = buildQrCard(ctx, code);
+      if (qr.error) {
+        card.appendChild(qr.error);
+      } else {
+        card.appendChild(qr.canvas);
+        card.appendChild(qr.urlInput);
+      }
+    }
+
+    return card;
+  }
+
+  function renderActionList(ctx) {
+    const wallet = ctx.getWallet();
+    if (!wallet) return;
+
+    persistIfChanged(ctx, wallet);
+
+    const localCodes = Array.isArray(wallet.actionCodes)
+      ? wallet.actionCodes
+      : [];
+    const codes = localCodes.concat(ctx.globalCodes);
+    if (localCodes.length < SOFT_LIMIT) ctx.showSoftLimitNotice = false;
+    if (ctx.editingId && !codes.find((c) => c && c.id === ctx.editingId)) {
+      ctx.editingId = "";
+    }
+    if (
+      ctx.pendingDeleteId &&
+      !codes.find((c) => c && c.id === ctx.pendingDeleteId)
+    ) {
+      ctx.pendingDeleteId = "";
+    }
+
+    ctx.container.innerHTML = "";
+    ctx.container.classList.add("action-codes-body-inner");
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "action-codes-toolbar";
+
+    const btnAdd = document.createElement("button");
+    btnAdd.type = "button";
+    btnAdd.textContent = "New action code";
+    btnAdd.addEventListener("click", () => {
+      const walletNow = ctx.getWallet();
+      if (!walletNow) return;
+      persistIfChanged(ctx, walletNow);
+      const currentCodes = Array.isArray(walletNow.actionCodes)
+        ? walletNow.actionCodes
+        : [];
+      if (currentCodes.length >= SOFT_LIMIT) ctx.showSoftLimitNotice = true;
+      ctx.createOpen = !ctx.createOpen;
+      ctx.editingId = "";
+      ctx.pendingDeleteId = "";
+      ctx.refresh();
+    });
+
+    toolbar.appendChild(btnAdd);
+
+    const hint = document.createElement("div");
+    hint.className = "action-codes-hint";
+    hint.textContent =
+      "Diese QR-Codes buchen Drinks oder Guthaben auf dieses Wallet. Nach Änderungen bitte neu scannen/ausdrucken.";
+
+    const notice = document.createElement("div");
+    notice.className = "action-codes-notice";
+    notice.textContent =
+      "Hinweis: Für Import/Export werden nur die 10 zuletzt aktiven Action Codes gespeichert. Ältere Codes wurden entfernt.";
+
+    const softNotice = document.createElement("div");
+    softNotice.className = "action-codes-notice";
+    softNotice.textContent =
+      "Empfohlen: max. 6 Action Codes. Ab 10 werden automatisch nur die 10 zuletzt aktiven gespeichert (ältere werden entfernt).";
+
+    if (!codes.length) {
+      const empty = document.createElement("div");
+      empty.className = "action-codes-empty";
+      empty.textContent =
+        "Noch keine Action Codes – klicke auf “New action code”.";
+      ctx.container.appendChild(toolbar);
+      ctx.container.appendChild(hint);
+      if (ctx.showSoftLimitNotice) {
+        ctx.container.appendChild(softNotice);
+        ctx.showSoftLimitNotice = false;
+      }
+      if (ctx.showTrimNotice) ctx.container.appendChild(notice);
+      if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
+      ctx.container.appendChild(empty);
+      return;
+    }
+
+    const grid = document.createElement("div");
+    grid.className = "action-codes-grid";
+    if (codes.length === 1) grid.classList.add("action-codes-grid--single");
+
+    for (const code of codes) {
+      grid.appendChild(buildActionCard(ctx, code, codes.length === 1));
+    }
+
+    ctx.container.appendChild(toolbar);
+    ctx.container.appendChild(hint);
+    if (ctx.showSoftLimitNotice) {
+      ctx.container.appendChild(softNotice);
+      ctx.showSoftLimitNotice = false;
+    }
+    if (ctx.showTrimNotice) ctx.container.appendChild(notice);
+    if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
+    ctx.container.appendChild(grid);
+  }
+
+  function initActionCodesUi(options) {
+    const container = options && options.container;
+    if (!container) return { refresh: () => {} };
+
+    const ctx = {
+      container,
+      getWallet:
+        options && typeof options.getWallet === "function"
+          ? options.getWallet
+          : () => null,
+      persistWallet:
+        options && typeof options.persistWallet === "function"
+          ? options.persistWallet
+          : () => {},
+      getBaseUrl:
+        options && typeof options.getBaseUrl === "function"
+          ? options.getBaseUrl
+          : () => String(window.location.href || "").split("#")[0],
+      showTrimNotice: false,
+      showSoftLimitNotice: false,
+      selectedType: "d",
+      selectedScope: "local",
+      createOpen: false,
+      editingId: "",
+      pendingDeleteId: "",
+      globalCodes: [],
+      refresh: null,
+    };
+    ctx.refresh = () => renderActionList(ctx);
+
+    ctx.refresh();
+    return { refresh: ctx.refresh };
   }
 
   window.dbWalletActionCodes = {
