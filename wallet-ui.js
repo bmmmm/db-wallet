@@ -44,33 +44,21 @@
   if (!helpers || !storage || !importV2 || !summaryApi) return;
 
   const {
-    STORAGE_PREFIX,
-    randomId,
-    randomWalletId,
     base64UrlEncode,
     base64UrlEncodeBytes,
-    base64UrlDecode,
-    base64UrlDecodeBytes,
     gzipCompress,
     loadRegistry,
-    saveRegistry,
     safeParse,
-    safeLocalStorageGetItem,
-    safeLocalStorageSetItem,
-    safeLocalStorageRemoveItem,
   } = helpers;
 
   const {
     ensureNonReservedUserId,
     getDeviceKey,
-    ensureWalletDevices,
     getLocalDeviceSymbol,
     setLocalDeviceSymbol,
     touchLocalDevice,
     parseCompactEventId,
     ensureDeviceSeq,
-    appendTombstone,
-    undoLastEvent,
     nextEventId,
     loadWallet,
     saveWallet,
@@ -79,13 +67,7 @@
 
   const { encodeImportV2Bytes, tryImportFromHash } = importV2;
 
-  const {
-    todayDateStr,
-    dateStrFromTimestamp,
-    computeSummary,
-    parseDeleteRange,
-    formatLogLine,
-  } = summaryApi;
+  const { todayDateStr, computeSummary } = summaryApi;
 
   let redirectedToPreview = false;
   let lastHandledGlobalHash = "";
