@@ -220,6 +220,57 @@
             mergedCount === wallet.events.length,
             `events=${mergedCount}`,
           );
+
+          // Append a malformed "ac" extension (tag + version=1 + count=99 with
+          // no entry data) and verify decodeImportV2Bytes warns on the parse
+          // error but still returns correct core fields.
+          const corruptOut = Array.from(encoded);
+          corruptOut.push(97, 99); // "ac" tag
+          corruptOut.push(1); // version 1 (varint)
+          corruptOut.push(99); // count 99 (varint) — no entries follow
+          const corruptBytes = new Uint8Array(corruptOut);
+          let extensionWarned = false;
+          const origWarn = console.warn;
+          console.warn = function () {
+            for (let i = 0; i < arguments.length; i++) {
+              if (
+                String(arguments[i]).includes("extension parse failed")
+              ) {
+                extensionWarned = true;
+                break;
+              }
+            }
+          };
+          let corruptDecoded = null;
+          let corruptError = null;
+          try {
+            corruptDecoded = importV2.decodeImportV2Bytes(corruptBytes);
+          } catch (e) {
+            corruptError = e;
+          } finally {
+            console.warn = origWarn;
+          }
+          addCheck(
+            result,
+            "v2 corrupt extension warns",
+            extensionWarned && !corruptError,
+            corruptError
+              ? `threw=${corruptError.message}`
+              : extensionWarned
+                ? "ok"
+                : "no warn",
+          );
+          addCheck(
+            result,
+            "v2 corrupt extension preserves core",
+            !!corruptDecoded &&
+              corruptDecoded.walletId === wallet.walletId &&
+              corruptDecoded.userId === wallet.userId &&
+              corruptDecoded.events.length === wallet.events.length,
+            corruptDecoded
+              ? `events=${corruptDecoded.events.length}`
+              : "decode failed",
+          );
         }
 
         if (
@@ -658,6 +709,33 @@
                 noWalletRes && noWalletRes.reason === "no-wallet",
                 JSON.stringify(noWalletRes || {}),
               );
+
+              // handleWalletStateChange is the central fan-out used after
+              // any mutation (booking, undo, edit, import). It must exist and
+              // be callable twice in a row without throwing — nothing in it
+              // relies on dirty state that would blow up on a re-run.
+              if (typeof uiApi.handleWalletStateChange === "function") {
+                let stateError = null;
+                try {
+                  uiApi.handleWalletStateChange();
+                  uiApi.handleWalletStateChange();
+                } catch (e) {
+                  stateError = e;
+                }
+                addCheck(
+                  result,
+                  "handleWalletStateChange idempotent",
+                  stateError === null,
+                  stateError ? `threw=${stateError.message}` : "ok",
+                );
+              } else {
+                addCheck(
+                  result,
+                  "handleWalletStateChange idempotent",
+                  false,
+                  "hook missing",
+                );
+              }
             } else {
               addCheck(result, "global action ui hook", true, "skipped");
             }
