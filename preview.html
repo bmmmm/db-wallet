@@ -2,9 +2,22 @@
 <html lang="de">
     <head>
         <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta
+            name="description"
+            content="db-wallet — Read-Only-Vorschau eines Import-Payloads. Rein lokal, wird nicht gespeichert."
+        />
+        <meta name="theme-color" content="#14121c" />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="db-wallet" />
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
+        />
         <title>db-wallet – Vorschau (Read-Only)</title>
-        <link rel="icon" href="data:," />
+        <link rel="icon" type="image/svg+xml" href="favicon.svg" />
         <link rel="stylesheet" href="style.css" />
         <link rel="stylesheet" href="themes.css" />
         <script src="theme.js"></script>
@@ -18,7 +31,7 @@
                 <strong id="uid">–</strong>
                 <small style="color: var(--muted)">(nicht gespeichert)</small>
             </div>
-            <button id="btn-exit">Beenden</button>
+            <button id="btn-exit" aria-label="Vorschau beenden">Beenden</button>
         </div>
 
         <div class="stat-panel">
@@ -37,8 +50,8 @@
             <pre id="history">Lade Vorschau…</pre>
         </div>
 
-        <script src="wallet-helpers.js"></script>
-        <script src="wallet-summary.js"></script>
-        <script src="import-preview.js"></script>
+        <script src="wallet-helpers.js" defer></script>
+        <script src="wallet-summary.js" defer></script>
+        <script src="import-preview.js" defer></script>
     </body>
 </html>
