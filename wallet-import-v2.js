@@ -857,7 +857,8 @@
 
       peer.updatedAt = Date.now();
       peer.peerEventCount = peerEventCount;
-      peer.commonEventCount = local.events.length;
+      // One-way import: common = remote events (all now in local), not merged length — otherwise local-only events never show as sync-delta.
+      peer.commonEventCount = Math.min(peerEventCount, local.events.length);
       local.syncPeers[peerKey] = peer;
     } catch (e) {
       console.warn("db-wallet: import sync-peer tracking failed", e);

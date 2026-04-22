@@ -945,9 +945,11 @@
       refreshSummary();
     }
 
-    btnHome.addEventListener("click", () => {
-      window.location.href = "index.html";
-    });
+    if (btnHome) {
+      btnHome.addEventListener("click", () => {
+        window.location.href = "index.html";
+      });
+    }
     if (btnInfo) {
       btnInfo.addEventListener("click", () => {
         window.open("https://github.com/bmmmm/db-wallet", "_blank");
@@ -1037,9 +1039,11 @@
       if (actionsApi) actionsApi.resetWallet(actionsCtx);
     });
 
-    btnSelectionDelete.addEventListener("click", () => {
-      if (actionsApi) actionsApi.deleteSelection(actionsCtx);
-    });
+    if (btnSelectionDelete) {
+      btnSelectionDelete.addEventListener("click", () => {
+        if (actionsApi) actionsApi.deleteSelection(actionsCtx);
+      });
+    }
 
     if (btnEditEntry) {
       btnEditEntry.addEventListener("click", () => {
