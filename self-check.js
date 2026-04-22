@@ -113,6 +113,19 @@
       messagesApi ? "ok" : "dbWalletMessages missing",
     );
 
+    const hashActionsApi = window.dbWalletHashActions || null;
+    addCheck(
+      result,
+      "hash actions api available",
+      !!(
+        hashActionsApi &&
+        typeof hashActionsApi.awaitGlobalActionWalletSelection === "function" &&
+        typeof hashActionsApi.buildGlobalActionPreview === "function" &&
+        typeof hashActionsApi.showMessage === "function"
+      ),
+      hashActionsApi ? "ok" : "dbWalletHashActions missing",
+    );
+
     const randomId =
       helpers && typeof helpers.randomId === "function"
         ? helpers.randomId

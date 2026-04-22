@@ -128,6 +128,7 @@ damit agentic coding / Review einfacher ist:
 - `wallet-sync-ui.js`: Sync-Status-Zeile (Ampel, Timeline, „✅ passt“)
 - `wallet-export-ui.js`: Export-UI (Link, QR, JSON, QR-Session-Cache)
 - `wallet-history-ui.js`: History-Ansicht (Diagramm/Log/Raw, Log-Tools)
+- `wallet-hash-actions.js`: Global-Action Selection UI (Wallet-Auswahl bei `#acg:`)
 
 Hinweis: `wallet.html` lädt diese Dateien vor `wallet-ui.js`.
 
@@ -142,6 +143,7 @@ Core (Logik/Codec/Storage):
 UI (DOM + Interaktion):
 - `index-ui.js`, `wallet-ui.js`
 - `wallet-device-ui.js`, `wallet-history-ui.js`, `wallet-export-ui.js`, `wallet-sync-ui.js`
+- `wallet-hash-actions.js`, `wallet-messages.js`
 - `import-preview.js`, `theme.js`
 
 Tools:
@@ -176,6 +178,7 @@ Summary-Parität, Tombstones/Undo und Action-Code-Payloads.
 | [`wallet-export-ui.js`](./wallet-export-ui.js) | Export UI (Link/QR/JSON, QR-Session-Cache, PNG-Download)                  |
 | [`wallet-helpers.js`](./wallet-helpers.js)     | Helper (Base64URL, gzip, Storage-Safety, Registry, fnv1a64/hash53/parseCompactEventId) |
 | [`wallet-messages.js`](./wallet-messages.js)   | Zentrale UI-Message-API (`showGlobal` / `clearGlobal` / `ensureContainer`) |
+| [`wallet-hash-actions.js`](./wallet-hash-actions.js) | Global-Action UI (`#acg:`): Wallet-Auswahlbildschirm + Preview-Helper    |
 | [`wallet-storage.js`](./wallet-storage.js)     | Wallet-Storage/Model (load/save, deviceKey, devices-Liste)                |
 | [`wallet-import-v2.js`](./wallet-import-v2.js) | Import/Export-Codec v2 + Hash-Import (inkl. Action Codes)                 |
 | [`wallet-summary.js`](./wallet-summary.js)     | Berechnung von Total/Offen/Guthaben/Diagramm (pure)                       |
@@ -238,7 +241,7 @@ Viel Spaß mit deinem minimalistischen, schnellen Getränke-Wallet 🍹🚀
 
 ## LLM Notes (for quick repo understanding)
 
-- File map (core vs UI): Core/codec/storage in `wallet-helpers.js`, `wallet-storage.js`, `wallet-import-v2.js`, `wallet-summary.js`, `wallet-sync.js`, `migration.js`, `action-codes.js`, `hash-router.js`. UI in `index-ui.js`, `wallet-ui.js`, `wallet-device-ui.js`, `wallet-sync-ui.js`, `wallet-export-ui.js`, `wallet-history-ui.js`, `wallet-messages.js`, `import-preview.js`, `theme.js`. PWA: `manifest.json`, `service-worker.js`, `sw-register.js`, `favicon.svg`.
+- File map (core vs UI): Core/codec/storage in `wallet-helpers.js`, `wallet-storage.js`, `wallet-import-v2.js`, `wallet-summary.js`, `wallet-sync.js`, `migration.js`, `action-codes.js`, `hash-router.js`. UI in `index-ui.js`, `wallet-ui.js`, `wallet-device-ui.js`, `wallet-sync-ui.js`, `wallet-export-ui.js`, `wallet-history-ui.js`, `wallet-hash-actions.js`, `wallet-messages.js`, `import-preview.js`, `theme.js`. PWA: `manifest.json`, `service-worker.js`, `sw-register.js`, `favicon.svg`.
 - Invariants: storage prefix `db-wallet:`, registry key `db-wallet:registry`, hash formats `#<userId>`, `#import:`, `#i2:`, `#i2u:`, `#ac:`, `#acg:`; event schema `{id,t,n?,ts,ref?}` with tombstones `t:"x"` + `ref`; action code SOFT/HARD limits 6/10; global `#acg:` deterministic and stateless.
 - Entrypoints & flow: `index.html` → `index-ui.js` (list/create/import) and `wallet.html` → `wallet-ui.js` (hash classify → load wallet → compute summary → render UI); `hash-router.js` is the single classifier/parser for hashes.
 - Where to edit: storage/model in `wallet-storage.js`; summary/tombstones in `wallet-summary.js`; action-code encode/decode + UI in `action-codes.js`; hash parsing in `hash-router.js`; UI wiring in `index-ui.js` / `wallet-ui.js` / `wallet-history-ui.js`.
