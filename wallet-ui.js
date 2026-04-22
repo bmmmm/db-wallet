@@ -418,7 +418,9 @@
     }
 
     if (pendingGlobalHash) {
-      const applied = applyGlobalActionToWallet(wallet, pendingGlobalHash);
+      const applied = applyGlobalActionToWallet(wallet, pendingGlobalHash, {
+        skipPersist: true,
+      });
       if (applied) {
         replaceHashSilently(userId);
       }
