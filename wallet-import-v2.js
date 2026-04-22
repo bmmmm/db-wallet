@@ -923,189 +923,225 @@
     return null;
   }
 
+  function getImportPreviewHooks() {
+    const importPreview = window.dbWalletImportPreview || null;
+    return {
+      chooseMode:
+        importPreview && typeof importPreview.chooseImportMode === "function"
+          ? importPreview.chooseImportMode
+          : null,
+      openPreview:
+        importPreview && typeof importPreview.openPreview === "function"
+          ? importPreview.openPreview
+          : null,
+    };
+  }
+
+  // Dispatches a parsed import payload between the preview overlay and the
+  // persist-and-route path. Returns the standard tryImportFromHash shape.
+  async function handleImportChoice(remote, label, options, hooks) {
+    const { chooseMode, openPreview } = hooks || getImportPreviewHooks();
+
+    let mode = "persist";
+    if (chooseMode) {
+      mode = await chooseMode({ header: label || "Import erkannt" });
+      if (!mode) {
+        window.location.href = "index.html";
+        return { userId: null, redirectedToPreview: true };
+      }
+    }
+
+    if (mode === "preview" && openPreview) {
+      const built = buildImportedWallet(remote);
+      const theme =
+        remote && typeof remote.theme === "string" ? remote.theme : "";
+      const ok = openPreview({
+        source: "hash",
+        wallet: built.wallet,
+        theme,
+      });
+      if (ok) return { userId: null, redirectedToPreview: true };
+      window.location.href = "index.html";
+      return { userId: null, redirectedToPreview: true };
+    }
+
+    return {
+      userId: importRemoteWallet(remote, options),
+      redirectedToPreview: false,
+    };
+  }
+
+  // Decodes an "ac:" action-code hash and validates the walletId/codeId/key
+  // triple. Returns { payload, activeUserId } on success or a terminal
+  // tryImportFromHash result (via the `done` field) for short-circuit cases.
+  function parseActionCodeHash(hash, options) {
+    const activeUserId =
+      options && typeof options.returnToUserId === "string"
+        ? options.returnToUserId
+        : "";
+    const api = window.dbWalletActionCodes || null;
+    const payload =
+      api && typeof api.decodeActionHash === "function"
+        ? api.decodeActionHash(hash)
+        : safeParse(base64UrlDecode(hash.slice(3)));
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Invalid action payload");
+    }
+
+    const payloadWalletId =
+      typeof payload.walletId === "string" ? payload.walletId : "";
+    const codeId = typeof payload.codeId === "string" ? payload.codeId : "";
+    const key = typeof payload.key === "string" ? payload.key : "";
+
+    if (!payloadWalletId) {
+      alert("Action Code ungültig: Ziel-Wallet fehlt.\nBuchung verweigert.");
+      return { done: redirectAfterActionError(activeUserId) };
+    }
+    if (!codeId || !key) {
+      alert("Action Code ungültig (Daten fehlen).\nBuchung verweigert.");
+      return { done: redirectAfterActionError(activeUserId) };
+    }
+
+    return { api, payload, payloadWalletId, codeId, key, activeUserId };
+  }
+
+  function redirectAfterActionError(activeUserId) {
+    if (activeUserId) {
+      window.location.hash = "#" + activeUserId;
+      return { userId: activeUserId, redirectedToPreview: false };
+    }
+    window.location.href = "index.html";
+    return { userId: null, redirectedToPreview: true };
+  }
+
+  // Given a parsed action payload, locate the target userId, prompt the user
+  // when the wallet is missing or belongs to a different profile, and return
+  // either a resolved targetUserId or a terminal tryImportFromHash result.
+  function resolveActionCodeTarget(parsed) {
+    const { payloadWalletId, activeUserId } = parsed;
+    const targetUserId = findUserIdByWalletId(payloadWalletId);
+    if (!targetUserId) {
+      const shouldGoHome = window.confirm(
+        "Dieses Wallet ist auf diesem Gerät noch nicht vorhanden.\nVor dem Buchen muss es importiert werden.\nJetzt zur Startseite wechseln?",
+      );
+      if (!shouldGoHome) {
+        if (activeUserId) {
+          window.location.hash = "#" + activeUserId;
+          return {
+            done: { userId: activeUserId, redirectedToPreview: false },
+          };
+        }
+        return { done: { userId: null, redirectedToPreview: false } };
+      }
+      try {
+        if (typeof sessionStorage !== "undefined" && sessionStorage) {
+          sessionStorage.setItem(
+            "db-wallet:pending-walletId",
+            payloadWalletId,
+          );
+        }
+      } catch (e) {
+        // ignore
+      }
+      window.location.href = "index.html";
+      return { done: { userId: null, redirectedToPreview: true } };
+    }
+
+    if (activeUserId && targetUserId !== activeUserId) {
+      const shouldSwitch = window.confirm(
+        `Action Code gehört zu einem anderen Profil.\nZiel: ${targetUserId}\nAktuell: ${activeUserId}\nZu diesem Profil wechseln und buchen?`,
+      );
+      if (!shouldSwitch) {
+        window.location.hash = "#" + activeUserId;
+        return { done: { userId: activeUserId, redirectedToPreview: false } };
+      }
+    }
+    return { targetUserId };
+  }
+
+  // Applies a validated action payload to the target wallet: matches the code,
+  // books the event, persists, and updates the hash. Returns the standard
+  // tryImportFromHash result.
+  function bookActionCode(targetUserId, parsed) {
+    const { api, payload, codeId, key } = parsed;
+    const wallet = loadWallet(targetUserId);
+    ensureDeviceSeq(wallet);
+
+    try {
+      if (api && typeof api.ensureWalletActionCodes === "function") {
+        const res = api.ensureWalletActionCodes(wallet);
+        if (res && res.changed) saveWallet(wallet);
+      }
+    } catch (e) {
+      console.warn("db-wallet: ensureWalletActionCodes failed", e);
+    }
+
+    const codes = Array.isArray(wallet.actionCodes) ? wallet.actionCodes : [];
+    const match = codeId && codes.find((c) => c && c.id === codeId);
+    if (!match) {
+      alert(
+        "Action Code ist unbekannt oder nicht mehr vorhanden.\nBuchung verweigert.",
+      );
+      window.location.hash = "#" + targetUserId;
+      return { userId: targetUserId, redirectedToPreview: false };
+    }
+
+    const matchKey = match && typeof match.key === "string" ? match.key : "";
+    if (!matchKey || matchKey !== key) {
+      alert(
+        "Action Code wurde erneuert.\nBitte den neuen QR-Code nutzen.\nBuchung verweigert.",
+      );
+      window.location.hash = "#" + targetUserId;
+      return { userId: targetUserId, redirectedToPreview: false };
+    }
+
+    const amount =
+      api && typeof api.normalizeAmount === "function"
+        ? api.normalizeAmount(match.amount)
+        : (() => {
+            const n = parseInt(match.amount, 10);
+            return isNaN(n) || n <= 0 ? 1 : n;
+          })();
+
+    const normalizeType = (v) => (v === "d" || v === "g" ? v : null);
+    const type =
+      normalizeType(payload.type) || normalizeType(match.type) || "g";
+
+    wallet.events.push(newEvent(wallet, type === "d" ? "d" : "g", amount));
+    saveWallet(wallet);
+    window.location.hash = "#" + targetUserId;
+    alert(
+      type === "d"
+        ? `${amount} Getränk(e) getrunken gebucht ✅`
+        : `Guthaben +${amount} Getränke gebucht ✅`,
+    );
+    return { userId: targetUserId, redirectedToPreview: false };
+  }
+
+  function handleActionCodeHash(hash, options) {
+    const parsed = parseActionCodeHash(hash, options);
+    if (parsed.done) return parsed.done;
+    const resolved = resolveActionCodeTarget(parsed);
+    if (resolved.done) return resolved.done;
+    return bookActionCode(resolved.targetUserId, parsed);
+  }
+
   async function tryImportFromHash(options) {
     const hash = window.location.hash.slice(1);
     if (!hash) return { userId: null, redirectedToPreview: false };
 
-    const importPreview = window.dbWalletImportPreview || null;
-    const chooseMode =
-      importPreview && typeof importPreview.chooseImportMode === "function"
-        ? importPreview.chooseImportMode
-        : null;
-    const openPreview =
-      importPreview && typeof importPreview.openPreview === "function"
-        ? importPreview.openPreview
-        : null;
-
-    async function handleImportChoice(remote, label) {
-      let mode = "persist";
-      if (chooseMode) {
-        mode = await chooseMode({
-          header: label || "Import erkannt",
-        });
-        if (!mode) {
-          window.location.href = "index.html";
-          return { userId: null, redirectedToPreview: true };
-        }
-      }
-
-      if (mode === "preview" && openPreview) {
-        const built = buildImportedWallet(remote);
-        const theme =
-          remote && typeof remote.theme === "string" ? remote.theme : "";
-        const ok = openPreview({
-          source: "hash",
-          wallet: built.wallet,
-          theme,
-        });
-        if (ok) {
-          return { userId: null, redirectedToPreview: true };
-        }
-        window.location.href = "index.html";
-        return { userId: null, redirectedToPreview: true };
-      }
-
-      return {
-        userId: importRemoteWallet(remote, options),
-        redirectedToPreview: false,
-      };
-    }
-
     try {
       if (hash.startsWith("ac:")) {
-        const activeUserId =
-          options && typeof options.returnToUserId === "string"
-            ? options.returnToUserId
-            : "";
-        const api = window.dbWalletActionCodes || null;
-        const payload =
-          api && typeof api.decodeActionHash === "function"
-            ? api.decodeActionHash(hash)
-            : safeParse(base64UrlDecode(hash.slice(3)));
-        if (!payload || typeof payload !== "object") {
-          throw new Error("Invalid action payload");
-        }
-
-        const payloadWalletId =
-          typeof payload.walletId === "string" ? payload.walletId : "";
-        const codeId = typeof payload.codeId === "string" ? payload.codeId : "";
-        const key = typeof payload.key === "string" ? payload.key : "";
-        if (!payloadWalletId) {
-          alert(
-            "Action Code ungültig: Ziel-Wallet fehlt.\nBuchung verweigert.",
-          );
-          if (activeUserId) {
-            window.location.hash = "#" + activeUserId;
-            return { userId: activeUserId, redirectedToPreview: false };
-          }
-          window.location.href = "index.html";
-          return { userId: null, redirectedToPreview: true };
-        }
-        if (!codeId || !key) {
-          alert("Action Code ungültig (Daten fehlen).\nBuchung verweigert.");
-          if (activeUserId) {
-            window.location.hash = "#" + activeUserId;
-            return { userId: activeUserId, redirectedToPreview: false };
-          }
-          window.location.href = "index.html";
-          return { userId: null, redirectedToPreview: true };
-        }
-
-        const targetUserId = findUserIdByWalletId(payloadWalletId);
-        if (!targetUserId) {
-          const shouldGoHome = window.confirm(
-            "Dieses Wallet ist auf diesem Gerät noch nicht vorhanden.\nVor dem Buchen muss es importiert werden.\nJetzt zur Startseite wechseln?",
-          );
-          if (!shouldGoHome) {
-            if (activeUserId) {
-              window.location.hash = "#" + activeUserId;
-              return { userId: activeUserId, redirectedToPreview: false };
-            }
-            return { userId: null, redirectedToPreview: false };
-          }
-          try {
-            if (typeof sessionStorage !== "undefined" && sessionStorage) {
-              sessionStorage.setItem(
-                "db-wallet:pending-walletId",
-                payloadWalletId,
-              );
-            }
-          } catch (e) {
-            // ignore
-          }
-          window.location.href = "index.html";
-          return { userId: null, redirectedToPreview: true };
-        }
-
-        if (activeUserId && targetUserId !== activeUserId) {
-          const shouldSwitch = window.confirm(
-            `Action Code gehört zu einem anderen Profil.\nZiel: ${targetUserId}\nAktuell: ${activeUserId}\nZu diesem Profil wechseln und buchen?`,
-          );
-          if (!shouldSwitch) {
-            window.location.hash = "#" + activeUserId;
-            return { userId: activeUserId, redirectedToPreview: false };
-          }
-        }
-
-        const wallet = loadWallet(targetUserId);
-        ensureDeviceSeq(wallet);
-
-        try {
-          if (api && typeof api.ensureWalletActionCodes === "function") {
-            const res = api.ensureWalletActionCodes(wallet);
-            if (res && res.changed) saveWallet(wallet);
-          }
-        } catch (e) {
-          console.warn("db-wallet: ensureWalletActionCodes failed", e);
-        }
-
-        const codes = Array.isArray(wallet.actionCodes)
-          ? wallet.actionCodes
-          : [];
-        const match = codeId && codes.find((c) => c && c.id === codeId);
-        if (!match) {
-          alert(
-            "Action Code ist unbekannt oder nicht mehr vorhanden.\nBuchung verweigert.",
-          );
-          window.location.hash = "#" + targetUserId;
-          return { userId: targetUserId, redirectedToPreview: false };
-        }
-
-        const matchKey =
-          match && typeof match.key === "string" ? match.key : "";
-        if (!matchKey || matchKey !== key) {
-          alert(
-            "Action Code wurde erneuert.\nBitte den neuen QR-Code nutzen.\nBuchung verweigert.",
-          );
-          window.location.hash = "#" + targetUserId;
-          return { userId: targetUserId, redirectedToPreview: false };
-        }
-
-        const amount =
-          api && typeof api.normalizeAmount === "function"
-            ? api.normalizeAmount(match.amount)
-            : (() => {
-                const n = parseInt(match.amount, 10);
-                return isNaN(n) || n <= 0 ? 1 : n;
-              })();
-
-        const normalizeType = (v) => (v === "d" || v === "g" ? v : null);
-        const type =
-          normalizeType(payload.type) || normalizeType(match.type) || "g";
-
-        wallet.events.push(newEvent(wallet, type === "d" ? "d" : "g", amount));
-        saveWallet(wallet);
-        window.location.hash = "#" + targetUserId;
-        alert(
-          type === "d"
-            ? `${amount} Getränk(e) getrunken gebucht ✅`
-            : `Guthaben +${amount} Getränke gebucht ✅`,
-        );
-        return { userId: targetUserId, redirectedToPreview: false };
+        return handleActionCodeHash(hash, options);
       }
       const parsed = await parseImportHashPayload(hash);
       if (parsed && parsed.kind !== "ac") {
-        return await handleImportChoice(parsed.remote, parsed.label);
+        return await handleImportChoice(
+          parsed.remote,
+          parsed.label,
+          options,
+          getImportPreviewHooks(),
+        );
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
@@ -1138,6 +1174,11 @@
     buildImportedWallet,
     importRemoteWallet,
     parseImportHashPayload,
+    handleImportChoice,
+    parseActionCodeHash,
+    resolveActionCodeTarget,
+    bookActionCode,
+    handleActionCodeHash,
     tryImportFromHash,
   };
 })();
