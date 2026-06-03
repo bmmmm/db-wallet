@@ -32,12 +32,19 @@
       if (e && typeof e.id === "string" && e.id) usedIds.add(e.id);
     }
 
+    // Map every pre-migration id (and its legacy alias) to its new compact id so
+    // tombstone refs can be re-pointed in a second pass below.
+    const idMap = new Map();
+
     for (const e of wallet.events) {
       if (!e || typeof e !== "object") continue;
 
       const id = typeof e.id === "string" ? e.id : "";
       const oid = typeof e.oid === "string" ? e.oid : "";
-      if (id && parseCompactEventId(id) && !oid) continue;
+      // An already-compact id is in v2 form regardless of oid — never re-migrate.
+      // Re-migrating would re-roll the id through the collision loop (the false
+      // self-collision against usedIds), breaking idempotency and cross-device sync.
+      if (id && parseCompactEventId(id)) continue;
 
       const legacyId = oid || id || `legacy-${Date.now().toString(36)}`;
       const legacyDevice = extractLegacyDeviceKey(legacyId);
@@ -51,8 +58,22 @@
       }
       usedIds.add(newId);
 
+      if (id) idMap.set(id, newId);
+      if (legacyId) idMap.set(legacyId, newId);
+
       if (!e.oid) e.oid = legacyId;
       e.id = newId;
+    }
+
+    // Second pass: re-point tombstone refs from the deleted event's old id to its
+    // new compact id. Without this, applyTombstones can no longer match the
+    // tombstone to its target and previously-deleted events resurface.
+    for (const e of wallet.events) {
+      if (!e || typeof e !== "object" || e.t !== "x") continue;
+      const ref = typeof e.ref === "string" ? e.ref : "";
+      if (ref && idMap.has(ref)) {
+        e.ref = idMap.get(ref);
+      }
     }
 
     const currentV = typeof wallet.v === "number" ? wallet.v : 1;
