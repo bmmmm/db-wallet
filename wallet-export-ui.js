@@ -335,6 +335,11 @@
         return;
       }
     }
+    // Reached only if every attempt (incl. post-migration retries) failed
+    // without returning — never leave the user without feedback.
+    alert(
+      "QR-Code konnte nach Migration nicht erzeugt werden. Bitte den Export-Link oder JSON-Download nutzen.",
+    );
   }
 
   function init(nextOpts) {
@@ -395,6 +400,13 @@
         });
         const token = opts.base64UrlEncode(payload);
         const url = getBaseUrl() + "#import:" + token;
+        // The classic link is uncompressed JSON; for large wallets it can exceed
+        // what some apps/browsers accept in a URL. Warn but still show it.
+        if (url.length > 8000) {
+          alert(
+            `Achtung: Der Export-Link ist sehr lang (${url.length} Zeichen) und funktioniert evtl. nicht überall. Für große Wallets bitte den QR-Export oder JSON-Download nutzen.`,
+          );
+        }
         refs.elExportUrl.value = url;
         refs.elExportUrl.style.display = "block";
         refs.elExportUrl.focus();

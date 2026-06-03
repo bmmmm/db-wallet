@@ -271,6 +271,98 @@
               ? `events=${corruptDecoded.events.length}`
               : "decode failed",
           );
+          // IV3: a corrupt extension must flag the loss, not report clean success.
+          addCheck(
+            result,
+            "v2 corrupt extension flags warning",
+            !!corruptDecoded && corruptDecoded._extWarning === true,
+            `flag=${corruptDecoded && corruptDecoded._extWarning}`,
+          );
+
+          // IV1: over-read length fields are rejected, not silently clamped.
+          let overReadErr = "";
+          try {
+            importV2.decodeImportV2Bytes(
+              new Uint8Array([100, 98, 119, 2, 255, 1, 100]),
+            );
+          } catch (e) {
+            overReadErr = (e && e.message) || "err";
+          }
+          addCheck(
+            result,
+            "v2 rejects over-read length",
+            overReadErr.indexOf("Truncated payload") !== -1,
+            overReadErr,
+          );
+
+          // IV6: a newer codec version is rejected with a distinct error.
+          let verErr = "";
+          try {
+            importV2.decodeImportV2Bytes(new Uint8Array([100, 98, 119, 3, 0]));
+          } catch (e) {
+            verErr = (e && e.message) || "err";
+          }
+          addCheck(
+            result,
+            "v2 rejects newer codec version",
+            verErr.indexOf("Unsupported codec version") !== -1,
+            verErr,
+          );
+
+          // IV2: an unknown extension version stops parsing cleanly (no desync,
+          // no false warning) instead of misreading the rest of the payload.
+          const baseW = {
+            userId: "u2",
+            walletId: wallet.walletId,
+            v: 2,
+            seq: {},
+            events: [{ id: "dev.1", t: "d", n: 1, ts: now }],
+            actionCodes: [],
+            devices: [],
+          };
+          const baseArr = Array.from(importV2.encodeImportV2Bytes(baseW, ""));
+          baseArr.push(97, 99, 99); // "ac" tag + unknown version 99
+          let unkErr = null;
+          let unkDecoded = null;
+          try {
+            unkDecoded = importV2.decodeImportV2Bytes(new Uint8Array(baseArr));
+          } catch (e) {
+            unkErr = e;
+          }
+          addCheck(
+            result,
+            "v2 unknown extension version breaks cleanly",
+            !unkErr &&
+              !!unkDecoded &&
+              unkDecoded.events.length === 1 &&
+              !unkDecoded._extWarning,
+            unkErr
+              ? `threw=${unkErr.message}`
+              : `events=${unkDecoded && unkDecoded.events.length} warn=${unkDecoded && !!unkDecoded._extWarning}`,
+          );
+
+          // IV4: gzip decompression respects the size cap (decompression bomb).
+          if (
+            typeof helpers.gzipCompress === "function" &&
+            typeof CompressionStream !== "undefined"
+          ) {
+            const blob = new Uint8Array(5000);
+            blob.fill(65);
+            const comp = await helpers.gzipCompress(blob);
+            let capErr = "";
+            try {
+              await helpers.gzipDecompress(comp, 100);
+            } catch (e) {
+              capErr = (e && e.message) || "err";
+            }
+            const full = await helpers.gzipDecompress(comp, 1000000);
+            addCheck(
+              result,
+              "gzip decompress respects size cap",
+              capErr.indexOf("too large") !== -1 && full.length === 5000,
+              `cap=${capErr} full=${full.length}`,
+            );
+          }
         }
 
         if (
@@ -480,6 +572,50 @@
             needs && migrated.v >= 2 && !!parseCompact(migratedId),
             `id=${migratedId}`,
           );
+
+          // Regression: migration must remap tombstone refs to the new id and
+          // be idempotent (re-running must not mutate ids).
+          const legacyDel = {
+            userId: "legacy2",
+            walletId: "legacy-wallet-2",
+            v: 1,
+            seq: {},
+            events: [
+              { id: "olddev-aaa", t: "d", n: 2, ts: now - 120000 },
+              { id: "olddev-bbb", t: "x", ref: "olddev-aaa", ts: now - 110000 },
+            ],
+          };
+          const migratedDel = migrate(JSON.parse(JSON.stringify(legacyDel)));
+          const drinkEv = migratedDel.events.find((e) => e.t === "d");
+          const tombEv = migratedDel.events.find((e) => e.t === "x");
+          const refRemapped =
+            !!drinkEv &&
+            !!tombEv &&
+            tombEv.ref === drinkEv.id &&
+            !!parseCompact(tombEv.ref);
+          const delSummary =
+            summaryApi && typeof summaryApi.computeSummary === "function"
+              ? summaryApi.computeSummary(migratedDel)
+              : { total: -1 };
+          addCheck(
+            result,
+            "migration remaps tombstone ref",
+            refRemapped && delSummary.total === 0,
+            `ref=${tombEv && tombEv.ref} total=${delSummary.total}`,
+          );
+          const migratedTwice = migrate(
+            JSON.parse(JSON.stringify(migratedDel)),
+          );
+          addCheck(
+            result,
+            "migration idempotent",
+            JSON.stringify(migratedTwice.events) ===
+              JSON.stringify(migratedDel.events),
+            `stable=${
+              JSON.stringify(migratedTwice.events) ===
+              JSON.stringify(migratedDel.events)
+            }`,
+          );
         } else {
           addCheck(
             result,
@@ -487,6 +623,241 @@
             false,
             "migration api missing (run from wallet.html)",
           );
+        }
+
+        if (
+          summaryApi &&
+          typeof summaryApi.parseDeleteRange === "function" &&
+          typeof summaryApi.computeSummary === "function"
+        ) {
+          // parseDeleteRange must cap the loop at maxIndex (no freeze on huge ranges).
+          const tStart = Date.now();
+          const huge = summaryApi.parseDeleteRange("1-99999999", 5);
+          const elapsed = Date.now() - tStart;
+          addCheck(
+            result,
+            "parseDeleteRange caps huge range",
+            huge.size === 5 &&
+              huge.has(1) &&
+              huge.has(5) &&
+              !huge.has(6) &&
+              elapsed < 200,
+            `size=${huge.size} ms=${elapsed}`,
+          );
+
+          // Equal-ts events must order by numeric seq, not lexical base36.
+          const sameTs = 1700000000000;
+          const tieWallet = {
+            events: [
+              { id: "dev.10", t: "d", n: 1, ts: sameTs }, // seq 36
+              { id: "dev.z", t: "d", n: 1, ts: sameTs }, // seq 35
+            ],
+          };
+          const tieSorted =
+            summaryApi.computeSummary(tieWallet).eventsEffectiveSorted;
+          addCheck(
+            result,
+            "equal-ts tie-break is numeric",
+            tieSorted.length === 2 &&
+              tieSorted[0].id === "dev.z" &&
+              tieSorted[1].id === "dev.10",
+            `order=${tieSorted.map((e) => e.id).join(",")}`,
+          );
+
+          // drinkCount stays net after an "s" (undo) event so label matches the bar.
+          const netDay = "2024-03-01";
+          const dayTs = new Date(netDay + "T10:00:00").getTime();
+          const netWallet = {
+            events: [
+              { id: "dev.1", t: "d", n: 3, ts: dayTs },
+              { id: "dev.2", t: "s", n: 2, ts: dayTs + 1000 },
+            ],
+          };
+          const netDayEntry = summaryApi
+            .computeSummary(netWallet)
+            .perDay.find((d) => d.date === netDay);
+          addCheck(
+            result,
+            "drinkCount net after subtract",
+            !!netDayEntry &&
+              netDayEntry.drinkCount === 1 &&
+              netDayEntry.drinks === 1,
+            netDayEntry
+              ? `count=${netDayEntry.drinkCount} drinks=${netDayEntry.drinks}`
+              : "no day",
+          );
+        }
+
+        if (
+          storage &&
+          typeof storage.saveWallet === "function" &&
+          typeof storage.undoLastEvent === "function"
+        ) {
+          // ST1: saveWallet now reports success/failure via its return value.
+          const okWallet = storage.loadWallet("selfcheck-save-" + randomId());
+          okWallet.events.push({
+            id: storage.nextEventId(okWallet),
+            t: "d",
+            n: 1,
+            ts: Date.now(),
+          });
+          const saveOk = storage.saveWallet(okWallet);
+          addCheck(
+            result,
+            "saveWallet returns true on success",
+            saveOk === true,
+            `ret=${saveOk}`,
+          );
+          safeRemove(helpers.STORAGE_PREFIX + okWallet.userId);
+          const regA = loadRegistry();
+          if (regA && regA[okWallet.userId]) {
+            delete regA[okWallet.userId];
+            saveRegistry(regA);
+          }
+
+          // ST4: undo must remove the truly-newest equal-ts event by numeric seq.
+          const tieTs = 1700000000000;
+          const tieUid = "selfcheck-tie-" + randomId();
+          const tieW = {
+            userId: tieUid,
+            walletId: "tie-w",
+            v: 2,
+            seq: {},
+            events: [
+              { id: "dev.z", t: "d", n: 1, ts: tieTs }, // seq 35
+              { id: "dev.10", t: "d", n: 1, ts: tieTs }, // seq 36 (newest)
+            ],
+            actionCodes: [],
+            devices: [],
+          };
+          const tomb = storage.undoLastEvent(tieW);
+          addCheck(
+            result,
+            "undo removes newest by numeric seq",
+            !!tomb && tomb.ref === "dev.10",
+            `ref=${tomb && tomb.ref}`,
+          );
+          safeRemove(helpers.STORAGE_PREFIX + tieUid);
+          const regB = loadRegistry();
+          if (regB && regB[tieUid]) {
+            delete regB[tieUid];
+            saveRegistry(regB);
+          }
+        }
+
+        const actionsApi = window.dbWalletActions || null;
+        if (
+          actionsApi &&
+          typeof actionsApi.editEntry === "function" &&
+          typeof actionsApi.deleteSelection === "function" &&
+          summaryApi &&
+          typeof summaryApi.computeSummary === "function"
+        ) {
+          const actUids = [];
+          const mkActWallet = () => {
+            const uid = "selfcheck-act-" + randomId();
+            actUids.push(uid);
+            return {
+              userId: uid,
+              walletId: "w",
+              v: 2,
+              seq: {},
+              events: [{ id: "dev.1", t: "d", n: 2, ts: Date.now() - 86400000 }],
+              actionCodes: [],
+              devices: [],
+            };
+          };
+          const mkCtx = (w, o) => {
+            const opts = o || {};
+            const alerts = [];
+            let promptCalls = 0;
+            return {
+              _alerts: alerts,
+              getWallet: () => w,
+              getUserId: () => w.userId || "u",
+              getSummary: () => summaryApi.computeSummary(w),
+              getDeleteRange: () => opts.range || "1",
+              getAmount: () => 1,
+              dialogAlert: (m) => alerts.push(String(m)),
+              dialogConfirm: () => opts.confirm !== false,
+              dialogPrompt: (msg, def) => {
+                const seq = opts.prompts || [];
+                const v = promptCalls < seq.length ? seq[promptCalls] : def;
+                promptCalls++;
+                return v;
+              },
+              resetAmount: () => {},
+              resetPayUi: () => {},
+              clearExport: () => {},
+              clearDeleteRange: () => {},
+              setHistoryEmpty: () => {},
+              refreshActionCodesUi: () => {},
+              updateHeaderUi: () => {},
+              onStateChanged: () => {},
+              setWallet: () => {},
+            };
+          };
+
+          // A1: edit must be append-only (tombstone old + new event), original
+          // id never mutated, so cross-device merge can converge.
+          const wEdit = mkActWallet();
+          actionsApi.editEntry(
+            mkCtx(wEdit, { range: "1", prompts: ["2024-03-01", "5"] }),
+          );
+          const origStill = wEdit.events.find((e) => e.id === "dev.1");
+          const tombFor = wEdit.events.find(
+            (e) => e.t === "x" && e.ref === "dev.1",
+          );
+          const repl = wEdit.events.find((e) => e.t === "d" && e.id !== "dev.1");
+          const editTotal = summaryApi.computeSummary(wEdit).total;
+          addCheck(
+            result,
+            "editEntry is append-only",
+            !!origStill &&
+              origStill.n === 2 &&
+              !!tombFor &&
+              !!repl &&
+              repl.n === 5 &&
+              editTotal === 5,
+            `orig=${origStill && origStill.n} tomb=${!!tombFor} repl=${repl && repl.n} total=${editTotal}`,
+          );
+
+          // A2: a future date is rejected and the wallet is left untouched.
+          const wFut = mkActWallet();
+          const ctxFut = mkCtx(wFut, {
+            range: "1",
+            prompts: ["2099-01-01", "5"],
+          });
+          actionsApi.editEntry(ctxFut);
+          addCheck(
+            result,
+            "editEntry rejects future date",
+            wFut.events.length === 1 &&
+              ctxFut._alerts.some((m) => m.includes("Zukunft")),
+            `len=${wFut.events.length}`,
+          );
+
+          // A3: deleteSelection stamps the tombstone after the newest event ts.
+          const wDel = mkActWallet();
+          const futTs = Date.now() + 10000000;
+          wDel.events = [{ id: "dev.1", t: "d", n: 1, ts: futTs }];
+          actionsApi.deleteSelection(mkCtx(wDel, { range: "1", confirm: true }));
+          const delTomb = wDel.events.find((e) => e.t === "x");
+          addCheck(
+            result,
+            "deleteSelection tombstone sorts last",
+            !!delTomb && delTomb.ts > futTs,
+            `after=${delTomb && delTomb.ts > futTs}`,
+          );
+
+          for (const uid of actUids) {
+            safeRemove(helpers.STORAGE_PREFIX + uid);
+            const regC = loadRegistry();
+            if (regC && regC[uid]) {
+              delete regC[uid];
+              saveRegistry(regC);
+            }
+          }
         }
 
         if (

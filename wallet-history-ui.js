@@ -56,33 +56,13 @@
     }
   }
 
+  // Single source of truth lives in dbWalletSummary (loaded before this module).
+  // The trivial fallback only guards the impossible case where summary is absent —
+  // it does not duplicate the formatting logic (which would drift out of sync).
   const formatLogLine =
     summaryApi && typeof summaryApi.formatLogLine === "function"
       ? summaryApi.formatLogLine
-      : (e, index) => {
-          const d = new Date(e.ts);
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, "0");
-          const day = String(d.getDate()).padStart(2, "0");
-          const hh = String(d.getHours()).padStart(2, "0");
-          const mm = String(d.getMinutes()).padStart(2, "0");
-          const dateStr = `${y}-${m}-${day}`;
-          const timeStr = `${hh}:${mm}`;
-          let action = "";
-          const n =
-            typeof e.n === "number" && isFinite(e.n)
-              ? Math.max(1, Math.round(e.n))
-              : 1;
-          if (e.t === "d") action = `+${n} Getränk(e)`;
-          else if (e.t === "s") action = `↩️ ${n} zurückgenommen`;
-          else if (e.t === "p") action = "Bezahlt";
-          else if (e.t === "g") action = `Gutschrift ${n} Getränk(e)`;
-          else if (e.t === "x") {
-            const ref = typeof e.ref === "string" ? e.ref : "";
-            action = ref ? `🗑️ gelöscht: ${ref}` : "🗑️ gelöscht";
-          }
-          return `#${index} | ${dateStr} ${timeStr} | ${action}`;
-        };
+      : (e, index) => `#${index} | ${new Date(e.ts).toISOString()} | ${e.t}`;
 
   window.dbWalletHistoryUI = {
     init(params) {
@@ -147,9 +127,16 @@
         } else {
           const lines = [];
           const len = summary.eventsSorted.length;
-          for (let i = len - 1; i >= 0; i--) {
-            const idx = i + 1; // 1-basiert
-            lines.push(formatLogLine(summary.eventsSorted[i], idx));
+          // Cap rendering of very long logs so the DOM write stays cheap; the
+          // newest entries are shown and the remainder is summarized.
+          const MAX_LINES = 2000;
+          const shown = Math.min(len, MAX_LINES);
+          for (let k = 0; k < shown; k++) {
+            const i = len - 1 - k; // newest first
+            lines.push(formatLogLine(summary.eventsSorted[i], i + 1));
+          }
+          if (len > MAX_LINES) {
+            lines.push(`… und ${len - MAX_LINES} ältere Einträge (gekürzt).`);
           }
           refs.elHistory.textContent = lines.join("\n");
         }
