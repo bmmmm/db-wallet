@@ -4,6 +4,30 @@
     return a < b ? -1 : 1;
   }
 
+  // Tie-break for equal-timestamp events. Event ids are `deviceKey.<seq-base36>`,
+  // so a plain lexical compare inverts order at every base36 magnitude boundary
+  // (seq 36 = "10" sorts before seq 35 = "z"). Compare deviceKey lexically but
+  // the sequence numerically; fall back to lexical only when an id is not compact.
+  function cmpEventId(a, b) {
+    if (a === b) return 0;
+    const helpers = window.dbWalletHelpers || null;
+    const parse =
+      helpers && typeof helpers.parseCompactEventId === "function"
+        ? helpers.parseCompactEventId
+        : null;
+    if (parse) {
+      const pa = parse(a);
+      const pb = parse(b);
+      if (pa && pb) {
+        if (pa.deviceKey !== pb.deviceKey) {
+          return cmpStr(pa.deviceKey, pb.deviceKey);
+        }
+        return pa.seq - pb.seq;
+      }
+    }
+    return cmpStr(a, b);
+  }
+
   function todayDateStr() {
     const d = new Date();
     const y = d.getFullYear();
@@ -110,7 +134,7 @@
   function computeSummary(wallet) {
     const eventsSorted = wallet.events
       .slice()
-      .sort((a, b) => a.ts - b.ts || cmpStr(a.id, b.id));
+      .sort((a, b) => a.ts - b.ts || cmpEventId(a.id, b.id));
     const tombstoneRes = applyTombstones(eventsSorted);
     const eventsEffective = tombstoneRes.effectiveEvents;
     const eventsVisible = tombstoneRes.visibleEvents;
@@ -155,6 +179,10 @@
             : 1;
         total -= n;
         day.drinks -= n;
+        // Keep drinkCount (the bracketed label) net so it agrees with the bar,
+        // which is drawn from day.drinks; otherwise an undone day shows e.g. "[3]"
+        // with a shorter/empty bar.
+        day.drinkCount -= n;
         balance -= n;
       } else if (e.t === "p") {
         day.paid = true;
@@ -173,6 +201,7 @@
 
     for (const d of perDayMap.values()) {
       if (d.drinks < 0) d.drinks = 0;
+      if (d.drinkCount < 0) d.drinkCount = 0;
     }
     if (total < 0) total = 0;
 
@@ -283,8 +312,12 @@
         if (isNaN(start) || isNaN(end)) continue;
         if (start < 1 || end < 1) continue;
         if (start > end) continue;
-        for (let i = start; i <= end; i++) {
-          if (i <= maxIndex) result.add(i);
+        // Cap the loop bound at maxIndex — a fat-finger like "1-99999999" would
+        // otherwise spin the loop tens of millions of times and freeze the tab,
+        // since the in-loop `i <= maxIndex` guard limited only what got added.
+        const cappedEnd = Math.min(end, maxIndex);
+        for (let i = start; i <= cappedEnd; i++) {
+          result.add(i);
         }
       } else {
         const n = parseInt(part, 10);
