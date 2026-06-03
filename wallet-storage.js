@@ -156,8 +156,24 @@
     }
 
     // Auto-evict to max 6 (drop oldest; deterministic ties by deviceKey).
+    // Always keep the local device, even if 6+ imported devices are more recent —
+    // otherwise this device's chosen symbol vanishes after a sync.
     const MAX_DEVICES = 6;
-    const trimmed = items.slice(0, MAX_DEVICES);
+    let trimmed;
+    if (items.length <= MAX_DEVICES) {
+      trimmed = items;
+    } else {
+      const localKey = getDeviceKey();
+      const localIdx = items.findIndex((d) => d.deviceKey === localKey);
+      if (localIdx >= MAX_DEVICES) {
+        // Local device would be evicted by recency — pin it in, dropping the
+        // oldest of the otherwise-kept devices instead.
+        trimmed = items.slice(0, MAX_DEVICES - 1);
+        trimmed.push(items[localIdx]);
+      } else {
+        trimmed = items.slice(0, MAX_DEVICES);
+      }
+    }
     wallet.devices = trimmed;
     return trimmed;
   }
@@ -255,6 +271,17 @@
     const aId = a && typeof a.id === "string" ? a.id : "";
     const bId = b && typeof b.id === "string" ? b.id : "";
     if (aId === bId) return 0;
+    // Numeric tie-break on the base36 seq so undo picks the truly-newest event
+    // and stays consistent with computeSummary's ordering (lexical compare would
+    // invert order past seq 36: "10" < "z").
+    const pa = parseCompactEventId(aId);
+    const pb = parseCompactEventId(bId);
+    if (pa && pb) {
+      if (pa.deviceKey !== pb.deviceKey) {
+        return pa.deviceKey < pb.deviceKey ? -1 : 1;
+      }
+      return pa.seq - pb.seq;
+    }
     return aId < bId ? -1 : 1;
   }
 
@@ -419,41 +446,67 @@
   }
 
   let hasShownStorageWriteError = false;
+  let storageFailedActive = false;
+
+  // Surface persistent storage failures (quota exceeded / disabled storage in
+  // private mode) instead of going silent after the first alert. Sets an
+  // observable body flag and a persistent banner; cleared on the next good write.
+  function markStorageFailed(failed, message) {
+    if (failed && storageFailedActive) return;
+    if (!failed && !storageFailedActive) return;
+    storageFailedActive = !!failed;
+    try {
+      if (document && document.body && document.body.dataset) {
+        if (failed) document.body.dataset.storageFailed = "1";
+        else delete document.body.dataset.storageFailed;
+      }
+      const msgApi = window.dbWalletMessages || null;
+      if (msgApi) {
+        if (failed) {
+          msgApi.showGlobal(
+            message ||
+              "⚠️ Speichern fehlgeschlagen — neue Änderungen sind nicht gesichert (Speicher voll oder blockiert).",
+            { id: "storage-error-banner", className: "action-codes-notice" },
+          );
+        } else {
+          msgApi.clearGlobal({ id: "storage-error-banner" });
+        }
+      }
+    } catch (e) {
+      // ignore — never let the failure indicator itself throw
+    }
+  }
 
   function saveWallet(wallet) {
-    if (!wallet || !wallet.userId) return;
+    if (!wallet || !wallet.userId) return false;
 
     const storageKey = STORAGE_PREFIX + wallet.userId;
     if (isReservedStorageKey(storageKey)) {
+      markStorageFailed(
+        true,
+        "⚠️ Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
+      );
       if (!hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
         alert(
           "Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
         );
       }
-      return;
+      return false;
     }
 
     const json = JSON.stringify(wallet);
 
     // Hauptspeicherort
     if (!safeLocalStorageSetItem(storageKey, json)) {
+      markStorageFailed(true);
       if (!hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
         alert(
           "Konnte nicht speichern (Storage voll oder blockiert). Änderungen sind nicht gesichert.",
         );
       }
-      return;
-    }
-
-    // Legacy-Key für mögliche ältere Versionen (nur userId)
-    if (
-      typeof wallet.userId === "string" &&
-      wallet.userId &&
-      !wallet.userId.includes(":")
-    ) {
-      safeLocalStorageSetItem(wallet.userId, json);
+      return false;
     }
 
     // Registry aktualisieren
@@ -464,6 +517,9 @@
       lastUpdated: Date.now(),
     };
     saveRegistry(reg);
+
+    markStorageFailed(false);
+    return true;
   }
 
   function getAllWallets() {
