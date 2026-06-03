@@ -118,15 +118,51 @@
     return new Uint8Array(buf);
   }
 
-  async function gzipDecompress(bytes) {
+  async function gzipDecompress(bytes, maxBytes) {
     if (typeof DecompressionStream === "undefined") {
       throw new Error("DecompressionStream not available");
     }
+    // Cap the decompressed size so a tiny crafted payload cannot inflate into a
+    // multi-megabyte buffer and hang/crash the tab (decompression bomb).
+    const limit =
+      typeof maxBytes === "number" && maxBytes > 0 ? maxBytes : 2 * 1024 * 1024;
     const stream = new Blob([bytes])
       .stream()
       .pipeThrough(new DecompressionStream("gzip"));
-    const buf = await new Response(stream).arrayBuffer();
-    return new Uint8Array(buf);
+    const reader = stream.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          total += value.length;
+          if (total > limit) {
+            try {
+              await reader.cancel();
+            } catch (e) {
+              // ignore
+            }
+            throw new Error("Decompressed payload too large");
+          }
+          chunks.push(value);
+        }
+      }
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch (e) {
+        // ignore
+      }
+    }
+    const out = new Uint8Array(total);
+    let pos = 0;
+    for (const c of chunks) {
+      out.set(c, pos);
+      pos += c.length;
+    }
+    return out;
   }
 
   function safeParse(raw) {

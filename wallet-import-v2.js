@@ -155,6 +155,20 @@
     return [result, offset];
   }
 
+  // Reject over-reads instead of letting Uint8Array.slice silently clamp to the
+  // buffer end (which advances the cursor past the data and yields truncated,
+  // silently-corrupted strings/ids).
+  function sliceChecked(bytes, offset, len) {
+    if (typeof len !== "number" || len < 0 || offset + len > bytes.length) {
+      throw new Error("Truncated payload");
+    }
+    return bytes.slice(offset, offset + len);
+  }
+
+  // Bound a decoded count so a corrupt/crafted payload can't produce absurd
+  // values. Far above any real drink count, so legitimate data is untouched.
+  const MAX_DECODED_AMOUNT = 1000000000;
+
   function themeIndexFromName(name) {
     const canonical = canonicalThemeName(name);
     const idx = THEME_NAMES.indexOf(canonical);
@@ -177,14 +191,14 @@
 
     const [walletIdLen, o2] = readVarUint(bytes, offset);
     offset = o2;
-    const walletIdBytes = bytes.slice(offset, offset + walletIdLen);
+    const walletIdBytes = sliceChecked(bytes, offset, walletIdLen);
     offset += walletIdLen;
     const walletId = base64UrlEncodeBytes(walletIdBytes);
 
-    const decoder = new TextDecoder();
+    const decoder = new TextDecoder("utf-8", { fatal: true });
     const [userIdLen, o3] = readVarUint(bytes, offset);
     offset = o3;
-    const userId = decoder.decode(bytes.slice(offset, offset + userIdLen));
+    const userId = decoder.decode(sliceChecked(bytes, offset, userIdLen));
     offset += userIdLen;
 
     const [deviceCount, o4] = readVarUint(bytes, offset);
@@ -193,7 +207,7 @@
     for (let i = 0; i < deviceCount; i++) {
       const [len, o5] = readVarUint(bytes, offset);
       offset = o5;
-      const key = decoder.decode(bytes.slice(offset, offset + len));
+      const key = decoder.decode(sliceChecked(bytes, offset, len));
       offset += len;
       deviceKeys.push(key);
     }
@@ -235,21 +249,26 @@
       if (hasAmount) {
         const [n, o9] = readVarUint(bytes, offset);
         offset = o9;
-        amount = n;
+        amount = Math.min(n, MAX_DECODED_AMOUNT);
       }
 
       let id = "";
       if (idIsString) {
         const [len, o10] = readVarUint(bytes, offset);
         offset = o10;
-        id = decoder.decode(bytes.slice(offset, offset + len));
+        id = decoder.decode(sliceChecked(bytes, offset, len));
         offset += len;
       } else {
         const [deviceIndex, o10] = readVarUint(bytes, offset);
         offset = o10;
         const [seq, o11] = readVarUint(bytes, offset);
         offset = o11;
-        const deviceKey = deviceKeys[deviceIndex] || "dev";
+        // Reject an out-of-range device index instead of silently mis-attributing
+        // the event to a bogus "dev" device.
+        if (deviceIndex >= deviceKeys.length) {
+          throw new Error("Invalid device index");
+        }
+        const deviceKey = deviceKeys[deviceIndex];
         id = `${deviceKey}.${seq.toString(36)}`;
       }
 
@@ -262,10 +281,14 @@
               ? "p"
               : "g";
 
+      const ts = tsMin * 60000 + withinMinute;
+      if (ts > Number.MAX_SAFE_INTEGER) {
+        throw new Error("Timestamp out of range");
+      }
       const ev = {
         id,
         t,
-        ts: tsMin * 60000 + withinMinute,
+        ts,
       };
       if (t !== "p") {
         ev.n = amount;
@@ -289,57 +312,54 @@
           offset += 2;
           const [acVersion, o8] = readVarUint(bytes, offset);
           offset = o8;
-          if (acVersion === 1 || acVersion === 2) {
-            const [count, o9] = readVarUint(bytes, offset);
-            offset = o9;
-            const actionCodes = [];
-            for (let i = 0; i < count; i++) {
-              const [idLen, o10] = readVarUint(bytes, offset);
-              offset = o10;
-              const id = decoder.decode(bytes.slice(offset, offset + idLen));
-              offset += idLen;
+          // Unknown version: stop extension parsing rather than continuing with a
+          // desynced cursor (blocks have no length prefix to skip over).
+          if (acVersion !== 1 && acVersion !== 2) break;
+          const [count, o9] = readVarUint(bytes, offset);
+          offset = o9;
+          const actionCodes = [];
+          for (let i = 0; i < count; i++) {
+            const [idLen, o10] = readVarUint(bytes, offset);
+            offset = o10;
+            const id = decoder.decode(sliceChecked(bytes, offset, idLen));
+            offset += idLen;
 
-              const [labelLen, o11] = readVarUint(bytes, offset);
-              offset = o11;
-              const label = decoder.decode(
-                bytes.slice(offset, offset + labelLen),
-              );
-              offset += labelLen;
+            const [labelLen, o11] = readVarUint(bytes, offset);
+            offset = o11;
+            const label = decoder.decode(sliceChecked(bytes, offset, labelLen));
+            offset += labelLen;
 
-              const [amount, o12] = readVarUint(bytes, offset);
-              offset = o12;
+            const [amount, o12] = readVarUint(bytes, offset);
+            offset = o12;
 
-              const [keyLen, o13] = readVarUint(bytes, offset);
-              offset = o13;
-              const key = decoder.decode(
-                bytes.slice(offset, offset + keyLen),
-              );
-              offset += keyLen;
+            const [keyLen, o13] = readVarUint(bytes, offset);
+            offset = o13;
+            const key = decoder.decode(sliceChecked(bytes, offset, keyLen));
+            offset += keyLen;
 
-              const [createdAt, o14] = readVarUint(bytes, offset);
-              offset = o14;
-              const [updatedAt, o15] = readVarUint(bytes, offset);
-              offset = o15;
+            const [createdAt, o14] = readVarUint(bytes, offset);
+            offset = o14;
+            const [updatedAt, o15] = readVarUint(bytes, offset);
+            offset = o15;
 
-              let type = "g";
-              if (acVersion === 2) {
-                const [typeCode, o16] = readVarUint(bytes, offset);
-                offset = o16;
-                type = typeCode === 1 ? "d" : "g";
-              }
-
-              actionCodes.push({
-                id,
-                label,
-                amount,
-                key,
-                createdAt,
-                updatedAt,
-                type,
-              });
+            let type = "g";
+            if (acVersion === 2) {
+              const [typeCode, o16] = readVarUint(bytes, offset);
+              offset = o16;
+              type = typeCode === 1 ? "d" : "g";
             }
-            decoded.actionCodes = actionCodes;
+
+            actionCodes.push({
+              id,
+              label,
+              amount: Math.min(amount, MAX_DECODED_AMOUNT),
+              key,
+              createdAt,
+              updatedAt,
+              type,
+            });
           }
+          decoded.actionCodes = actionCodes;
           continue;
         }
 
@@ -350,15 +370,12 @@
           offset += 2;
           const [spVersion, o8] = readVarUint(bytes, offset);
           offset = o8;
-          if (spVersion === 1) {
-            const [len, o9] = readVarUint(bytes, offset);
-            offset = o9;
-            const deviceId = decoder.decode(
-              bytes.slice(offset, offset + len),
-            );
-            offset += len;
-            if (deviceId) decoded.deviceId = deviceId;
-          }
+          if (spVersion !== 1) break;
+          const [len, o9] = readVarUint(bytes, offset);
+          offset = o9;
+          const deviceId = decoder.decode(sliceChecked(bytes, offset, len));
+          offset += len;
+          if (deviceId) decoded.deviceId = deviceId;
           continue;
         }
 
@@ -369,36 +386,35 @@
           offset += 2;
           const [dvVersion, o8] = readVarUint(bytes, offset);
           offset = o8;
-          if (dvVersion === 1) {
-            const [count, o9] = readVarUint(bytes, offset);
-            offset = o9;
-            const devices = [];
-            for (let i = 0; i < count; i++) {
-              const [keyLen, o10] = readVarUint(bytes, offset);
-              offset = o10;
-              const deviceKey = decoder.decode(
-                bytes.slice(offset, offset + keyLen),
-              );
-              offset += keyLen;
+          if (dvVersion !== 1) break;
+          const [count, o9] = readVarUint(bytes, offset);
+          offset = o9;
+          const devices = [];
+          for (let i = 0; i < count; i++) {
+            const [keyLen, o10] = readVarUint(bytes, offset);
+            offset = o10;
+            const deviceKey = decoder.decode(
+              sliceChecked(bytes, offset, keyLen),
+            );
+            offset += keyLen;
 
-              const [symCode, o11] = readVarUint(bytes, offset);
-              offset = o11;
-              const symbol =
-                symCode >= 1 && symCode <= DEVICE_SYMBOLS.length
-                  ? DEVICE_SYMBOLS[symCode - 1]
-                  : null;
+            const [symCode, o11] = readVarUint(bytes, offset);
+            offset = o11;
+            const symbol =
+              symCode >= 1 && symCode <= DEVICE_SYMBOLS.length
+                ? DEVICE_SYMBOLS[symCode - 1]
+                : null;
 
-              const [lastSeenAt, o12] = readVarUint(bytes, offset);
-              offset = o12;
+            const [lastSeenAt, o12] = readVarUint(bytes, offset);
+            offset = o12;
 
-              devices.push({
-                deviceKey,
-                symbol,
-                lastSeenAt,
-              });
-            }
-            decoded.devices = devices;
+            devices.push({
+              deviceKey,
+              symbol,
+              lastSeenAt,
+            });
           }
+          decoded.devices = devices;
           continue;
         }
 
@@ -409,33 +425,30 @@
           offset += 2;
           const [xtVersion, o8] = readVarUint(bytes, offset);
           offset = o8;
-          if (xtVersion === 1) {
-            const [count, o9] = readVarUint(bytes, offset);
-            offset = o9;
-            for (let i = 0; i < count; i++) {
-              const [idLen, o10] = readVarUint(bytes, offset);
-              offset = o10;
-              const id = decoder.decode(bytes.slice(offset, offset + idLen));
-              offset += idLen;
+          if (xtVersion !== 1) break;
+          const [count, o9] = readVarUint(bytes, offset);
+          offset = o9;
+          for (let i = 0; i < count; i++) {
+            const [idLen, o10] = readVarUint(bytes, offset);
+            offset = o10;
+            const id = decoder.decode(sliceChecked(bytes, offset, idLen));
+            offset += idLen;
 
-              const [refLen, o11] = readVarUint(bytes, offset);
-              offset = o11;
-              const ref = decoder.decode(
-                bytes.slice(offset, offset + refLen),
-              );
-              offset += refLen;
+            const [refLen, o11] = readVarUint(bytes, offset);
+            offset = o11;
+            const ref = decoder.decode(sliceChecked(bytes, offset, refLen));
+            offset += refLen;
 
-              const [tsMs, o12] = readVarUint(bytes, offset);
-              offset = o12;
+            const [tsMs, o12] = readVarUint(bytes, offset);
+            offset = o12;
 
-              if (id && ref) {
-                decoded.events.push({
-                  id,
-                  t: "x",
-                  ref,
-                  ts: tsMs,
-                });
-              }
+            if (id && ref) {
+              decoded.events.push({
+                id,
+                t: "x",
+                ref,
+                ts: tsMs,
+              });
             }
           }
           continue;
@@ -445,6 +458,12 @@
       }
     } catch (e) {
       console.warn("db-wallet: import-v2 extension parse failed", e);
+      // Flag the loss so the import flow can warn the user that some action
+      // codes / devices / tombstones were dropped, instead of reporting a clean
+      // success. Dropped tombstones in particular resurrect deleted events.
+      if (decoded && typeof decoded === "object") {
+        decoded._extWarning = true;
+      }
     }
   }
 
@@ -453,13 +472,16 @@
       bytes.length < 5 ||
       bytes[0] !== 100 || // d
       bytes[1] !== 98 || // b
-      bytes[2] !== 119 || // w
-      bytes[3] !== 2
+      bytes[2] !== 119 // w
     ) {
       throw new Error("Invalid v2 payload");
     }
+    if (bytes[3] !== 2) {
+      // Magic matches but the codec version is newer than this build understands.
+      throw new Error("Unsupported codec version " + bytes[3]);
+    }
 
-    const decoder = new TextDecoder();
+    const decoder = new TextDecoder("utf-8", { fatal: true });
     const header = decodeV2Header(bytes, 4);
     const { themeIdx, walletV, walletId, userId, deviceKeys, baseTsMin } = header;
 
@@ -882,7 +904,11 @@
     saveWallet(wallet);
     applyImportedTheme(remote, options);
     window.location.hash = "#" + userId;
-    alert("Getränkedaten importiert ✅");
+    alert(
+      remote && remote._extWarning
+        ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Zusatzdaten (Action-Codes / Geräte / Löschungen) war beschädigt und wurde übersprungen."
+        : "Getränkedaten importiert ✅",
+    );
     return userId;
   }
 
@@ -906,7 +932,10 @@
     }
     if (hash.startsWith("i2:")) {
       const compressed = base64UrlDecodeBytes(hash.slice(3));
-      const raw = await gzipDecompress(compressed);
+      if (compressed.length > 512 * 1024) {
+        throw new Error("Import payload too large");
+      }
+      const raw = await gzipDecompress(compressed, 2 * 1024 * 1024);
       const remote = decodeImportV2Bytes(raw);
       return { kind: "i2", remote, label: "QR-Import (kurz)" };
     }
@@ -1146,10 +1175,29 @@
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
-      const msg =
-        hash.startsWith("i2:") && typeof DecompressionStream === "undefined"
-          ? "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON."
-          : "Import fehlgeschlagen ❌";
+      const em = String((e && e.message) || "");
+      let msg;
+      if (hash.startsWith("i2:") && typeof DecompressionStream === "undefined") {
+        msg =
+          "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON.";
+      } else if (em.indexOf("too large") !== -1) {
+        msg =
+          "Import abgebrochen: Die Daten sind zu groß.\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.";
+      } else if (em.indexOf("Unsupported codec version") !== -1) {
+        msg =
+          "Import fehlgeschlagen ❌ — die Daten stammen aus einer neueren App-Version.\nBitte diese App aktualisieren.";
+      } else if (
+        em.indexOf("Truncated") !== -1 ||
+        em.indexOf("Invalid") !== -1 ||
+        em.indexOf("varint") !== -1 ||
+        em.indexOf("device index") !== -1 ||
+        em.indexOf("range") !== -1
+      ) {
+        msg =
+          "Import fehlgeschlagen ❌ — die Daten sind beschädigt oder unvollständig.\nBitte einen frischen Export-Link/QR nutzen.";
+      } else {
+        msg = "Import fehlgeschlagen ❌";
+      }
       alert(msg);
       window.location.hash = "";
       return { userId: null, redirectedToPreview: false };
