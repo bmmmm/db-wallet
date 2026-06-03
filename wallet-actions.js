@@ -157,7 +157,16 @@
     }
     if (!ctx.dialogConfirm(msg)) return;
 
-    const baseTs = Date.now();
+    // Stamp tombstones strictly after the newest known event so deletions always
+    // sort last in the log, even if the target was future-dated via editEntry or
+    // the device clock is skewed backward.
+    let maxTs = Date.now();
+    for (const e of wallet.events) {
+      if (e && typeof e.ts === "number" && Number.isFinite(e.ts) && e.ts > maxTs) {
+        maxTs = e.ts;
+      }
+    }
+    const baseTs = maxTs + 1;
     let added = 0;
     for (const id of idsToDelete) {
       if (appendTombstone(wallet, id, baseTs + added)) {
@@ -250,6 +259,15 @@
       ctx.clearDeleteRange();
       return;
     }
+    // Reject future dates: balance is computed in strict ts order and a future
+    // ts would reorder the event past a "p" (pay), silently flipping paid drinks
+    // back to unpaid (and vice versa).
+    if (testDate.getTime() > Date.now()) {
+      ctx.dialogAlert("Das Datum darf nicht in der Zukunft liegen.");
+      ctx.clearExport();
+      ctx.clearDeleteRange();
+      return;
+    }
 
     let newAmount = targetEvent.n;
     if (targetEvent.t !== "p") {
@@ -276,15 +294,16 @@
 
     const newTs = testDate.getTime();
     const targetId = targetEvent.id;
-    wallet.events = wallet.events.map((e) => {
-      if (e.id === targetId) {
-        return {
-          ...e,
-          ts: newTs,
-          n: e.t === "p" ? undefined : newAmount,
-        };
-      }
-      return e;
+    // Append-only edit: tombstone the original event and append a replacement
+    // with a fresh id. Mutating the event in place keeps the same id, and the
+    // cross-device merge dedups strictly by id — so an in-place edit silently
+    // fails to propagate (or gets reverted) when two devices hold that id.
+    appendTombstone(wallet, targetId);
+    wallet.events.push({
+      id: nextEventId(wallet),
+      t: targetEvent.t,
+      n: targetEvent.t === "p" ? undefined : newAmount,
+      ts: newTs,
     });
     saveWallet(wallet);
     ctx.clearExport();
