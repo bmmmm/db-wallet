@@ -633,8 +633,10 @@
       const ensured = ensureNonReservedUserId(target);
       if (ensured !== target) {
         target = ensured;
+        // Use replaceState (like every other nav path) instead of assigning
+        // location.hash, which would fire a redundant re-entrant hashchange.
         if (window.location.hash.slice(1) !== target) {
-          window.location.hash = "#" + target;
+          replaceHashSilently(target);
         }
       }
 
@@ -693,9 +695,14 @@
           : 1;
 
       targetWallet.events.push(newEvent(targetWallet, type, amount));
-      markGlobalActionHandled(hash);
 
       const isActiveWallet = targetWallet === wallet;
+      // Only arm the dedup guard on the active-wallet path (the boot vs.
+      // hashchange race it exists for). Arming it for a non-active/programmatic
+      // apply would poison a later real apply of the same code within the window.
+      if (isActiveWallet) {
+        markGlobalActionHandled(hash);
+      }
       if (isActiveWallet && !options.skipPersist) {
         saveWallet(wallet);
         invalidateCaches();
