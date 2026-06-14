@@ -1,4 +1,4 @@
-const VERSION = "db-wallet-v2-2026-04-22";
+const VERSION = "db-wallet-v2-2026-06-15";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -60,8 +60,12 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => {});
+          // Only cache a genuine same-origin 200 — never poison the app shell with
+          // a 404, an opaque/redirected response, or a captive-portal login page.
+          if (res && res.status === 200 && res.type === "basic") {
+            const copy = res.clone();
+            caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => {});
+          }
           return res;
         })
         .catch(() => caches.match(req).then((cached) => cached || caches.match("./index.html"))),
