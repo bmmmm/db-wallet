@@ -200,6 +200,37 @@
           reservedWallet ? "created" : "ok",
         );
 
+        // Regression: an event with a corrupt ts (NaN serializes to null) must be
+        // kept (ts=0), not silently dropped with the loss persisted on next save.
+        // Self-contained + cleaned up to avoid leaking a wallet/registry entry.
+        const badUser = storage.ensureNonReservedUserId(
+          "selfcheck-badts-" + randomId(),
+        );
+        const badW = storage.loadWallet(badUser);
+        badW.events.push({ id: "bt.1", t: "d", n: 1, ts: 123 });
+        badW.events.push({ id: "bt.2", t: "d", n: 1, ts: NaN });
+        storage.saveWallet(badW);
+        const badReloaded = storage.loadWallet(badUser);
+        const keptBad = badReloaded.events.find((e) => e.id === "bt.2");
+        addCheck(
+          result,
+          "loadWallet keeps event with corrupt ts",
+          !!keptBad && keptBad.ts === 0 && badReloaded.events.length === 2,
+          keptBad
+            ? `ts=${keptBad.ts} len=${badReloaded.events.length}`
+            : `dropped len=${badReloaded.events.length}`,
+        );
+        if (helpers.STORAGE_PREFIX) {
+          safeRemove(helpers.STORAGE_PREFIX + badUser);
+        }
+        try {
+          const badReg = loadRegistry();
+          delete badReg[badUser];
+          saveRegistry(badReg);
+        } catch (e) {
+          // ignore
+        }
+
         if (importV2) {
           const encoded = importV2.encodeImportV2Bytes(wallet, "");
           const decoded = importV2.decodeImportV2Bytes(encoded);
