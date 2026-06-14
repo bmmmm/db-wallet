@@ -246,7 +246,9 @@
       }
       const localUpdated = existing.updatedAt || 0;
       const remoteUpdated = c.updatedAt || 0;
-      if (remoteUpdated >= localUpdated) {
+      // Strict > so an equal-timestamp remote can't clobber a freshly rotated
+      // local code (same updatedAt ms) and invalidate its already-printed QR.
+      if (remoteUpdated > localUpdated) {
         existing.label = c.label;
         existing.amount = c.amount;
         existing.type = c.type;
