@@ -75,6 +75,12 @@
     return makeUniqueUserId("user-" + raw);
   }
 
+  // When storage is unavailable (private mode / quota) the generated key can't be
+  // persisted; cache it in memory so every call within the session returns the
+  // same device key instead of a fresh random one each time (which would break
+  // seq monotonicity and fabricate phantom devices in the event log).
+  let fallbackDeviceKey = null;
+
   function getDeviceKey() {
     try {
       const existing = localStorage.getItem(DEVICE_KEY_STORAGE);
@@ -82,12 +88,14 @@
     } catch (e) {
       // ignore
     }
+    if (fallbackDeviceKey) return fallbackDeviceKey;
     const created = randomWalletId(6);
     try {
       localStorage.setItem(DEVICE_KEY_STORAGE, created);
     } catch (e) {
       // ignore
     }
+    fallbackDeviceKey = created;
     return created;
   }
 
@@ -381,11 +389,10 @@
             typeof ev.ts === "string" && ev.ts.trim() !== ""
               ? Number(ev.ts)
               : NaN;
-          if (Number.isFinite(parsedTs)) {
-            ev.ts = parsedTs;
-          } else {
-            continue;
-          }
+          // Keep the event instead of dropping it on a corrupt ts — dropping
+          // silently loses a real drink/pay, and the loss is then persisted on the
+          // next save. ts=0 (epoch) sorts it first, matching the summary normalizer.
+          ev.ts = Number.isFinite(parsedTs) ? parsedTs : 0;
         }
 
         if (ev.t === "p") {
