@@ -58,8 +58,12 @@
       }
       usedIds.add(newId);
 
+      // The event's current id is authoritative; map it unconditionally. The
+      // legacy alias (oid) is secondary — only add it if that key is still free,
+      // so one event's oid can't clobber another event's id->newId mapping and
+      // mis-resolve a tombstone ref in the second pass below.
       if (id) idMap.set(id, newId);
-      if (legacyId) idMap.set(legacyId, newId);
+      if (legacyId && !idMap.has(legacyId)) idMap.set(legacyId, newId);
 
       if (!e.oid) e.oid = legacyId;
       e.id = newId;
