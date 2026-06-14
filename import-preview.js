@@ -294,7 +294,7 @@
                 : typeof d.drinks === "number" && Number.isFinite(d.drinks)
                   ? Math.max(0, Math.round(d.drinks))
                   : 0;
-            const bar = "#".repeat(Math.min(d.drinks, 50));
+            const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
             const paidMark = d.paid ? " 💰" : "";
             return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
           });
