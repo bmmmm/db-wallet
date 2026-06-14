@@ -217,6 +217,9 @@
       return;
     }
     if (targetEvent.t === "x") {
+      ctx.dialogAlert(
+        "Dieser Eintrag ist eine Löschung und kann nicht bearbeitet werden.",
+      );
       ctx.clearExport();
       ctx.clearDeleteRange();
       return;
