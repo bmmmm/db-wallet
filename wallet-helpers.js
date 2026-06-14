@@ -1,6 +1,10 @@
 (function () {
   const STORAGE_PREFIX = "db-wallet:";
   const REGISTRY_KEY = "db-wallet:registry";
+  // Canonical device-symbol set. The import/export codec maps a symbol to its
+  // INDEX in this list, so every module must share this one array — a divergent
+  // copy would silently mis-encode device symbols across a sync.
+  const DEVICE_SYMBOLS = ["L", "M", "D", "K", "T", "*"];
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
@@ -285,6 +289,7 @@
   window.dbWalletHelpers = {
     STORAGE_PREFIX,
     REGISTRY_KEY,
+    DEVICE_SYMBOLS,
     randomId,
     randomToken,
     randomWalletId,
