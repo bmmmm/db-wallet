@@ -99,7 +99,7 @@
     return created;
   }
 
-  const DEVICE_SYMBOLS = ["L", "M", "D", "K", "T", "*"];
+  const DEVICE_SYMBOLS = helpers.DEVICE_SYMBOLS;
 
   function normalizeDeviceSymbol(input) {
     const raw = String(input || "").trim();

@@ -11,7 +11,11 @@
   let syncLineLegend = null;
   let btnSyncReset = null;
 
-  const DEVICE_SYMBOLS = ["L", "M", "D", "K", "T", "*"];
+  // Canonical list lives in dbWalletHelpers; the literal is only a fallback for
+  // the (never-in-practice) case where helpers failed to load.
+  const DEVICE_SYMBOLS =
+    (window.dbWalletHelpers && window.dbWalletHelpers.DEVICE_SYMBOLS) ||
+    ["L", "M", "D", "K", "T", "*"];
 
   function ensureLine() {
     if (!opts || !opts.topRow) return null;

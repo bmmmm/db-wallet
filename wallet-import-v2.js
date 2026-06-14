@@ -52,7 +52,7 @@
     "Peach Cloud",
   ];
 
-  const DEVICE_SYMBOLS = ["L", "M", "D", "K", "T", "*"];
+  const DEVICE_SYMBOLS = helpers.DEVICE_SYMBOLS;
 
   function legacyIdToV2Id(legacyId) {
     if (!legacyId || typeof legacyId !== "string") return null;
