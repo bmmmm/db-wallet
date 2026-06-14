@@ -221,6 +221,41 @@
             `events=${mergedCount}`,
           );
 
+          // Ordering regression: a drink (seq 35 = "z") then a pay (seq 36 = "10")
+          // in the same millisecond must stay settled (unpaid 0) across a v2
+          // round-trip. The old encoder tie-broke lexically ("10" < "z"), which
+          // reordered the pay before the drink and flipped the balance to unpaid 1.
+          if (summaryApi && typeof summaryApi.computeSummary === "function") {
+            const orderTs = now - 120000;
+            const orderW = {
+              userId: "selfcheck-order",
+              walletId: wallet.walletId,
+              v: 2,
+              seq: {},
+              events: [
+                { id: "sc.z", t: "d", n: 1, ts: orderTs },
+                { id: "sc.10", t: "p", ts: orderTs },
+              ],
+              actionCodes: [],
+              devices: [],
+            };
+            const beforeUnpaid = summaryApi.computeSummary({
+              events: orderW.events,
+            }).unpaid;
+            const orderDec = importV2.decodeImportV2Bytes(
+              importV2.encodeImportV2Bytes(orderW, ""),
+            );
+            const afterUnpaid = summaryApi.computeSummary({
+              events: orderDec.events,
+            }).unpaid;
+            addCheck(
+              result,
+              "v2 round-trip preserves same-minute paid order",
+              beforeUnpaid === 0 && afterUnpaid === 0,
+              `before=${beforeUnpaid} after=${afterUnpaid}`,
+            );
+          }
+
           // Append a malformed "ac" extension (tag + version=1 + count=99 with
           // no entry data) and verify decodeImportV2Bytes warns on the parse
           // error but still returns correct core fields.

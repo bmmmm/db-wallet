@@ -262,29 +262,6 @@
     }
   }
 
-  function compareEventsByTime(a, b) {
-    const aTs =
-      a && typeof a.ts === "number" && Number.isFinite(a.ts) ? a.ts : 0;
-    const bTs =
-      b && typeof b.ts === "number" && Number.isFinite(b.ts) ? b.ts : 0;
-    if (aTs !== bTs) return aTs - bTs;
-    const aId = a && typeof a.id === "string" ? a.id : "";
-    const bId = b && typeof b.id === "string" ? b.id : "";
-    if (aId === bId) return 0;
-    // Numeric tie-break on the base36 seq so undo picks the truly-newest event
-    // and stays consistent with computeSummary's ordering (lexical compare would
-    // invert order past seq 36: "10" < "z").
-    const pa = parseCompactEventId(aId);
-    const pb = parseCompactEventId(bId);
-    if (pa && pb) {
-      if (pa.deviceKey !== pb.deviceKey) {
-        return pa.deviceKey < pb.deviceKey ? -1 : 1;
-      }
-      return pa.seq - pb.seq;
-    }
-    return aId < bId ? -1 : 1;
-  }
-
   function buildTombstoneEvent(wallet, refId, ts) {
     const ref = typeof refId === "string" ? refId.trim() : "";
     if (!ref) return null;
@@ -314,7 +291,7 @@
     const events = Array.isArray(wallet.events) ? wallet.events : [];
     if (!events.length) return null;
 
-    const sorted = events.slice().sort(compareEventsByTime);
+    const sorted = events.slice().sort(helpers.compareEventsByTime);
     const summaryApi = window.dbWalletSummary || null;
     let effective = null;
     if (summaryApi && typeof summaryApi.applyTombstones === "function") {

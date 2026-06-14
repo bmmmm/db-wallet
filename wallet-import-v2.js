@@ -21,6 +21,9 @@
     base64UrlEncodeBytes,
     gzipDecompress,
     safeParse,
+    hash53,
+    extractLegacyDeviceKey,
+    cmpEventId,
   } = helpers;
 
   const {
@@ -50,30 +53,6 @@
   ];
 
   const DEVICE_SYMBOLS = ["L", "M", "D", "K", "T", "*"];
-
-  function cmpStr(a, b) {
-    if (a === b) return 0;
-    return a < b ? -1 : 1;
-  }
-
-  const mergeEncoder = new TextEncoder();
-
-  function hash53(str) {
-    const bytes = mergeEncoder.encode(String(str || ""));
-    const h64 = helpers.fnv1a64(bytes);
-    const mask = (1n << 53n) - 1n;
-    const h53 = Number(h64 & mask);
-    return h53 > 0 ? h53 : 1;
-  }
-
-  function extractLegacyDeviceKey(id) {
-    if (!id || typeof id !== "string") return "legacy";
-    const idx = id.indexOf("-");
-    if (idx <= 0) return "legacy";
-    const raw = id.slice(0, idx);
-    const cleaned = raw.replace(/[^a-z0-9_-]/gi, "").slice(0, 16);
-    return cleaned || "legacy";
-  }
 
   function legacyIdToV2Id(legacyId) {
     if (!legacyId || typeof legacyId !== "string") return null;
@@ -585,10 +564,14 @@
       });
     }
 
+    // Order events exactly as the balance fold does (computeSummary: ts then
+    // canonical id). The decoder rebuilds sub-minute order from payload position,
+    // so any divergence here would silently reorder same-minute events on import
+    // and could flip paid/unpaid. (Sorting by tsMs keeps tsMin non-decreasing, so
+    // the minute deltas written below stay >= 0.)
     events.sort((a, b) => {
-      if (a.tsMin !== b.tsMin) return a.tsMin - b.tsMin;
       if (a.tsMs !== b.tsMs) return a.tsMs - b.tsMs;
-      return cmpStr(a.id, b.id);
+      return cmpEventId(a.id, b.id);
     });
 
     writeVarUint(deviceKeys.length, out);

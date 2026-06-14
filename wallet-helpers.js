@@ -221,6 +221,40 @@
     return { deviceKey, seq };
   }
 
+  function cmpStr(a, b) {
+    if (a === b) return 0;
+    return a < b ? -1 : 1;
+  }
+
+  // Canonical tie-break for equal-timestamp events. Event ids are
+  // `deviceKey.<seq-base36>`; compare the deviceKey lexically but the sequence
+  // numerically — a plain lexical compare inverts order at every base36 width
+  // boundary (seq 36 = "10" sorts before seq 35 = "z"). Single source of truth:
+  // summary/storage/import-v2 all defer here so their orderings can't diverge.
+  function cmpEventId(a, b) {
+    const idA = typeof a === "string" ? a : "";
+    const idB = typeof b === "string" ? b : "";
+    if (idA === idB) return 0;
+    const pa = parseCompactEventId(idA);
+    const pb = parseCompactEventId(idB);
+    if (pa && pb) {
+      if (pa.deviceKey !== pb.deviceKey) return cmpStr(pa.deviceKey, pb.deviceKey);
+      return pa.seq - pb.seq;
+    }
+    return cmpStr(idA, idB);
+  }
+
+  // Canonical full-event comparator: primary key timestamp, tie-broken by
+  // cmpEventId. Used wherever an event list is sorted before folding the balance.
+  function compareEventsByTime(a, b) {
+    const aTs = a && typeof a.ts === "number" && Number.isFinite(a.ts) ? a.ts : 0;
+    const bTs = b && typeof b.ts === "number" && Number.isFinite(b.ts) ? b.ts : 0;
+    if (aTs !== bTs) return aTs - bTs;
+    const aId = a && typeof a.id === "string" ? a.id : "";
+    const bId = b && typeof b.id === "string" ? b.id : "";
+    return cmpEventId(aId, bId);
+  }
+
   function fnv1a64(bytes) {
     let hash = 0xcbf29ce484222325n;
     const prime = 0x100000001b3n;
@@ -267,6 +301,8 @@
     safeLocalStorageSetItem,
     safeLocalStorageRemoveItem,
     parseCompactEventId,
+    cmpEventId,
+    compareEventsByTime,
     fnv1a64,
     hash53,
     extractLegacyDeviceKey,

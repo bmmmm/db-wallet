@@ -4,26 +4,13 @@
     return a < b ? -1 : 1;
   }
 
-  // Tie-break for equal-timestamp events. Event ids are `deviceKey.<seq-base36>`,
-  // so a plain lexical compare inverts order at every base36 magnitude boundary
-  // (seq 36 = "10" sorts before seq 35 = "z"). Compare deviceKey lexically but
-  // the sequence numerically; fall back to lexical only when an id is not compact.
+  // Tie-break for equal-timestamp events; delegates to the canonical comparator
+  // in helpers (deviceKey lexical, seq numeric). Lexical fallback only if helpers
+  // failed to load — in practice it is always present (loaded first).
   function cmpEventId(a, b) {
-    if (a === b) return 0;
     const helpers = window.dbWalletHelpers || null;
-    const parse =
-      helpers && typeof helpers.parseCompactEventId === "function"
-        ? helpers.parseCompactEventId
-        : null;
-    if (parse) {
-      const pa = parse(a);
-      const pb = parse(b);
-      if (pa && pb) {
-        if (pa.deviceKey !== pb.deviceKey) {
-          return cmpStr(pa.deviceKey, pb.deviceKey);
-        }
-        return pa.seq - pb.seq;
-      }
+    if (helpers && typeof helpers.cmpEventId === "function") {
+      return helpers.cmpEventId(a, b);
     }
     return cmpStr(a, b);
   }
