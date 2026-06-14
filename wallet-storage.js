@@ -342,6 +342,12 @@
     return `${deviceKey}.${seq.toString(36)}`;
   }
 
+  // Sanity ceiling for a single event's amount — far above any real drink count.
+  // Mirrors wallet-import-v2's MAX_DECODED_AMOUNT; clamps poisoned/absurd values
+  // (e.g. from a crafted legacy JSON import) at the storage boundary so they can't
+  // corrupt the balance or, once re-encoded, overflow the varint writer.
+  const MAX_EVENT_AMOUNT = 1000000000;
+
   function loadWallet(userId, parsedOverride) {
     const rawUserId = typeof userId === "string" ? userId.trim() : "";
     if (!isValidUserId(rawUserId)) return null;
@@ -407,7 +413,7 @@
               rawN = parsedN;
             }
           }
-          ev.n = rawN > 0 ? rawN : 1;
+          ev.n = rawN > 0 ? Math.min(rawN, MAX_EVENT_AMOUNT) : 1;
         }
 
         normalizedEvents.push(ev);

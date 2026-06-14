@@ -421,7 +421,9 @@
             const [tsMs, o12] = readVarUint(bytes, offset);
             offset = o12;
 
-            if (id && ref) {
+            // Skip self-referential tombstones (a tombstone deleting itself is
+            // meaningless) — cheap guard against malformed/crafted xt entries.
+            if (id && ref && id !== ref) {
               decoded.events.push({
                 id,
                 t: "x",
@@ -551,7 +553,9 @@
       if (t !== "p") {
         const n =
           typeof e.n === "number" && isFinite(e.n) ? Math.round(e.n) : 1;
-        amount = n > 0 ? n : 1;
+        // Clamp like the decoder does so a poisoned/absurd n can never make
+        // writeVarUint throw, which would permanently brick re-export.
+        amount = n > 0 ? Math.min(n, MAX_DECODED_AMOUNT) : 1;
       }
 
       events.push({
@@ -611,6 +615,29 @@
         const deviceIndex = deviceKeyToIndex.get(e.parsed.deviceKey);
         writeVarUint(deviceIndex, out);
         writeVarUint(e.parsed.seq, out);
+      }
+    }
+
+    // optional extension: tombstones ("xt", v1)
+    // Encoded FIRST among the extension blocks: blocks have no length prefix, so a
+    // forward-compat version bump or a corrupt byte in a later block (ac/sp/dv)
+    // stops the parse where it is. Putting tombstones first means that truncation
+    // can't drop them — and a dropped tombstone resurrects a deleted event, the
+    // worst failure mode of the lot.
+    if (tombstones.length) {
+      out.push(120, 116); // "xt"
+      writeVarUint(1, out);
+      writeVarUint(tombstones.length, out);
+      for (const t of tombstones) {
+        const idBytes = encoder.encode(t.id);
+        writeVarUint(idBytes.length, out);
+        for (const b of idBytes) out.push(b);
+
+        const refBytes = encoder.encode(t.ref);
+        writeVarUint(refBytes.length, out);
+        for (const b of refBytes) out.push(b);
+
+        writeVarUint(t.tsMs, out);
       }
     }
 
@@ -729,24 +756,6 @@
       }
     } catch (e) {
       console.warn("db-wallet: encode-v2 device list extension failed", e);
-    }
-
-    // optional extension: tombstones ("xt", v1)
-    if (tombstones.length) {
-      out.push(120, 116); // "xt"
-      writeVarUint(1, out);
-      writeVarUint(tombstones.length, out);
-      for (const t of tombstones) {
-        const idBytes = encoder.encode(t.id);
-        writeVarUint(idBytes.length, out);
-        for (const b of idBytes) out.push(b);
-
-        const refBytes = encoder.encode(t.ref);
-        writeVarUint(refBytes.length, out);
-        for (const b of refBytes) out.push(b);
-
-        writeVarUint(t.tsMs, out);
-      }
     }
 
     return new Uint8Array(out);
@@ -923,7 +932,13 @@
       return { kind: "i2", remote, label: "QR-Import (kurz)" };
     }
     if (hash.startsWith("import:")) {
-      const payload = base64UrlDecode(hash.slice(7));
+      const b64 = hash.slice(7);
+      // The legacy JSON path had no size guard (unlike i2:), so a multi-MB link
+      // could freeze the tab in base64-decode + JSON.parse + merge. Cap it.
+      if (b64.length > 3 * 1024 * 1024) {
+        throw new Error("Import payload too large");
+      }
+      const payload = base64UrlDecode(b64);
       const remote = safeParse(payload);
       if (!remote || typeof remote !== "object") {
         throw new Error("Invalid import payload");

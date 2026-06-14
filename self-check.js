@@ -287,6 +287,32 @@
             );
           }
 
+          // Tombstones must survive a v2 round-trip — they are the "xt" block, now
+          // encoded first among extensions so a later corrupt block can't drop them.
+          const tombDec = importV2.decodeImportV2Bytes(
+            importV2.encodeImportV2Bytes(
+              {
+                userId: "selfcheck-tomb",
+                walletId: wallet.walletId,
+                v: 2,
+                seq: {},
+                events: [
+                  { id: "tx.1", t: "d", n: 1, ts: now },
+                  { id: "tx.2", t: "x", ref: "tx.1", ts: now + 1 },
+                ],
+                actionCodes: [],
+                devices: [],
+              },
+              "",
+            ),
+          );
+          addCheck(
+            result,
+            "v2 round-trip preserves tombstone",
+            tombDec.events.some((e) => e.t === "x" && e.ref === "tx.1"),
+            `events=${tombDec.events.length}`,
+          );
+
           // Append a malformed "ac" extension (tag + version=1 + count=99 with
           // no entry data) and verify decodeImportV2Bytes warns on the parse
           // error but still returns correct core fields.
