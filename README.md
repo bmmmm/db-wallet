@@ -163,7 +163,8 @@ window.dbWalletSelfCheck.run()
 ```
 
 Der Self-Check prüft u. a. Storage-Roundtrip, Import v2, Migration, Hash-Parsing,
-Summary-Parität, Tombstones/Undo und Action-Code-Payloads.
+Summary-Parität, Event-Ordering (`ts`, dann numerische base36-`seq`), Tombstones/Undo
+und Action-Code-Payloads.
 
 ## Datenmodell Hinweise
 
@@ -181,7 +182,7 @@ Summary-Parität, Tombstones/Undo und Action-Code-Payloads.
 | [`wallet-device-ui.js`](./wallet-device-ui.js) | Geräte-Symbol-Picker (Top-Row, sichtbare Device-ID)                       |
 | [`wallet-sync-ui.js`](./wallet-sync-ui.js)     | Sync-Status UI (Ampel + ASCII-Timeline + „✅ passt“)                       |
 | [`wallet-export-ui.js`](./wallet-export-ui.js) | Export UI (Link/QR/JSON, QR-Session-Cache, PNG-Download)                  |
-| [`wallet-helpers.js`](./wallet-helpers.js)     | Helper (Base64URL, gzip, Storage-Safety, Registry, fnv1a64/hash53/parseCompactEventId) |
+| [`wallet-helpers.js`](./wallet-helpers.js)     | Helper (Base64URL, gzip, Storage-Safety, Registry, fnv1a64/hash53/parseCompactEventId); kanonische Single-Source für Event-Comparator (`cmpEventId`/`compareEventsByTime`) und `DEVICE_SYMBOLS` |
 | [`wallet-messages.js`](./wallet-messages.js)   | Zentrale UI-Message-API (`showGlobal` / `clearGlobal` / `ensureContainer`) |
 | [`wallet-hash-actions.js`](./wallet-hash-actions.js) | Global-Action UI (`#acg:`): Wallet-Auswahlbildschirm + Preview-Helper    |
 | [`wallet-actions.js`](./wallet-actions.js)     | Buchungs-Actions (Drink/Undo/Pay/Credit/Reset/Delete/Edit), `ctx`-basiert |
@@ -210,7 +211,9 @@ Summary-Parität, Tombstones/Undo und Action-Code-Payloads.
 
 `manifest.json` + `service-worker.js` machen db-wallet installierbar und
 offline-fähig. Der SW cached das komplette App-Shell beim ersten Besuch;
-HTML-Navigationen gehen network-first mit Fallback auf den Cache.
+HTML-Navigationen gehen network-first mit Fallback auf den Cache. Nur `200`/`basic`-
+Responses werden in die App-Shell geschrieben, damit eine Fehler- oder Redirect-Seite
+den Cache nicht vergiftet.
 
 Cache-Invalidierung: beim Release die Konstante `VERSION` in
 `service-worker.js` erhöhen — alte Caches werden beim nächsten Besuch
@@ -248,7 +251,7 @@ Viel Spaß mit deinem minimalistischen, schnellen Getränke-Wallet 🍹🚀
 ## LLM Notes (for quick repo understanding)
 
 - File map (core vs UI): Core/codec/storage in `wallet-helpers.js`, `wallet-storage.js`, `wallet-import-v2.js`, `wallet-summary.js`, `wallet-sync.js`, `migration.js`, `action-codes.js`, `hash-router.js`. UI in `index-ui.js`, `wallet-ui.js`, `wallet-device-ui.js`, `wallet-sync-ui.js`, `wallet-export-ui.js`, `wallet-history-ui.js`, `wallet-hash-actions.js`, `wallet-actions.js`, `wallet-messages.js`, `import-preview.js`, `theme.js`. PWA: `manifest.json`, `service-worker.js`, `sw-register.js`, `favicon.svg`.
-- Invariants: storage prefix `db-wallet:`, registry key `db-wallet:registry`, hash formats `#<userId>`, `#import:`, `#i2:`, `#i2u:`, `#ac:`, `#acg:`; event schema `{id,t,n?,ts,ref?}` with tombstones `t:"x"` + `ref`; action code SOFT/HARD limits 6/10; global `#acg:` deterministic and stateless.
+- Invariants: storage prefix `db-wallet:`, registry key `db-wallet:registry`, hash formats `#<userId>`, `#import:`, `#i2:`, `#i2u:`, `#ac:`, `#acg:`; event schema `{id,t,n?,ts,ref?}` with tombstones `t:"x"` + `ref`; append-only — never mutate an event in place (merge dedups by `id`); event order = sort by `ts`, tie-break by numeric base36 `seq` (not lexical); action code SOFT/HARD limits 6/10; global `#acg:` deterministic and stateless.
 - Entrypoints & flow: `index.html` → `index-ui.js` (list/create/import) and `wallet.html` → `wallet-ui.js` (hash classify → load wallet → compute summary → render UI); `hash-router.js` is the single classifier/parser for hashes.
 - Where to edit: storage/model in `wallet-storage.js`; summary/tombstones in `wallet-summary.js`; action-code encode/decode + UI in `action-codes.js`; hash parsing in `hash-router.js`; booking actions in `wallet-actions.js`; UI wiring in `index-ui.js` / `wallet-ui.js` / `wallet-history-ui.js`.
 - Quick manual checks: open `index.html` → create/open wallet → add drinks/pay → undo (tombstone) → export/import v2 → local/global action codes → open `wallet.html#acg:…` with 1+ wallets → `window.dbWalletSelfCheck.run()`.
