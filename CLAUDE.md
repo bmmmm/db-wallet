@@ -51,7 +51,7 @@ SW + clear caches, or serve on a fresh port.
 | `wallet-sync.js` | Wallet-Sync-Logik |
 | `wallet-history-ui.js` | Verlaufs-UI |
 | `wallet-device-ui.js` | Geräte-UI |
-| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing) |
+| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
 | `hash-router.js` | Client-seitiges Routing via URL-Hash |
 | `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`) |
