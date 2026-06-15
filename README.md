@@ -191,6 +191,10 @@ Cache nicht vergiften.
   lokale/globale Action Codes → `dbWalletSelfCheck.run()`.
 </details>
 
+## Lizenz
+
+Lizenziert unter der [Apache License 2.0](./LICENSE).
+
 ---
 
 Viel Spaß mit deinem schnellen, minimalistischen Getränke-Wallet 🍹
