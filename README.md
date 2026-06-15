@@ -48,6 +48,8 @@ sein. Der Scope wird beim Erstellen/Bearbeiten gewählt. Beim Scannen erfolgt
 Wichtig:
 
 - Verwaltung erfolgt inline per Buttons (New action code, Bearbeiten, Löschen).
+- Pro Wallet sind max. 6 Action Codes empfohlen; ab 10 werden automatisch nur die
+  10 zuletzt aktiven behalten (ältere werden entfernt).
 - Die Mengenfrage im Inline-Formular passt sich dem Typ an (trinken vs gutschreiben).
 - Pro Code ist der Scope wählbar: 🔒 Lokal (wallet‑gebunden) oder 🌍 Global.
 - Lokale Action Codes sind an eine Wallet gebunden (Ziel-WalletId steckt im QR).
@@ -196,6 +198,7 @@ und Action-Code-Payloads.
 | [`self-check.js`](./self-check.js)             | In-Browser Self-Check (Konsole)                                           |
 | [`theme.js`](./theme.js)                       | Theme-Logik (Auswahl + Speicherung)                                       |
 | [`import-preview.js`](./import-preview.js)     | Import-Auswahl (persist/preview) + Preview-Flow                           |
+| [`preview.html`](./preview.html)               | Read-Only-Import-Vorschau (lokal, nicht gespeichert)                      |
 | [`themes.css`](./themes.css)                   | Theme-Paletten (CSS-Variablen)                                            |
 | [`colors.html`](./colors.html)                 | Vorschau aller 5 Themes mit Farbbalken & UI-Beispielen                    |
 | [`colors.css`](./colors.css)                   | Styles für die Theme-Vorschau                                             |
