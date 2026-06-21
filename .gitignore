@@ -1,0 +1,19 @@
+# Local scratch / project artifacts
+tmp/
+
+# macOS metadata
+.DS_Store
+
+# Editor swap files
+*.swp
+*~
+
+# Credentials & secrets (never commit; use .env.example with placeholders)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+id_*
