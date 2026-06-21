@@ -715,6 +715,17 @@
             ? `${amount} Getränk(e) trinken`
             : `Guthaben +${amount} Getränk(e)`;
         if (!confirm(`Globalen Action-Code${label} anwenden: ${what}?`)) {
+          // Strip the acg hash from the URL so a reload doesn't re-prompt the
+          // declined code. Do NOT arm the dedup guard — a decline isn't a
+          // consume, so a deliberate later re-apply of the same code must still
+          // be allowed.
+          if (targetWallet === wallet && !options.skipHashCleanup) {
+            const declinedUserId =
+              typeof options.userId === "string" && options.userId.trim()
+                ? options.userId.trim()
+                : userId;
+            if (declinedUserId) replaceHashSilently(declinedUserId);
+          }
           return { handled: true, applied: false, reason: "declined" };
         }
       }
