@@ -38,18 +38,28 @@ Vorgefertigte QR-Codes, die beim Scannen **sofort** buchen — Typ *Trinken* ode
 *Guthaben*, mit zwei Scopes:
 
 - 🔒 **Lokal** — an eine Wallet gebunden (die Ziel-WalletId steckt im QR).
-- 🌍 **Global** (`#acg:…`) — stateless und deterministisch, wirkt auf das gerade
-  geöffnete Wallet. Bei mehreren Wallets fragt die App, auf welches gebucht wird;
-  ist keins offen, kommt ein Hinweis.
+- 🌍 **Global** (`#acg:…`) — der QR ist self-contained und deterministisch, wirkt
+  auf das gerade geöffnete Wallet. Beim Anwenden fragt die App **immer nach**
+  (Betrag/Typ werden genannt); bei mehreren Wallets wird zuerst das Ziel gewählt,
+  ist keins offen, kommt ein Hinweis. Die Verwaltungsliste globaler Codes wird auf
+  dem Wallet gespeichert.
 
 Gut zu wissen:
 
-- Der Betrag wird aus dem **gespeicherten** Code gelesen, nie aus manipulierbaren
-  QR-Feldern.
-- Bearbeiten (Name/Menge/Typ) erneuert den Code — **alte QR-Codes werden beim
-  Einlösen strikt abgelehnt**.
-- Max. 6 Codes pro Wallet empfohlen; ab 10 bleiben nur die 10 zuletzt aktiven.
+- **Betrag und Typ** werden aus dem **gespeicherten** Code gelesen, nie aus
+  manipulierbaren QR-Feldern.
+- Bearbeiten (Name/Menge/Typ) erneuert den **Key** lokal — **alte QR-Codes werden
+  beim Einlösen strikt abgelehnt**. Ein Import kann Label/Menge/Typ aktualisieren,
+  aber **nie den lokalen Key** überschreiben.
+- Codes **laufen nicht ab** — Widerruf = Bearbeiten (Key-Rotation) oder Löschen;
+  der Key ist das einzige Geheimnis.
+- Max. 6 Codes pro Wallet empfohlen; ab 10 bleiben die 10 zuletzt **bearbeiteten**
+  (nicht „benutzten").
 - Globale Codes validieren Typ (`d`/`g`) und Menge (`1`–`100`).
+
+> **Export = Bearer-Credential:** QR/Link enthalten das volle Event-Log, die
+> userId und die Action-Code-Keys **unverschlüsselt**. Wer den Code abfotografiert,
+> kann ihn einspielen. Nur an vertrauenswürdige Geräte weitergeben.
 
 ## Sync & Geräte
 
@@ -111,10 +121,15 @@ Summary-Parität, Event-Ordering, Tombstones/Undo und Action-Code-Payloads.
 <summary>Architektur &amp; Dateien</summary>
 
 **Event-Modell — append-only.** Drink/Credit/Pay hängen ein Event an;
-Delete/Undo/Edit hängen einen Tombstone an (`t:"x"`, `ref` = Ziel-ID). Ein Event
+Delete/Undo hängen einen Tombstone an (`t:"x"`, `ref` = **Root-ID** des Eintrags).
+**Edit** hängt einen Replacement mit `supersedes` = Root-ID an (kein Tombstone) —
+der Summary-Fold kollabiert alle Replacements einer Root auf den kanonisch
+letzten Gewinner, sodass parallele Edits auf zwei Geräten konvergieren statt zu
+doppeln; eine Löschung der Root gewinnt gegen einen parallelen Edit. Ein Event
 wird **nie** in-place geändert — der Merge dedupliziert strikt nach `id`.
 Reihenfolge: nach `ts` sortiert, Tie-Break über numerische base36-`seq` (nicht
-lexikalisch).
+lexikalisch). Undo ist **monoton** (entfernt den letzten sichtbaren Eintrag) und
+fragt nach, wenn die letzte Aktion eine Löschung war.
 
 `wallet.deviceId` (Sync-Metadatum) und `wallet.seq` (Event-Zähler pro
 Device-Key) bleiben getrennt — eine Zusammenlegung wäre nicht
@@ -181,9 +196,14 @@ Cache nicht vergiften.
   `wallet-ui.js` (Hash klassifizieren → Wallet laden → Summary berechnen →
   rendern). `hash-router.js` ist der einzige Hash-Parser.
 - **Invarianten:** Storage-Prefix `db-wallet:`, Registry `db-wallet:registry`;
-  Event-Schema `{id,t,n?,ts,ref?}` mit Tombstones `t:"x"` + `ref`; append-only
+  Event-Schema `{id,t,n?,ts,ref?,supersedes?}` mit Tombstones `t:"x"` + `ref`
+  (= Root-ID) und Edit-Replacements via `supersedes` (= Root-ID); append-only
   (Merge dedupt nach `id`); Order = `ts`, dann numerische base36-`seq`;
-  Action-Code-Limits 6/10; `#acg:` deterministisch und stateless.
+  Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm).
+- **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes) und `ck`
+  (Integritäts-Checksum) stehen als Letztes, `ck` ganz zuletzt. Bei jeder
+  APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:
+  `scripts/check-sw-version.sh`).
 - **Wo editieren:** Storage/Modell → `wallet-storage.js`; Summary/Tombstones →
   `wallet-summary.js`; Action-Codes → `action-codes.js`; Hash-Parsing →
   `hash-router.js`; Buchungen → `wallet-actions.js`.
