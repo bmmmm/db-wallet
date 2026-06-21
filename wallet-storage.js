@@ -322,13 +322,22 @@
     const target = effective[effective.length - 1];
     if (!target || typeof target.id !== "string" || !target.id) return null;
 
+    // afterDeletion = the last appended event was a real DELETE: a tombstone
+    // that is neither itself neutralized nor a neutralizer (a tombstone-of-a-
+    // tombstone, i.e. an undo-of-delete — its ref names a neutralized tombstone).
     const lastAppended = sorted[sorted.length - 1];
+    const lastRef =
+      lastAppended && typeof lastAppended.ref === "string"
+        ? lastAppended.ref.trim()
+        : "";
+    const neutralized = tomb && tomb.neutralized ? tomb.neutralized : null;
     const afterDeletion = !!(
       lastAppended &&
       lastAppended.t === "x" &&
       typeof lastAppended.id === "string" &&
       lastAppended.id &&
-      (!tomb || !tomb.neutralized || !tomb.neutralized.has(lastAppended.id))
+      (!neutralized ||
+        (!neutralized.has(lastAppended.id) && !neutralized.has(lastRef)))
     );
 
     // Tombstone the entry's ROOT so undoing an edited entry removes the whole
