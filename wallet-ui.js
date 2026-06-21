@@ -221,6 +221,14 @@
       btnUndo,
       btnPay,
       btnReset,
+      // The export flow and history-mode toggles dereference these without their
+      // own null guards, so fail-fast on a broken DOM instead of throwing later.
+      elExportUrl,
+      btnModeDiagram,
+      btnModeLog,
+      btnModeRaw,
+      btnRawCurrent,
+      btnRawAll,
     ];
     if (requiredEls.some((el) => !el)) return;
 

@@ -136,7 +136,12 @@
             lines.push(formatLogLine(summary.eventsSorted[i], i + 1));
           }
           if (len > MAX_LINES) {
-            lines.push(`… und ${len - MAX_LINES} ältere Einträge (gekürzt).`);
+            // Name the hidden index range so a delete-by-range still has a
+            // visible boundary (the OLDEST entries, #1..#(len-MAX_LINES), are the
+            // ones truncated).
+            lines.push(
+              `… und ${len - MAX_LINES} ältere Einträge (IDs #1–#${len - MAX_LINES}) nicht angezeigt.`,
+            );
           }
           refs.elHistory.textContent = lines.join("\n");
         }
