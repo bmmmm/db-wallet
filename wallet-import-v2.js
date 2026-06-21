@@ -65,6 +65,7 @@
   function mergeEvents(localEvents, remoteEvents) {
     const merged = [];
     const seen = new Set();
+    let dropped = 0;
 
     function addSeenId(id) {
       if (!id || typeof id !== "string") return;
@@ -82,9 +83,13 @@
 
     for (const e of localEvents || []) {
       if (e && typeof e.id === "string" && e.id) addEvent(e);
+      else if (e) dropped++;
     }
     for (const e of remoteEvents || []) {
-      if (!e || typeof e.id !== "string" || !e.id) continue;
+      if (!e || typeof e.id !== "string" || !e.id) {
+        if (e) dropped++;
+        continue;
+      }
       const aliasId = legacyIdToV2Id(e.id);
       const aliasOid = legacyIdToV2Id(e.oid);
       if (
@@ -96,6 +101,26 @@
         continue;
       }
       addEvent(e);
+    }
+
+    // Return in canonical order (ts, then cmpEventId) so the persisted log
+    // matches the balance fold — consumers re-sort anyway, but this removes the
+    // latent trap and satisfies the ordering invariant.
+    if (helpers && typeof helpers.compareEventsByTime === "function") {
+      merged.sort(helpers.compareEventsByTime);
+    }
+    // Expose how many id-less events were skipped so the import flow can warn
+    // about a partial import instead of reporting clean success. Non-enumerable
+    // so it never serializes into the persisted wallet.
+    if (dropped > 0) {
+      try {
+        Object.defineProperty(merged, "_droppedEventCount", {
+          value: dropped,
+          enumerable: false,
+        });
+      } catch (e) {
+        // ignore
+      }
     }
     return merged;
   }
@@ -469,6 +494,35 @@
           continue;
         }
 
+        if (
+          bytes[offset] === 99 && // "c"
+          bytes[offset + 1] === 107 // "k"
+        ) {
+          const blockStart = offset;
+          offset += 2;
+          const [ckVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (ckVersion !== 1) break;
+          const stored =
+            ((bytes[offset] << 24) |
+              (bytes[offset + 1] << 16) |
+              (bytes[offset + 2] << 8) |
+              bytes[offset + 3]) >>>
+            0;
+          offset += 4;
+          if (helpers && typeof helpers.fnv1a64 === "function") {
+            const actual = Number(
+              helpers.fnv1a64(bytes.subarray(0, blockStart)) & 0xffffffffn,
+            );
+            if (stored !== actual && decoded && typeof decoded === "object") {
+              // Hard-reject signal (checked in decodeImportV2Bytes): the payload
+              // is corrupt, not merely carrying unknown extension data.
+              decoded._checksumFailed = true;
+            }
+          }
+          continue;
+        }
+
         break;
       }
     } catch (e) {
@@ -513,12 +567,18 @@
     };
 
     // optional extensions:
+    //  - tombstones ("xt", v1)
     //  - action codes ("ac", v1/v2)
     //  - sync peer device id ("sp", v1)
     //  - device list ("dv", v1)
-    //  - tombstones ("xt", v1)
+    //  - supersedes links ("se", v1)
+    //  - integrity checksum ("ck", v1)
     if (evResult.offset < bytes.length) {
       decodeV2Extensions(bytes, decoder, evResult.offset, decoded);
+    }
+
+    if (decoded._checksumFailed) {
+      throw new Error("Import beschädigt (Prüfsumme stimmt nicht)");
     }
 
     return decoded;
@@ -560,8 +620,10 @@
       if (t === "x") {
         const id = typeof e.id === "string" && e.id ? e.id : "";
         const ref = typeof e.ref === "string" ? e.ref.trim() : "";
+        // Clamp to >= 0: a negative ts would make writeVarUint (unsigned) throw
+        // and permanently brick every export.
         const tsMs =
-          typeof e.ts === "number" && Number.isFinite(e.ts)
+          typeof e.ts === "number" && Number.isFinite(e.ts) && e.ts > 0
             ? Math.floor(e.ts)
             : 0;
         if (id && ref) {
@@ -570,7 +632,10 @@
         continue;
       }
       if (typeCodeMap[t] === undefined) continue;
-      const tsMs = typeof e.ts === "number" ? e.ts : 0;
+      const tsMs =
+        typeof e.ts === "number" && Number.isFinite(e.ts) && e.ts > 0
+          ? Math.floor(e.ts)
+          : 0;
       const tsMin = Math.floor(tsMs / 60000);
       const id = typeof e.id === "string" && e.id ? e.id : "";
       if (!id) continue;
@@ -819,6 +884,22 @@
       }
     }
 
+    // optional extension: integrity checksum ("ck", v1) — fnv1a64 truncated to
+    // 32 bits over every preceding byte. Written ABSOLUTELY LAST so it covers all
+    // other blocks. Hardens the uncompressed i2u: and legacy import: paths that
+    // gzip's CRC doesn't cover: a corrupt byte flips the checksum and the decoder
+    // rejects instead of silently importing wrong data. Old decoders stop at this
+    // unknown block without verifying (graceful).
+    if (helpers && typeof helpers.fnv1a64 === "function") {
+      const sum = Number(helpers.fnv1a64(out) & 0xffffffffn);
+      out.push(99, 107); // "ck"
+      writeVarUint(1, out);
+      out.push((sum >>> 24) & 0xff);
+      out.push((sum >>> 16) & 0xff);
+      out.push((sum >>> 8) & 0xff);
+      out.push(sum & 0xff);
+    }
+
     return new Uint8Array(out);
   }
 
@@ -980,6 +1061,12 @@
   async function parseImportHashPayload(hash) {
     if (hash.startsWith("i2u:")) {
       const raw = base64UrlDecodeBytes(hash.slice(4));
+      // i2u carries the payload uncompressed, so guard on the raw byte length.
+      // Use the same ceiling as i2:'s post-decompress bound (2 MB) — i2: and
+      // import: both already cap; this closes the last unguarded path.
+      if (raw.length > 2 * 1024 * 1024) {
+        throw new Error("Import payload too large");
+      }
       const remote = decodeImportV2Bytes(raw);
       return { kind: "i2u", remote, label: "QR-Import (kurz)" };
     }
