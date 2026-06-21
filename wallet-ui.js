@@ -913,6 +913,19 @@
       refreshSummary();
     }
 
+    // Stay live across tabs: when another tab of the SAME wallet persists a
+    // change, reload from storage and re-render. saveWallet already union-merges
+    // on write, so this is purely for UI freshness (the storage event never
+    // fires in the tab that wrote it, so there is no feedback loop).
+    window.addEventListener("storage", (e) => {
+      if (!e || e.key !== helpers.STORAGE_PREFIX + userId) return;
+      const reloaded = loadWallet(userId);
+      if (reloaded) {
+        wallet = reloaded;
+        handleWalletStateChange();
+      }
+    });
+
     if (btnHome) {
       btnHome.addEventListener("click", () => {
         window.location.href = "index.html";
