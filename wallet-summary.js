@@ -35,15 +35,36 @@
 
   function applyTombstones(events) {
     const list = Array.isArray(events) ? events : [];
-    const deletedIds = new Set();
     const tombstones = [];
+    const tombstoneById = new Map();
+    const allIds = new Set();
 
     for (const e of list) {
       if (!e || typeof e !== "object") continue;
-      if (e.t !== "x") continue;
-      tombstones.push(e);
+      if (typeof e.id === "string" && e.id) allIds.add(e.id);
+      if (e.t === "x") {
+        tombstones.push(e);
+        if (typeof e.id === "string" && e.id) tombstoneById.set(e.id, e);
+      }
+    }
+
+    // A tombstone whose own id is referenced by another tombstone has been
+    // "undone" (undo-of-delete): it no longer suppresses its target. Collect the
+    // neutralized tombstone ids first so processing order doesn't matter.
+    const neutralized = new Set();
+    for (const e of tombstones) {
       const ref = typeof e.ref === "string" ? e.ref.trim() : "";
-      if (ref) deletedIds.add(ref);
+      if (ref && tombstoneById.has(ref)) neutralized.add(ref);
+    }
+
+    const deletedIds = new Set();
+    for (const e of tombstones) {
+      if (typeof e.id === "string" && neutralized.has(e.id)) continue; // undone
+      const ref = typeof e.ref === "string" ? e.ref.trim() : "";
+      if (!ref) continue;
+      if (tombstoneById.has(ref)) continue; // targets a tombstone -> neutralization
+      if (!allIds.has(ref)) continue; // orphan ref -> nothing real to suppress
+      deletedIds.add(ref);
     }
 
     const visibleEvents = [];
@@ -63,6 +84,7 @@
     return {
       deletedIds,
       tombstones,
+      neutralized,
       visibleEvents,
       effectiveEvents,
     };
@@ -160,10 +182,17 @@
         day.drinkCount += n;
         balance += n;
       } else if (e.t === "s") {
+        // 's' (subtract) is import/legacy only — the action layer never produces
+        // it (undo/delete/edit use tombstones t:"x"). It removes unpaid drinks
+        // but must NOT manufacture credit: if subtracting would push a
+        // non-negative balance below zero, clamp at zero so a stray/crafted 's'
+        // can't surface as phantom Guthaben (the symmetric counterpart to the
+        // `total < 0` clamp below).
         const n =
           typeof e.n === "number" && isFinite(e.n)
             ? Math.max(1, Math.round(e.n))
             : 1;
+        const balanceBefore = balance;
         total -= n;
         day.drinks -= n;
         // Keep drinkCount (the bracketed label) net so it agrees with the bar,
@@ -171,7 +200,11 @@
         // with a shorter/empty bar.
         day.drinkCount -= n;
         balance -= n;
+        if (balanceBefore >= 0 && balance < 0) balance = 0;
       } else if (e.t === "p") {
+        // day.paid flags that a payment occurred ON this day — it does not mark
+        // the earlier days this pay settles. The actual settlement is the global
+        // balance clamp below.
         day.paid = true;
         if (balance > 0) {
           balance = 0;
@@ -181,7 +214,9 @@
           typeof e.n === "number" && isFinite(e.n)
             ? Math.max(1, Math.round(e.n))
             : 1;
-        // Gutschriften zählen nicht in die Tages-Drinkmenge
+        // Gutschriften offset the balance (credit) but deliberately do NOT touch
+        // total or the per-day drink count — credit is not drink consumption.
+        // Do not "symmetrize" the d/s/g branches: that would double-count.
         balance -= n;
       }
     }
@@ -336,7 +371,9 @@
     else if (e.t === "g") action = `Gutschrift ${n} Getränk(e)`;
     else if (e.t === "x") {
       const ref = typeof e.ref === "string" ? e.ref : "";
-      action = ref ? `🗑️ gelöscht: ${ref}` : "🗑️ gelöscht";
+      action = ref
+        ? `🗑️ gelöscht: ${ref} (nicht bearbeitbar)`
+        : "🗑️ gelöscht (nicht bearbeitbar)";
     }
     return `#${index} | ${dateStr} ${timeStr} | ${action}`;
   }

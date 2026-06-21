@@ -206,7 +206,13 @@
   function loadRegistry() {
     const raw = safeLocalStorageGetItem(REGISTRY_KEY);
     const obj = safeParse(raw);
-    return obj && typeof obj === "object" ? obj : {};
+    // null-prototype: a wallet userId is bracket-assigned as a registry key, so a
+    // "__proto__" key (e.g. via JSON.parse own-property) must land as an ordinary
+    // own property instead of mutating the prototype. JSON.stringify still
+    // serializes own enumerable keys, so saveRegistry round-trips cleanly.
+    const reg = Object.create(null);
+    if (obj && typeof obj === "object") Object.assign(reg, obj);
+    return reg;
   }
 
   function saveRegistry(reg) {
