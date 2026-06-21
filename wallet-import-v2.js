@@ -278,8 +278,8 @@
     return { events, offset };
   }
 
-  // Reads the optional trailing extension blocks ("ac", "sp", "dv", "xt") and
-  // mutates decoded in place. Tolerates parse errors for forward-compat.
+  // Reads the optional trailing extension blocks ("ac", "sp", "dv", "xt", "se")
+  // and mutates decoded in place. Tolerates parse errors for forward-compat.
   function decodeV2Extensions(bytes, decoder, startOffset, decoded) {
     let offset = startOffset;
     try {
@@ -435,6 +435,40 @@
           continue;
         }
 
+        if (
+          bytes[offset] === 115 && // "s"
+          bytes[offset + 1] === 101 // "e"
+        ) {
+          offset += 2;
+          const [seVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (seVersion !== 1) break;
+          const [count, o9] = readVarUint(bytes, offset);
+          offset = o9;
+          const supById = new Map();
+          for (let i = 0; i < count; i++) {
+            const [idLen, o10] = readVarUint(bytes, offset);
+            offset = o10;
+            const id = decoder.decode(sliceChecked(bytes, offset, idLen));
+            offset += idLen;
+
+            const [supLen, o11] = readVarUint(bytes, offset);
+            offset = o11;
+            const sup = decoder.decode(sliceChecked(bytes, offset, supLen));
+            offset += supLen;
+
+            if (id && sup && id !== sup) supById.set(id, sup);
+          }
+          if (supById.size && Array.isArray(decoded.events)) {
+            for (const ev of decoded.events) {
+              if (ev && ev.t !== "x" && typeof ev.id === "string" && supById.has(ev.id)) {
+                ev.supersedes = supById.get(ev.id);
+              }
+            }
+          }
+          continue;
+        }
+
         break;
       }
     } catch (e) {
@@ -558,6 +592,9 @@
         amount = n > 0 ? Math.min(n, MAX_DECODED_AMOUNT) : 1;
       }
 
+      const supersedes =
+        typeof e.supersedes === "string" && e.supersedes ? e.supersedes : "";
+
       events.push({
         tsMin,
         tsMs,
@@ -565,6 +602,7 @@
         amount,
         id,
         parsed,
+        supersedes,
       });
     }
 
@@ -756,6 +794,29 @@
       }
     } catch (e) {
       console.warn("db-wallet: encode-v2 device list extension failed", e);
+    }
+
+    // optional extension: supersedes links ("se", v1) — maps an edit-replacement
+    // id to its chain root. Written LAST among the extension blocks: blocks have
+    // no length prefix, so an OLD decoder that doesn't know "se" breaks here,
+    // AFTER it has already parsed xt/ac/sp/dv. Losing supersedes only reverts
+    // that old client to the pre-merge-safe edit behavior (it can't converge
+    // concurrent edits, but it already couldn't); a new decoder reads the links
+    // and collapses concurrent edits deterministically.
+    const superseded = events.filter((e) => e.supersedes);
+    if (superseded.length) {
+      out.push(115, 101); // "se"
+      writeVarUint(1, out);
+      writeVarUint(superseded.length, out);
+      for (const e of superseded) {
+        const idBytes = encoder.encode(e.id);
+        writeVarUint(idBytes.length, out);
+        for (const b of idBytes) out.push(b);
+
+        const supBytes = encoder.encode(e.supersedes);
+        writeVarUint(supBytes.length, out);
+        for (const b of supBytes) out.push(b);
+      }
     }
 
     return new Uint8Array(out);

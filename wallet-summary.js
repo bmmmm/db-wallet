@@ -33,40 +33,89 @@
 
   let computeSummarySafeLogged = false;
 
+  // The chain root of an event: an edit replacement carries supersedes=<rootId>,
+  // so all replacements of one logical entry share a root. An un-edited event is
+  // its own root.
+  function rootIdOf(e) {
+    if (e && typeof e.supersedes === "string" && e.supersedes) {
+      return e.supersedes;
+    }
+    return e && typeof e.id === "string" ? e.id : "";
+  }
+
   function applyTombstones(events) {
+    const helpers = window.dbWalletHelpers || null;
+    const cmp =
+      helpers && typeof helpers.compareEventsByTime === "function"
+        ? helpers.compareEventsByTime
+        : null;
     const list = Array.isArray(events) ? events : [];
+
     const tombstones = [];
     const tombstoneById = new Map();
-    const allIds = new Set();
+    const nonTombstone = [];
+    const membersByRoot = new Map();
+    const idToRoot = new Map();
 
     for (const e of list) {
       if (!e || typeof e !== "object") continue;
-      if (typeof e.id === "string" && e.id) allIds.add(e.id);
       if (e.t === "x") {
         tombstones.push(e);
         if (typeof e.id === "string" && e.id) tombstoneById.set(e.id, e);
+        continue;
       }
+      nonTombstone.push(e);
+      const root = rootIdOf(e);
+      if (typeof e.id === "string" && e.id) idToRoot.set(e.id, root);
+      if (!membersByRoot.has(root)) membersByRoot.set(root, []);
+      membersByRoot.get(root).push(e);
     }
 
     // A tombstone whose own id is referenced by another tombstone has been
-    // "undone" (undo-of-delete): it no longer suppresses its target. Collect the
-    // neutralized tombstone ids first so processing order doesn't matter.
+    // "undone" (undo-of-delete): it no longer suppresses its target.
     const neutralized = new Set();
     for (const e of tombstones) {
       const ref = typeof e.ref === "string" ? e.ref.trim() : "";
       if (ref && tombstoneById.has(ref)) neutralized.add(ref);
     }
 
-    const deletedIds = new Set();
+    // A delete tombstone refs the entry's ROOT (legacy tombstones may ref a
+    // replacement id, so resolve through idToRoot). Deleting a root suppresses
+    // the whole logical entry — every replacement of it — so a concurrent edit
+    // can't resurrect a deleted entry. Orphan refs (no member with that root)
+    // suppress nothing.
+    const deletedRoots = new Set();
     for (const e of tombstones) {
-      if (typeof e.id === "string" && neutralized.has(e.id)) continue; // undone
+      if (typeof e.id === "string" && neutralized.has(e.id)) continue;
       const ref = typeof e.ref === "string" ? e.ref.trim() : "";
       if (!ref) continue;
       if (tombstoneById.has(ref)) continue; // targets a tombstone -> neutralization
-      if (!allIds.has(ref)) continue; // orphan ref -> nothing real to suppress
-      deletedIds.add(ref);
+      const root = idToRoot.has(ref) ? idToRoot.get(ref) : ref;
+      if (membersByRoot.has(root)) deletedRoots.add(root);
     }
 
+    // Winner per root: the canonical-last replacement if any edit happened,
+    // else the bare root event. Two devices editing the same root independently
+    // therefore collapse to ONE deterministic survivor on every device.
+    const winnerByRoot = new Map();
+    for (const [root, members] of membersByRoot) {
+      const reps = members.filter(
+        (m) => typeof m.supersedes === "string" && m.supersedes,
+      );
+      const pool = reps.length ? reps : members;
+      let winner = pool[0];
+      for (let i = 1; i < pool.length; i++) {
+        const better = cmp
+          ? cmp(pool[i], winner) > 0
+          : (pool[i].ts || 0) > (winner.ts || 0) ||
+            ((pool[i].ts || 0) === (winner.ts || 0) &&
+              String(pool[i].id) > String(winner.id));
+        if (better) winner = pool[i];
+      }
+      winnerByRoot.set(root, winner);
+    }
+
+    const deletedIds = new Set();
     const visibleEvents = [];
     for (const e of list) {
       if (!e || typeof e !== "object") continue;
@@ -74,8 +123,17 @@
         visibleEvents.push(e);
         continue;
       }
-      const id = typeof e.id === "string" ? e.id : "";
-      if (id && deletedIds.has(id)) continue;
+      const root = rootIdOf(e);
+      if (deletedRoots.has(root)) {
+        if (typeof e.id === "string" && e.id) deletedIds.add(e.id);
+        continue;
+      }
+      const winner = winnerByRoot.get(root);
+      if (winner && e !== winner) {
+        // superseded by a newer edit of the same entry
+        if (typeof e.id === "string" && e.id) deletedIds.add(e.id);
+        continue;
+      }
       visibleEvents.push(e);
     }
 
@@ -85,6 +143,7 @@
       deletedIds,
       tombstones,
       neutralized,
+      deletedRoots,
       visibleEvents,
       effectiveEvents,
     };
@@ -117,7 +176,11 @@
             : undefined;
       const ref =
         typeof ev.ref === "string" && ev.ref.trim() !== "" ? ev.ref : undefined;
-      events.push({ id, t, n, ts, ref });
+      const supersedes =
+        typeof ev.supersedes === "string" && ev.supersedes.trim() !== ""
+          ? ev.supersedes
+          : undefined;
+      events.push({ id, t, n, ts, ref, supersedes });
     }
 
     return {
@@ -382,6 +445,7 @@
     todayDateStr,
     dateStrFromTimestamp,
     normalizeWalletForSummary,
+    rootIdOf,
     applyTombstones,
     computeSummary,
     computeSummarySafe,

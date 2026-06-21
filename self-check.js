@@ -890,28 +890,51 @@
             };
           };
 
-          // A1: edit must be append-only (tombstone old + new event), original
-          // id never mutated, so cross-device merge can converge.
+          // A1: edit is append-only AND merge-safe — original id never mutated,
+          // the edit appends a replacement carrying supersedes=<root> (no
+          // tombstone), and the fold collapses to the replacement.
           const wEdit = mkActWallet();
           actionsApi.editEntry(
             mkCtx(wEdit, { range: "1", prompts: ["2024-03-01", "5"] }),
           );
           const origStill = wEdit.events.find((e) => e.id === "dev.1");
-          const tombFor = wEdit.events.find(
-            (e) => e.t === "x" && e.ref === "dev.1",
-          );
           const repl = wEdit.events.find((e) => e.t === "d" && e.id !== "dev.1");
           const editTotal = summaryApi.computeSummary(wEdit).total;
           addCheck(
             result,
-            "editEntry is append-only",
+            "editEntry is append-only + merge-safe (supersedes)",
             !!origStill &&
               origStill.n === 2 &&
-              !!tombFor &&
               !!repl &&
               repl.n === 5 &&
+              repl.supersedes === "dev.1" &&
               editTotal === 5,
-            `orig=${origStill && origStill.n} tomb=${!!tombFor} repl=${repl && repl.n} total=${editTotal}`,
+            `orig=${origStill && origStill.n} repl=${repl && repl.n} sup=${repl && repl.supersedes} total=${editTotal}`,
+          );
+
+          // A1b: two devices editing the same entry offline collapse to ONE
+          // deterministic winner instead of double-counting after merge.
+          const wConc = {
+            userId: "selfcheck-conc-" + randomId(),
+            walletId: "w",
+            v: 2,
+            seq: {},
+            events: [
+              { id: "dev.1", t: "d", n: 2, ts: 1000 },
+              { id: "deva.5", t: "d", n: 5, ts: 2000, supersedes: "dev.1" },
+              { id: "devb.3", t: "d", n: 7, ts: 3000, supersedes: "dev.1" },
+            ],
+            actionCodes: [],
+            devices: [],
+          };
+          const concSum = summaryApi.computeSummary(wConc);
+          addCheck(
+            result,
+            "concurrent edit converges to one winner",
+            concSum.total === 7 &&
+              concSum.eventsEffectiveSorted.length === 1 &&
+              concSum.eventsEffectiveSorted[0].id === "devb.3",
+            `total=${concSum.total} eff=${concSum.eventsEffectiveSorted.length}`,
           );
 
           // A2: a future date is rejected and the wallet is left untouched.

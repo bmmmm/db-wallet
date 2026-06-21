@@ -58,23 +58,32 @@
 
   function undoLast(ctx) {
     const wallet = ctx.getWallet();
-    // Resolve what undoLastEvent will actually act on (it may neutralize a
-    // deletion rather than undo the last visible event) so the confirm matches.
+    // Resolve what undoLastEvent will actually act on so any confirm matches the
+    // outcome (undo is monotonic: it removes the last visible entry).
     const plan = resolveUndoTarget ? resolveUndoTarget(wallet) : null;
-    if (plan && plan.type === "undo" && plan.event && plan.event.t === "p") {
-      // Undoing a pay re-opens the drinks it settled — confirm with the swing,
-      // matching the count warning deleteSelection already shows for pays.
-      const without = {
-        events: wallet.events.filter((e) => e && e.id !== plan.id),
-      };
-      const baseline = summaryApi.computeSummarySafe(wallet);
-      const reopened =
-        summaryApi.computeSummarySafe(without).unpaid - baseline.unpaid;
-      const msg =
-        reopened > 0
-          ? `Dies nimmt die letzte Bezahlung zurück und öffnet ${reopened} Getränk(e) wieder. Fortfahren? 💸`
-          : "Dies nimmt die letzte Bezahlung zurück. Fortfahren? 💸";
-      if (!ctx.dialogConfirm(msg)) {
+    if (plan) {
+      let msg = null;
+      if (plan.event && plan.event.t === "p") {
+        // Undoing a pay re-opens the drinks it settled — confirm with the swing,
+        // matching the count warning deleteSelection already shows for pays.
+        const without = {
+          events: wallet.events.filter((e) => e && e.id !== plan.id),
+        };
+        const baseline = summaryApi.computeSummarySafe(wallet);
+        const reopened =
+          summaryApi.computeSummarySafe(without).unpaid - baseline.unpaid;
+        msg =
+          reopened > 0
+            ? `Dies nimmt die letzte Bezahlung zurück und öffnet ${reopened} Getränk(e) wieder. Fortfahren? 💸`
+            : "Dies nimmt die letzte Bezahlung zurück. Fortfahren? 💸";
+      } else if (plan.afterDeletion) {
+        // The previous action was a deletion. Undo does NOT revert the deletion
+        // — it removes the newest still-visible entry — so make that explicit
+        // instead of silently retargeting.
+        msg =
+          "Die letzte Aktion war eine Löschung. „Rückgängig“ nimmt nicht die Löschung zurück, sondern den neuesten noch sichtbaren Eintrag. Fortfahren?";
+      }
+      if (msg && !ctx.dialogConfirm(msg)) {
         ctx.clearExport();
         return;
       }
@@ -195,7 +204,9 @@
           if (e && e.t === "x") skippedTombstones++;
           return;
         }
-        idsToDelete.add(e.id);
+        // Tombstone the entry's ROOT, not the visible replacement id, so a
+        // delete kills the whole logical entry and wins over any concurrent edit.
+        idsToDelete.add(summaryApi.rootIdOf(e));
         if (e.t === "p") payCount++;
       }
     });
@@ -395,17 +406,24 @@
       newAmount = parsed;
     }
 
-    // Append-only edit: tombstone the original event and append a replacement
-    // with a fresh id. Mutating the event in place keeps the same id, and the
-    // cross-device merge dedups strictly by id — so an in-place edit silently
-    // fails to propagate (or gets reverted) when two devices hold that id.
+    // Append-only, merge-safe edit: append a replacement carrying
+    // supersedes=<rootId>. The summary fold collapses every replacement of one
+    // root to the canonical-last winner, so two devices editing the same entry
+    // offline converge to a single survivor instead of double-counting. No
+    // tombstone is appended — the replacement supersedes the original (and any
+    // earlier replacement) directly. Editing an already-edited entry keeps
+    // pointing at the chain root so the chain collapses cleanly.
+    const rootId =
+      typeof targetEvent.supersedes === "string" && targetEvent.supersedes
+        ? targetEvent.supersedes
+        : targetId;
     const ok = persistMutation(ctx, wallet, () => {
-      appendTombstone(wallet, targetId);
       wallet.events.push({
         id: nextEventId(wallet),
         t: targetEvent.t,
         n: targetEvent.t === "p" ? undefined : newAmount,
         ts: newTs,
+        supersedes: rootId,
       });
     });
     if (!ok) return;
