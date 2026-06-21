@@ -1,4 +1,4 @@
-const VERSION = "db-wallet-v2-2026-06-15";
+const VERSION = "db-wallet-v2-2026-06-21";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -74,15 +74,20 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((res) => {
-        if (res && res.status === 200 && res.type === "basic") {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => {});
-        }
-        return res;
-      });
-    }),
+    caches
+      .match(req)
+      .then((cached) => {
+        if (cached) return cached;
+        return fetch(req).then((res) => {
+          if (res && res.status === 200 && res.type === "basic") {
+            const copy = res.clone();
+            caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => {});
+          }
+          return res;
+        });
+      })
+      // Mirror the HTML path's defensive tail: a cache-miss while offline would
+      // otherwise reject the whole respondWith with a generic network error.
+      .catch(() => new Response("", { status: 503, statusText: "Offline" })),
   );
 });

@@ -1,0 +1,33 @@
+name: sw-version-guard
+
+# Fail a push/PR that changes a cached app-shell asset without bumping the
+# service worker VERSION — otherwise active service workers keep serving the
+# stale app shell.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check service worker VERSION bump
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base ref to compare against; skipping."
+            exit 0
+          fi
+          bash scripts/check-sw-version.sh "$base"
