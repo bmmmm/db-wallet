@@ -1342,11 +1342,23 @@
           })();
 
     const normalizeType = (v) => (v === "d" || v === "g" ? v : null);
-    const type =
-      normalizeType(payload.type) || normalizeType(match.type) || "g";
+    // Always book the STORED code's type — never let the scanned payload override
+    // it. A crafted local 'ac:' QR could otherwise flip a credit ('g') code into
+    // a drink (debit) via payload.type. The legitimate generator never emits a
+    // type for local codes; the global 'acg:' path is self-describing and handled
+    // separately.
+    const type = normalizeType(match.type) || "g";
 
+    const beforeEvents = wallet.events.slice();
     wallet.events.push(newEvent(wallet, type === "d" ? "d" : "g", amount));
-    saveWallet(wallet);
+    if (!saveWallet(wallet)) {
+      wallet.events = beforeEvents;
+      alert(
+        "Speichern fehlgeschlagen — Buchung verworfen (Speicher voll oder blockiert).",
+      );
+      window.location.hash = "#" + targetUserId;
+      return { userId: targetUserId, redirectedToPreview: false };
+    }
     window.location.hash = "#" + targetUserId;
     alert(
       type === "d"
