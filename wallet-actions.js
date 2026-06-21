@@ -348,6 +348,12 @@
 
     const newTs = testDate.getTime();
     const targetId = targetEvent.id;
+    // The entry's root: when editing an already-edited entry, the target is a
+    // replacement carrying supersedes, so resolve to the chain root.
+    const probeRootId =
+      typeof targetEvent.supersedes === "string" && targetEvent.supersedes
+        ? targetEvent.supersedes
+        : targetId;
 
     // Reject moving the entry across a pay ("p") boundary in EITHER direction.
     // Balance is folded in strict ts order and a pay clamps it to 0, so
@@ -357,15 +363,20 @@
     // new ts changes them, the new date crossed a pay. (The future guard above
     // only blocks one direction; this also blocks back-dating before an earlier
     // pay, which would zero a drink's unpaid contribution.)
+    //
+    // Drop the WHOLE root chain (not just the visible id) and give the probe
+    // event supersedes=root, otherwise an earlier replacement of the same entry
+    // would resurface and double-count, falsely rejecting every chain edit.
     const movedSameAmount = {
       events: wallet.events
-        .filter((e) => e && e.id !== targetId)
+        .filter((e) => e && summaryApi.rootIdOf(e) !== probeRootId)
         .concat([
           {
             id: targetId + ".edit-probe",
             t: targetEvent.t,
             n: targetEvent.t === "p" ? undefined : targetEvent.n,
             ts: newTs,
+            supersedes: probeRootId,
           },
         ]),
     };

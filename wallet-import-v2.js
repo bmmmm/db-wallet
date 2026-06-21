@@ -498,28 +498,14 @@
           bytes[offset] === 99 && // "c"
           bytes[offset + 1] === 107 // "k"
         ) {
-          const blockStart = offset;
+          // Just consume the trailer here; the checksum is verified independently
+          // of this cursor in decodeImportV2Bytes (a corrupt upstream tag/version
+          // byte would make this loop break before ever reaching ck).
           offset += 2;
           const [ckVersion, o8] = readVarUint(bytes, offset);
           offset = o8;
           if (ckVersion !== 1) break;
-          const stored =
-            ((bytes[offset] << 24) |
-              (bytes[offset + 1] << 16) |
-              (bytes[offset + 2] << 8) |
-              bytes[offset + 3]) >>>
-            0;
           offset += 4;
-          if (helpers && typeof helpers.fnv1a64 === "function") {
-            const actual = Number(
-              helpers.fnv1a64(bytes.subarray(0, blockStart)) & 0xffffffffn,
-            );
-            if (stored !== actual && decoded && typeof decoded === "object") {
-              // Hard-reject signal (checked in decodeImportV2Bytes): the payload
-              // is corrupt, not merely carrying unknown extension data.
-              decoded._checksumFailed = true;
-            }
-          }
           continue;
         }
 
@@ -550,6 +536,36 @@
       throw new Error("Unsupported codec version " + bytes[3]);
     }
 
+    // Verify the integrity checksum INDEPENDENTLY of the extension-block cursor:
+    // if the payload ends with a "ck" trailer (99,107, version=1, 4 checksum
+    // bytes), fnv1a64 over everything before it must match. Doing it here — not
+    // inside the tolerant extension loop — means a corrupt upstream tag/version
+    // byte (which would make that loop break early) can't slip a corrupt payload
+    // through. Payloads without a ck trailer (older encoders) skip the check.
+    if (bytes.length >= 7) {
+      const tlen = bytes.length;
+      if (
+        bytes[tlen - 7] === 99 &&
+        bytes[tlen - 6] === 107 &&
+        bytes[tlen - 5] === 1 &&
+        helpers &&
+        typeof helpers.fnv1a64 === "function"
+      ) {
+        const stored =
+          ((bytes[tlen - 4] << 24) |
+            (bytes[tlen - 3] << 16) |
+            (bytes[tlen - 2] << 8) |
+            bytes[tlen - 1]) >>>
+          0;
+        const actual = Number(
+          helpers.fnv1a64(bytes.subarray(0, tlen - 7)) & 0xffffffffn,
+        );
+        if (stored !== actual) {
+          throw new Error("Import beschädigt (Prüfsumme stimmt nicht)");
+        }
+      }
+    }
+
     const decoder = new TextDecoder("utf-8", { fatal: true });
     const header = decodeV2Header(bytes, 4);
     const { themeIdx, walletV, walletId, userId, deviceKeys, baseTsMin } = header;
@@ -575,10 +591,6 @@
     //  - integrity checksum ("ck", v1)
     if (evResult.offset < bytes.length) {
       decodeV2Extensions(bytes, decoder, evResult.offset, decoded);
-    }
-
-    if (decoded._checksumFailed) {
-      throw new Error("Import beschädigt (Prüfsumme stimmt nicht)");
     }
 
     return decoded;

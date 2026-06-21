@@ -65,8 +65,12 @@
         continue;
       }
       nonTombstone.push(e);
+      // An id-less event has no root identity, so it must NOT be grouped — every
+      // id-less event is its own always-visible entry. Grouping them under root
+      // "" would collapse them to a single winner and silently undercount.
+      if (typeof e.id !== "string" || !e.id) continue;
       const root = rootIdOf(e);
-      if (typeof e.id === "string" && e.id) idToRoot.set(e.id, root);
+      idToRoot.set(e.id, root);
       if (!membersByRoot.has(root)) membersByRoot.set(root, []);
       membersByRoot.get(root).push(e);
     }
@@ -123,9 +127,14 @@
         visibleEvents.push(e);
         continue;
       }
+      // id-less events were never grouped — keep each as its own visible entry.
+      if (typeof e.id !== "string" || !e.id) {
+        visibleEvents.push(e);
+        continue;
+      }
       const root = rootIdOf(e);
       if (deletedRoots.has(root)) {
-        if (typeof e.id === "string" && e.id) deletedIds.add(e.id);
+        deletedIds.add(e.id);
         continue;
       }
       const winner = winnerByRoot.get(root);
