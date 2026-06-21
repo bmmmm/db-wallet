@@ -22,16 +22,58 @@
     };
   }
 
+  // Persist a wallet mutation, rolling back the optimistic in-memory append when
+  // the write fails (quota exceeded / disabled storage). Returns true on success.
+  // `mutate` must only APPEND events — the append-only model means truncating the
+  // events array back to its pre-mutation length is a complete, exact rollback.
+  // Without this the UI reports success on a quota-failed write and the booking
+  // vanishes on the next reload.
+  function persistMutation(ctx, wallet, mutate) {
+    const before = wallet.events.length;
+    mutate();
+    if (saveWallet(wallet)) return true;
+    if (wallet.events.length > before) wallet.events.length = before;
+    ctx.dialogAlert(
+      "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
+    );
+    return false;
+  }
+
   function bookDrink(ctx) {
     const wallet = ctx.getWallet();
-    wallet.events.push(newEvent(wallet, "d", ctx.getAmount()));
-    saveWallet(wallet);
+    const ok = persistMutation(ctx, wallet, () => {
+      wallet.events.push(newEvent(wallet, "d", ctx.getAmount()));
+    });
+    if (!ok) return;
     ctx.resetAmount();
     ctx.onStateChanged();
   }
 
   function undoLast(ctx) {
     const wallet = ctx.getWallet();
+    const summary = ctx.getSummary();
+    const effective = Array.isArray(summary.eventsEffectiveSorted)
+      ? summary.eventsEffectiveSorted
+      : [];
+    const last = effective.length ? effective[effective.length - 1] : null;
+    if (last && last.t === "p") {
+      // Undoing a pay re-opens the drinks it settled — confirm with the swing,
+      // matching the count warning deleteSelection already shows for pays.
+      const without = {
+        events: wallet.events.filter((e) => e && e.id !== last.id),
+      };
+      const baseline = summaryApi.computeSummarySafe(wallet);
+      const reopened =
+        summaryApi.computeSummarySafe(without).unpaid - baseline.unpaid;
+      const msg =
+        reopened > 0
+          ? `Dies nimmt die letzte Bezahlung zurück und öffnet ${reopened} Getränk(e) wieder. Fortfahren? 💸`
+          : "Dies nimmt die letzte Bezahlung zurück. Fortfahren? 💸";
+      if (!ctx.dialogConfirm(msg)) {
+        ctx.clearExport();
+        return;
+      }
+    }
     const removed = undoLastEvent(wallet);
     if (!removed) {
       ctx.resetAmount();
@@ -49,8 +91,10 @@
       ctx.clearExport();
       return;
     }
-    wallet.events.push(newEvent(wallet, "p"));
-    saveWallet(wallet);
+    const ok = persistMutation(ctx, wallet, () => {
+      wallet.events.push(newEvent(wallet, "p"));
+    });
+    if (!ok) return;
     ctx.resetAmount();
     ctx.resetPayUi();
     ctx.onStateChanged();
@@ -72,8 +116,10 @@
       ctx.clearExport();
       return;
     }
-    wallet.events.push(newEvent(wallet, "g", n));
-    saveWallet(wallet);
+    const ok = persistMutation(ctx, wallet, () => {
+      wallet.events.push(newEvent(wallet, "g", n));
+    });
+    if (!ok) return;
     ctx.resetAmount();
     ctx.resetPayUi();
     ctx.onStateChanged();
@@ -136,16 +182,26 @@
 
     const idsToDelete = new Set();
     let payCount = 0;
+    let skippedTombstones = 0;
     summary.eventsSorted.forEach((e, i) => {
       const idx = i + 1;
       if (indices.has(idx)) {
-        if (!e || e.t === "x") return;
+        if (!e || e.t === "x") {
+          if (e && e.t === "x") skippedTombstones++;
+          return;
+        }
         idsToDelete.add(e.id);
         if (e.t === "p") payCount++;
       }
     });
     if (!idsToDelete.size) {
-      ctx.dialogAlert("Keine passenden Logeinträge gefunden.");
+      // Distinguish "selection hit only already-deleted rows" from "no valid IDs"
+      // so the message is actionable instead of generically blaming the input.
+      ctx.dialogAlert(
+        skippedTombstones > 0
+          ? "Die Auswahl enthält nur Löscheinträge — diese sind bereits gelöscht und nicht erneut löschbar."
+          : "Keine passenden Logeinträge gefunden.",
+      );
       ctx.clearExport();
       ctx.clearDeleteRange();
       return;
@@ -168,12 +224,14 @@
     }
     const baseTs = maxTs + 1;
     let added = 0;
-    for (const id of idsToDelete) {
-      if (appendTombstone(wallet, id, baseTs + added)) {
-        added++;
+    const ok = persistMutation(ctx, wallet, () => {
+      for (const id of idsToDelete) {
+        if (appendTombstone(wallet, id, baseTs + added)) {
+          added++;
+        }
       }
-    }
-    if (added > 0) saveWallet(wallet);
+    });
+    if (!ok) return;
     ctx.clearExport();
     ctx.clearDeleteRange();
     ctx.onStateChanged();
@@ -272,6 +330,43 @@
       return;
     }
 
+    const newTs = testDate.getTime();
+    const targetId = targetEvent.id;
+
+    // Reject moving the entry across a pay ("p") boundary in EITHER direction.
+    // Balance is folded in strict ts order and a pay clamps it to 0, so
+    // relocating an event to the other side of a pay silently re-settles it
+    // (flips paid<->unpaid). A move within the same inter-pay segment is purely
+    // additive and leaves unpaid/credit untouched; if a same-amount move at the
+    // new ts changes them, the new date crossed a pay. (The future guard above
+    // only blocks one direction; this also blocks back-dating before an earlier
+    // pay, which would zero a drink's unpaid contribution.)
+    const movedSameAmount = {
+      events: wallet.events
+        .filter((e) => e && e.id !== targetId)
+        .concat([
+          {
+            id: targetId + ".edit-probe",
+            t: targetEvent.t,
+            n: targetEvent.t === "p" ? undefined : targetEvent.n,
+            ts: newTs,
+          },
+        ]),
+    };
+    // Compare both sides through the same code path (computeSummarySafe) so
+    // normalization can't fabricate a spurious diff against the cached raw
+    // summary.
+    const baseline = summaryApi.computeSummarySafe(wallet);
+    const probe = summaryApi.computeSummarySafe(movedSameAmount);
+    if (probe.unpaid !== baseline.unpaid || probe.credit !== baseline.credit) {
+      ctx.dialogAlert(
+        "Das neue Datum verschiebt den Eintrag über eine Bezahlung hinweg und würde bezahlte/offene Getränke verändern. Bearbeitung abgebrochen.",
+      );
+      ctx.clearExport();
+      ctx.clearDeleteRange();
+      return;
+    }
+
     let newAmount = targetEvent.n;
     if (targetEvent.t !== "p") {
       const defaultAmount =
@@ -295,20 +390,20 @@
       newAmount = parsed;
     }
 
-    const newTs = testDate.getTime();
-    const targetId = targetEvent.id;
     // Append-only edit: tombstone the original event and append a replacement
     // with a fresh id. Mutating the event in place keeps the same id, and the
     // cross-device merge dedups strictly by id — so an in-place edit silently
     // fails to propagate (or gets reverted) when two devices hold that id.
-    appendTombstone(wallet, targetId);
-    wallet.events.push({
-      id: nextEventId(wallet),
-      t: targetEvent.t,
-      n: targetEvent.t === "p" ? undefined : newAmount,
-      ts: newTs,
+    const ok = persistMutation(ctx, wallet, () => {
+      appendTombstone(wallet, targetId);
+      wallet.events.push({
+        id: nextEventId(wallet),
+        t: targetEvent.t,
+        n: targetEvent.t === "p" ? undefined : newAmount,
+        ts: newTs,
+      });
     });
-    saveWallet(wallet);
+    if (!ok) return;
     ctx.clearExport();
     ctx.clearDeleteRange();
     ctx.onStateChanged();
