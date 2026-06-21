@@ -61,7 +61,7 @@
     if (n === null) return null;
     const label =
       typeof input.l === "string" && input.l.trim() !== ""
-        ? input.l.trim()
+        ? input.l.trim().slice(0, 64)
         : "";
     const out = { v, t, n };
     if (label) out.l = label;
@@ -148,22 +148,29 @@
     return true;
   }
 
-  function normalizeActionCode(raw) {
+  // Cap a timestamp at `now`: a crafted far-future createdAt/updatedAt must not
+  // win the strict-> recency check in mergeActionCodes and silently overwrite a
+  // stored code.
+  function clampTimestamp(value, now) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      return 0;
+    }
+    return Math.min(Math.floor(value), now);
+  }
+
+  function normalizeActionCode(raw, now = Date.now()) {
     if (!raw || typeof raw !== "object") return null;
     const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : "";
-    const label = typeof raw.label === "string" ? raw.label.trim() : "";
+    // Length-cap the label: an imported code label is otherwise unbounded and
+    // bloats the DOM + storage.
+    const label =
+      typeof raw.label === "string" ? raw.label.trim().slice(0, 64) : "";
     const amount = normalizeAmount(raw.amount);
     const type = normalizeType(raw.type);
     const key =
       typeof raw.key === "string" && raw.key.trim() ? raw.key.trim() : "";
-    const createdAt =
-      typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)
-        ? raw.createdAt
-        : 0;
-    const updatedAt =
-      typeof raw.updatedAt === "number" && Number.isFinite(raw.updatedAt)
-        ? raw.updatedAt
-        : 0;
+    const createdAt = clampTimestamp(raw.createdAt, now);
+    const updatedAt = clampTimestamp(raw.updatedAt, now);
     return {
       id,
       label,
@@ -193,7 +200,7 @@
     const seen = new Set();
 
     for (const raw of arr) {
-      const code = normalizeActionCode(raw);
+      const code = normalizeActionCode(raw, now);
       if (!code) continue;
 
       if (!code.id) code.id = randomToken(10);
@@ -252,7 +259,10 @@
         existing.label = c.label;
         existing.amount = c.amount;
         existing.type = c.type;
-        existing.key = c.key;
+        // Deliberately do NOT copy c.key: the key is a device-local booking
+        // secret, and an unauthenticated import must not be able to rotate it
+        // (which would hijack the code / invalidate already-printed QRs). Key
+        // rotation stays local-only.
         existing.createdAt = c.createdAt;
         existing.updatedAt = c.updatedAt;
       }
