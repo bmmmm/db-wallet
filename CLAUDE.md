@@ -60,9 +60,31 @@ SW + clear caches, or serve on a fresh port.
 
 ## Gotchas
 
-- **Event model is append-only** — drink/credit/pay append a new event; delete/undo/edit
-  append a tombstone (`t:"x"`, `ref` = target id). Never mutate an event in place: the
-  import/sync merge dedups strictly by `id`, so an in-place edit silently fails to
-  propagate. Order: sort by `ts`, tie-break by numeric base36 seq (not lexical).
+- **Event model is append-only** — never mutate an event in place (the import/sync
+  merge dedups strictly by `id`). Operations:
+  - drink/credit/pay → append a new event.
+  - delete/undo → append a tombstone (`t:"x"`, `ref` = the entry's **root** id).
+  - edit → append a replacement carrying `supersedes` = root id (no tombstone). The
+    summary fold (`applyTombstones`) collapses every replacement of one root to the
+    canonical-last winner, so concurrent edits on two devices converge instead of
+    double-counting; a delete of the root wins over a concurrent edit. The
+    `supersedes` link round-trips via the `se` codec extension block.
+  - Order: sort by `ts`, tie-break by numeric base36 seq (not lexical).
+- **Undo is monotonic** — it removes the last *visible* entry (tombstoning its root);
+  it does not revert a deletion (that would ping-pong with its own tombstones). It
+  confirms when the previous action was a deletion. `applyTombstones` still treats a
+  tombstone-of-a-tombstone as an un-delete for data/merge robustness.
+- **QR export is minute-resolution + a bearer credential** — `tsMs` is quantized to
+  the minute on encode (order-preserving, balance-neutral; sub-minute order is rebuilt
+  from payload position). The export QR/link carries the full event log, userId, and
+  action-code keys with no encryption — anyone who captures it can replay it.
+- **Codec extension blocks are order-sensitive** — they have no length prefix, so an
+  old decoder stops at the first unknown block. New blocks (`se`, `ck`) are written
+  LAST and `ck` (integrity checksum) is absolutely last so it covers everything.
+- **Action codes never expire; the key is the only secret** — revocation = edit (key
+  rotation) or delete. An imported code can update label/amount/type but never the
+  local key (key rotation is local-only). A global `acg:` apply asks for confirmation.
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
+- **Bump `service-worker.js` VERSION when any APP_SHELL asset changes** — enforced by
+  `scripts/check-sw-version.sh` + the `sw-version` GitHub Action.
