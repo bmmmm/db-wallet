@@ -485,6 +485,34 @@
       return false;
     }
 
+    // Cross-tab reconciliation: another tab of the same wallet may have appended
+    // events since we loaded. Re-read the persisted snapshot and union-merge it
+    // into the in-memory wallet before writing — the append-only + dedup-by-id
+    // model makes this a safe merge with no conflict logic, and it prevents
+    // last-write-wins from silently clobbering a concurrent tab's bookings.
+    try {
+      const persistedRaw = safeLocalStorageGetItem(storageKey);
+      if (persistedRaw) {
+        const persisted = safeParse(persistedRaw);
+        const mergeApi = window.dbWalletImportV2 || null;
+        if (
+          persisted &&
+          typeof persisted === "object" &&
+          Array.isArray(persisted.events) &&
+          Array.isArray(wallet.events) &&
+          mergeApi &&
+          typeof mergeApi.mergeEvents === "function"
+        ) {
+          wallet.events = mergeApi.mergeEvents(wallet.events, persisted.events);
+          // Reconcile the local seq counter to the merged max so the next id
+          // mint can't collide with an event just merged in from another tab.
+          ensureDeviceSeq(wallet);
+        }
+      }
+    } catch (e) {
+      // Never let reconciliation block a save — fall through to a plain write.
+    }
+
     const json = JSON.stringify(wallet);
 
     // Hauptspeicherort

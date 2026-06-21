@@ -24,15 +24,16 @@
 
   // Persist a wallet mutation, rolling back the optimistic in-memory append when
   // the write fails (quota exceeded / disabled storage). Returns true on success.
-  // `mutate` must only APPEND events — the append-only model means truncating the
-  // events array back to its pre-mutation length is a complete, exact rollback.
-  // Without this the UI reports success on a quota-failed write and the booking
-  // vanishes on the next reload.
+  // `mutate` must only APPEND events. We snapshot the events array (not just its
+  // length) because saveWallet re-reads and union-merges the persisted snapshot
+  // on every write — it may legitimately replace wallet.events — so restoring the
+  // exact pre-mutation array is the only correct rollback. Without this the UI
+  // reports success on a quota-failed write and the booking vanishes on reload.
   function persistMutation(ctx, wallet, mutate) {
-    const before = wallet.events.length;
+    const before = Array.isArray(wallet.events) ? wallet.events.slice() : [];
     mutate();
     if (saveWallet(wallet)) return true;
-    if (wallet.events.length > before) wallet.events.length = before;
+    wallet.events = before;
     ctx.dialogAlert(
       "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
     );
