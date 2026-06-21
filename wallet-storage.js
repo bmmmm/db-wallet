@@ -296,7 +296,12 @@
 
   // Pure resolution of what an undo would act on — shared by undoLastEvent and
   // the UI's pre-undo confirm so the confirm always matches the actual outcome.
-  // Returns { type: "undelete"|"undo", id, event } or null if nothing to undo.
+  // Returns { type: "undo", id, event, afterDeletion } or null if nothing to
+  // undo. Undo is MONOTONIC (it removes the last effective entry); it never
+  // neutralizes its own trailing tombstone, otherwise repeated presses would
+  // ping-pong the last entry instead of walking back through the log. The
+  // afterDeletion flag lets the UI confirm when the previous action was a delete
+  // (so removing a *different* visible entry isn't silent — the finding's gap).
   function resolveUndoTarget(wallet) {
     if (!wallet || typeof wallet !== "object") return null;
     const events = Array.isArray(wallet.events) ? wallet.events : [];
@@ -309,21 +314,6 @@
         ? summaryApi.applyTombstones(sorted)
         : null;
 
-    // If the most recently appended event is an ACTIVE deletion, "undo" reverts
-    // THAT deletion (neutralize the tombstone — applyTombstones treats a
-    // tombstone-of-a-tombstone as an un-delete) rather than silently tombstoning
-    // an unrelated earlier event.
-    const lastAppended = sorted[sorted.length - 1];
-    if (
-      lastAppended &&
-      lastAppended.t === "x" &&
-      typeof lastAppended.id === "string" &&
-      lastAppended.id &&
-      (!tomb || !tomb.neutralized || !tomb.neutralized.has(lastAppended.id))
-    ) {
-      return { type: "undelete", id: lastAppended.id, event: lastAppended };
-    }
-
     const effective =
       tomb && Array.isArray(tomb.effectiveEvents)
         ? tomb.effectiveEvents
@@ -331,7 +321,25 @@
     if (!effective.length) return null;
     const target = effective[effective.length - 1];
     if (!target || typeof target.id !== "string" || !target.id) return null;
-    return { type: "undo", id: target.id, event: target };
+
+    const lastAppended = sorted[sorted.length - 1];
+    const afterDeletion = !!(
+      lastAppended &&
+      lastAppended.t === "x" &&
+      typeof lastAppended.id === "string" &&
+      lastAppended.id &&
+      (!tomb || !tomb.neutralized || !tomb.neutralized.has(lastAppended.id))
+    );
+
+    // Tombstone the entry's ROOT so undoing an edited entry removes the whole
+    // logical entry (all its replacements), not just the visible replacement.
+    const rootId =
+      summaryApi && typeof summaryApi.rootIdOf === "function"
+        ? summaryApi.rootIdOf(target)
+        : typeof target.supersedes === "string" && target.supersedes
+          ? target.supersedes
+          : target.id;
+    return { type: "undo", id: rootId, event: target, afterDeletion };
   }
 
   function undoLastEvent(wallet) {
