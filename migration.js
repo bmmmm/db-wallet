@@ -46,7 +46,13 @@
       // self-collision against usedIds), breaking idempotency and cross-device sync.
       if (id && parseCompactEventId(id)) continue;
 
-      const legacyId = oid || id || `legacy-${Date.now().toString(36)}`;
+      // Derive a stable fallback from the event's content (not Date.now()) so two
+      // devices migrating the same id-less event converge on the same id instead
+      // of minting divergent, non-deduplicable ids.
+      const contentKey = `legacy-${hash53(
+        `${e.t || ""}:${e.n != null ? e.n : ""}:${e.ts != null ? e.ts : ""}`,
+      ).toString(36)}`;
+      const legacyId = oid || id || contentKey;
       const legacyDevice = extractLegacyDeviceKey(legacyId);
 
       let seq = hash53(legacyId);

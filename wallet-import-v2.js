@@ -903,12 +903,25 @@
     return new Uint8Array(out);
   }
 
+  // Mirror the manual-create normalizeUserName so an imported userId can't carry
+  // arbitrary characters into a localStorage key / URL fragment. lowercase,
+  // whitespace -> '-', strip to [a-z0-9_-], length-capped, with a safe fallback.
+  function sanitizeImportedUserId(input) {
+    const n = String(input || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9_-]/g, "")
+      .slice(0, 64);
+    return n || "user-" + randomId();
+  }
+
   function resolveUserIdForImport(remote) {
     const remoteWalletId =
       typeof remote.walletId === "string" ? remote.walletId : "";
     const remoteUserId =
       typeof remote.userId === "string" && remote.userId
-        ? remote.userId
+        ? sanitizeImportedUserId(remote.userId)
         : "user-" + randomId();
 
     let userId = remoteUserId;
@@ -969,6 +982,53 @@
         ? remote.v
         : local.v || 1;
     local.events = mergedEvents;
+
+    // Surface a partial import (id-less remote events skipped during merge) so
+    // importRemoteWallet warns instead of reporting a clean success.
+    if (mergedEvents && mergedEvents._droppedEventCount > 0 && remote) {
+      remote._extWarning = true;
+    }
+
+    // If the merge pulled in non-compact (v1) ids, migrate the COMBINED wallet
+    // instead of silently downgrading to v=1 and re-prompting migration on every
+    // load. migrateV1toV2 is idempotent for already-compact ids and re-points the
+    // tombstone refs of the events it migrates.
+    const allCompactBefore = local.events.every((e) => {
+      const id = e && typeof e.id === "string" ? e.id : "";
+      return !!parseCompactEventId(id);
+    });
+    if (!allCompactBefore && typeof window.dbWalletMigrateV1toV2 === "function") {
+      try {
+        window.dbWalletMigrateV1toV2(local);
+      } catch (e) {
+        console.warn("db-wallet: import v1->v2 migration failed", e);
+      }
+    }
+
+    // Belt-and-suspenders: re-point any remaining legacy-form tombstone ref to
+    // its v2 id. Migration only remaps refs whose target it migrated; a ref to an
+    // already-compact target would otherwise stay legacy-form and resurface the
+    // deleted event.
+    try {
+      const v2IdSet = new Set();
+      for (const e of local.events) {
+        if (e && typeof e.id === "string" && e.id) v2IdSet.add(e.id);
+      }
+      for (const e of local.events) {
+        if (
+          e &&
+          e.t === "x" &&
+          typeof e.ref === "string" &&
+          e.ref.includes("-")
+        ) {
+          const v2Ref = legacyIdToV2Id(e.ref);
+          if (v2Ref && v2IdSet.has(v2Ref)) e.ref = v2Ref;
+        }
+      }
+    } catch (e) {
+      console.warn("db-wallet: import legacy-ref remap failed", e);
+    }
+
     const allCompact = local.events.every((e) => {
       const id = e && typeof e.id === "string" ? e.id : "";
       return !!parseCompactEventId(id);
@@ -982,7 +1042,9 @@
         typeof local.syncPeers !== "object" ||
         Array.isArray(local.syncPeers)
       ) {
-        local.syncPeers = {};
+        // null-prototype: peerKey is derived from imported deviceId/walletId, so a
+        // "__proto__" key must land as an own property, not poison the chain.
+        local.syncPeers = Object.create(null);
       }
 
       const peerKeyRaw =
@@ -1040,7 +1102,7 @@
     window.location.hash = "#" + userId;
     alert(
       remote && remote._extWarning
-        ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Zusatzdaten (Action-Codes / Geräte / Löschungen) war beschädigt und wurde übersprungen."
+        ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Daten (Zusatzdaten oder Einträge ohne gültige ID) konnte nicht vollständig importiert und wurde übersprungen."
         : "Getränkedaten importiert ✅",
     );
     return userId;
