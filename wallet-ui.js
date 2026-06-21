@@ -694,6 +694,24 @@
           ? Math.max(1, Math.round(payload.n))
           : 1;
 
+      // Confirm before applying: a global ('acg:') QR books onto the wallet with
+      // no key/auth check, so make the inflation explicit instead of silently
+      // pushing it (on every path — boot, hashchange, and after wallet select).
+      if (!options.skipConfirm && typeof confirm === "function") {
+        const label =
+          payload && typeof payload.l === "string" && payload.l
+            ? ` „${payload.l}“`
+            : "";
+        const what =
+          type === "d"
+            ? `${amount} Getränk(e) trinken`
+            : `Guthaben +${amount} Getränk(e)`;
+        if (!confirm(`Globalen Action-Code${label} anwenden: ${what}?`)) {
+          return { handled: true, applied: false, reason: "declined" };
+        }
+      }
+
+      const eventsBefore = targetWallet.events.slice();
       targetWallet.events.push(newEvent(targetWallet, type, amount));
 
       const isActiveWallet = targetWallet === wallet;
@@ -704,7 +722,12 @@
         markGlobalActionHandled(hash);
       }
       if (isActiveWallet && !options.skipPersist) {
-        saveWallet(wallet);
+        if (!saveWallet(wallet)) {
+          // Roll back the optimistic append on a failed write instead of
+          // rendering a balance storage didn't accept.
+          wallet.events = eventsBefore;
+          return { handled: true, applied: false, reason: "save-failed" };
+        }
         invalidateCaches();
         resetAmount();
         clearExport();
