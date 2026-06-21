@@ -9,3 +9,10 @@ id_*
 
 # macOS metadata
 .DS_Store
+
+# Editor swap files
+*.swp
+
+# SSH
+.ssh/
+*_host_key
