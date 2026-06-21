@@ -643,6 +643,7 @@
           label: labelInput.value,
         });
         ctx.globalCodes.push(created);
+        persistGlobalCodes(ctx, walletNow);
       } else {
         persistIfChanged(ctx, walletNow);
         const currentCodes = Array.isArray(walletNow.actionCodes)
@@ -783,9 +784,11 @@
             labelRaw || defaultLabelForType(code.type, code.amount);
           code.updatedAt = Date.now();
         }
+        persistGlobalCodes(ctx, walletNow);
       } else {
         if (isGlobal) {
           ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
+          persistGlobalCodes(ctx, walletNow);
           const created = buildActionCode({
             type: typeToggle.getType(),
             amount: amountInput.value,
@@ -852,6 +855,7 @@
       if (!walletNow) return;
       if (isGlobal) {
         ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
+        persistGlobalCodes(ctx, walletNow);
       } else {
         const codesNow = Array.isArray(walletNow.actionCodes)
           ? walletNow.actionCodes
@@ -1121,6 +1125,21 @@
     ctx.container.appendChild(grid);
   }
 
+  // Global ('🌍') codes live on the wallet (wallet.globalActionCodes) so the
+  // existing saveWallet path carries them — otherwise the management list is
+  // session-only and vanishes on reload. Mirror ctx.globalCodes into the wallet
+  // and persist on every global-code mutation.
+  function persistGlobalCodes(ctx, wallet) {
+    const w =
+      wallet ||
+      (ctx && typeof ctx.getWallet === "function" ? ctx.getWallet() : null);
+    if (!ctx || !w) return;
+    w.globalActionCodes = Array.isArray(ctx.globalCodes)
+      ? ctx.globalCodes.slice()
+      : [];
+    if (typeof ctx.persistWallet === "function") ctx.persistWallet(w);
+  }
+
   function initActionCodesUi(options) {
     const container = options && options.container;
     if (!container) return { refresh: () => {} };
@@ -1149,6 +1168,11 @@
       globalCodes: [],
       refresh: null,
     };
+    // Rehydrate global codes persisted on the wallet (seeded once on init).
+    const seedWallet = ctx.getWallet();
+    if (seedWallet && Array.isArray(seedWallet.globalActionCodes)) {
+      ctx.globalCodes = seedWallet.globalActionCodes.slice();
+    }
     ctx.refresh = () => renderActionList(ctx);
 
     ctx.refresh();
