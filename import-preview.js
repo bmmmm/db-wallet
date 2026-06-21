@@ -228,6 +228,16 @@
         ? api.canonicalThemeName(themeName)
         : String(themeName || "").trim();
     if (!canonical) return false;
+    // Gate on the theme whitelist exactly like theme.js applyTheme: an imported
+    // wallet's theme string is attacker-controlled, so an out-of-whitelist value
+    // must be ignored, not written raw as a data-theme attribute.
+    if (
+      api &&
+      typeof api.isSelectableThemeName === "function" &&
+      !api.isSelectableThemeName(canonical)
+    ) {
+      return false;
+    }
     document.documentElement.setAttribute("data-theme", canonical);
     return true;
   }
