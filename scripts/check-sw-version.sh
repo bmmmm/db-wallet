@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Fail if any APP_SHELL asset changed but the service worker VERSION constant did
+# not. A stale VERSION means the install event never fires, so active service
+# workers keep serving the old app shell (the exact drift this repo hit once).
+#
+# Usage:
+#   scripts/check-sw-version.sh             # check staged changes (pre-commit)
+#   scripts/check-sw-version.sh <base-ref>  # check <base-ref>..HEAD (CI)
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+SW="service-worker.js"
+[ -f "$SW" ] || { echo "check-sw-version: $SW not found" >&2; exit 1; }
+
+base="${1:-}"
+if [ -n "$base" ]; then
+  changed="$(git diff --name-only "$base"..HEAD)"
+  sw_diff="$(git diff "$base"..HEAD -- "$SW")"
+else
+  changed="$(git diff --cached --name-only)"
+  sw_diff="$(git diff --cached -- "$SW")"
+fi
+
+[ -n "$changed" ] || exit 0
+
+# Extract APP_SHELL entries ("./foo.js" -> foo.js).
+shell_files="$(sed -n '/APP_SHELL = \[/,/\];/p' "$SW" \
+  | grep -oE '"\./[^"]+"' | tr -d '"' | sed 's|^\./||')"
+
+shell_changed=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  if printf '%s\n' "$changed" | grep -qxF "$f"; then
+    shell_changed=1
+    break
+  fi
+done <<EOF
+$shell_files
+EOF
+
+[ "$shell_changed" -eq 1 ] || exit 0
+
+# A shell asset changed — require the VERSION line to have changed too.
+if printf '%s\n' "$sw_diff" | grep -qE '^\+const VERSION'; then
+  exit 0
+fi
+
+echo "ERROR: an APP_SHELL asset changed but service-worker.js VERSION was not bumped." >&2
+echo "Bump the VERSION constant in $SW so clients fetch the new app shell." >&2
+exit 1
