@@ -10,7 +10,13 @@
     safeLocalStorageRemoveItem,
     STORAGE_PREFIX,
   } = helpers;
-  const { saveWallet, nextEventId, undoLastEvent, appendTombstone } = storage;
+  const {
+    saveWallet,
+    nextEventId,
+    undoLastEvent,
+    appendTombstone,
+    resolveUndoTarget,
+  } = storage;
   const { dateStrFromTimestamp, parseDeleteRange } = summaryApi;
 
   function newEvent(wallet, type, n) {
@@ -52,16 +58,14 @@
 
   function undoLast(ctx) {
     const wallet = ctx.getWallet();
-    const summary = ctx.getSummary();
-    const effective = Array.isArray(summary.eventsEffectiveSorted)
-      ? summary.eventsEffectiveSorted
-      : [];
-    const last = effective.length ? effective[effective.length - 1] : null;
-    if (last && last.t === "p") {
+    // Resolve what undoLastEvent will actually act on (it may neutralize a
+    // deletion rather than undo the last visible event) so the confirm matches.
+    const plan = resolveUndoTarget ? resolveUndoTarget(wallet) : null;
+    if (plan && plan.type === "undo" && plan.event && plan.event.t === "p") {
       // Undoing a pay re-opens the drinks it settled — confirm with the swing,
       // matching the count warning deleteSelection already shows for pays.
       const without = {
-        events: wallet.events.filter((e) => e && e.id !== last.id),
+        events: wallet.events.filter((e) => e && e.id !== plan.id),
       };
       const baseline = summaryApi.computeSummarySafe(wallet);
       const reopened =

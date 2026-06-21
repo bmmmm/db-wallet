@@ -294,30 +294,74 @@
     return ev;
   }
 
-  function undoLastEvent(wallet) {
+  // Pure resolution of what an undo would act on — shared by undoLastEvent and
+  // the UI's pre-undo confirm so the confirm always matches the actual outcome.
+  // Returns { type: "undelete"|"undo", id, event } or null if nothing to undo.
+  function resolveUndoTarget(wallet) {
     if (!wallet || typeof wallet !== "object") return null;
     const events = Array.isArray(wallet.events) ? wallet.events : [];
     if (!events.length) return null;
 
     const sorted = events.slice().sort(helpers.compareEventsByTime);
     const summaryApi = window.dbWalletSummary || null;
-    let effective = null;
-    if (summaryApi && typeof summaryApi.applyTombstones === "function") {
-      const res = summaryApi.applyTombstones(sorted);
-      effective =
-        res && Array.isArray(res.effectiveEvents) ? res.effectiveEvents : [];
-    } else {
-      effective = sorted.filter((e) => e && e.t !== "x");
+    const tomb =
+      summaryApi && typeof summaryApi.applyTombstones === "function"
+        ? summaryApi.applyTombstones(sorted)
+        : null;
+
+    // If the most recently appended event is an ACTIVE deletion, "undo" reverts
+    // THAT deletion (neutralize the tombstone — applyTombstones treats a
+    // tombstone-of-a-tombstone as an un-delete) rather than silently tombstoning
+    // an unrelated earlier event.
+    const lastAppended = sorted[sorted.length - 1];
+    if (
+      lastAppended &&
+      lastAppended.t === "x" &&
+      typeof lastAppended.id === "string" &&
+      lastAppended.id &&
+      (!tomb || !tomb.neutralized || !tomb.neutralized.has(lastAppended.id))
+    ) {
+      return { type: "undelete", id: lastAppended.id, event: lastAppended };
     }
 
+    const effective =
+      tomb && Array.isArray(tomb.effectiveEvents)
+        ? tomb.effectiveEvents
+        : sorted.filter((e) => e && e.t !== "x");
     if (!effective.length) return null;
     const target = effective[effective.length - 1];
     if (!target || typeof target.id !== "string" || !target.id) return null;
+    return { type: "undo", id: target.id, event: target };
+  }
 
-    const tombstone = appendTombstone(wallet, target.id);
+  function undoLastEvent(wallet) {
+    const plan = resolveUndoTarget(wallet);
+    if (!plan) return null;
+
+    // Stamp the undo tombstone strictly after the newest event so it always
+    // sorts last (mirrors deleteSelection). This keeps "last appended" detection
+    // in resolveUndoTarget reliable across repeated undos and backward clock skew.
+    let maxTs = Date.now();
+    for (const e of wallet.events) {
+      if (
+        e &&
+        typeof e.ts === "number" &&
+        Number.isFinite(e.ts) &&
+        e.ts > maxTs
+      ) {
+        maxTs = e.ts;
+      }
+    }
+    const stampTs = maxTs + 1;
+
+    const before = wallet.events.slice();
+    const tombstone = appendTombstone(wallet, plan.id, stampTs);
     if (!tombstone) return null;
     ensureDeviceSeq(wallet);
-    saveWallet(wallet);
+    if (!saveWallet(wallet)) {
+      wallet.events = before; // roll back optimistic append on a failed write
+      return null;
+    }
     return tombstone;
   }
 
@@ -390,7 +434,11 @@
           continue;
         }
 
-        if (typeof ev.ts !== "number" || !Number.isFinite(ev.ts)) {
+        if (
+          typeof ev.ts !== "number" ||
+          !Number.isFinite(ev.ts) ||
+          ev.ts < 0
+        ) {
           const parsedTs =
             typeof ev.ts === "string" && ev.ts.trim() !== ""
               ? Number(ev.ts)
@@ -398,7 +446,10 @@
           // Keep the event instead of dropping it on a corrupt ts — dropping
           // silently loses a real drink/pay, and the loss is then persisted on the
           // next save. ts=0 (epoch) sorts it first, matching the summary normalizer.
-          ev.ts = Number.isFinite(parsedTs) ? parsedTs : 0;
+          // A NEGATIVE ts is also clamped to 0: it is a finite number so it would
+          // otherwise slip through unnormalized and later make the export codec's
+          // unsigned varint writer throw (bricking every QR/link export).
+          ev.ts = Number.isFinite(parsedTs) && parsedTs >= 0 ? parsedTs : 0;
         }
 
         if (ev.t === "p") {
@@ -541,7 +592,10 @@
   }
 
   function getAllWallets() {
-    const all = {};
+    // null-prototype: imported wallet userIds become bracket-assigned keys here,
+    // so a "__proto__"/"constructor" userId must create an ordinary own property
+    // rather than poison the prototype chain.
+    const all = Object.create(null);
     const seenUserIds = new Set();
 
     let len = 0;
@@ -653,6 +707,7 @@
     ensureDeviceSeq,
     buildTombstoneEvent,
     appendTombstone,
+    resolveUndoTarget,
     undoLastEvent,
     nextEventId,
     loadWallet,
