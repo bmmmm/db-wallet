@@ -1,5 +1,8 @@
 (function () {
   const RESERVED_PREFIXES = ["ac:", "acg:", "import:", "i2u:", "i2:"];
+  // Guard against a multi-MB hash freezing the tab during DOMContentLoaded;
+  // the real per-format cap enforcement lives in wallet-import-v2.js.
+  const MAX_HASH_PAYLOAD_LEN = 3 * 1024 * 1024;
 
   function getHashKind(hash) {
     const raw = String(hash || "");
@@ -84,7 +87,9 @@
       if (kind === "import") {
         if (!helpers || typeof helpers.base64UrlDecode !== "function")
           return "";
-        const payload = helpers.base64UrlDecode(raw.slice(7));
+        const encoded = raw.slice(7);
+        if (encoded.length > MAX_HASH_PAYLOAD_LEN) return "";
+        const payload = helpers.base64UrlDecode(encoded);
         const remote =
           helpers && typeof helpers.safeParse === "function"
             ? helpers.safeParse(payload)
@@ -103,7 +108,9 @@
         ) {
           return "";
         }
-        const bytes = helpers.base64UrlDecodeBytes(raw.slice(4));
+        const encoded = raw.slice(4);
+        if (encoded.length > MAX_HASH_PAYLOAD_LEN) return "";
+        const bytes = helpers.base64UrlDecodeBytes(encoded);
         const remote = importV2.decodeImportV2Bytes(bytes);
         return remote && typeof remote.walletId === "string"
           ? remote.walletId
@@ -120,7 +127,9 @@
         ) {
           return "";
         }
-        const bytes = helpers.base64UrlDecodeBytes(raw.slice(3));
+        const encoded = raw.slice(3);
+        if (encoded.length > MAX_HASH_PAYLOAD_LEN) return "";
+        const bytes = helpers.base64UrlDecodeBytes(encoded);
         const decompressed = await helpers.gzipDecompress(bytes);
         const remote = importV2.decodeImportV2Bytes(decompressed);
         return remote && typeof remote.walletId === "string"
