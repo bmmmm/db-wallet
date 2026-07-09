@@ -15,42 +15,14 @@
       ? helpers.safeParse
       : safeParseFallback;
 
-  function randomTokenFallback(len = 18) {
-    const chars =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-    try {
-      if (
-        typeof crypto !== "undefined" &&
-        crypto &&
-        typeof crypto.getRandomValues === "function"
-      ) {
-        const bytes = new Uint8Array(len);
-        crypto.getRandomValues(bytes);
-        let out = "";
-        for (let i = 0; i < bytes.length; i++) {
-          out += chars[bytes[i] % chars.length];
-        }
-        return out;
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    let out = "";
-    for (let i = 0; i < len; i++) {
-      out += chars[(Math.random() * chars.length) | 0];
-    }
-    return out;
-  }
-
-  const randomToken =
-    helpers && typeof helpers.randomToken === "function"
-      ? helpers.randomToken
-      : randomTokenFallback;
-
   function cacheSet(payload) {
-    const token = randomToken();
+    // Resolved lazily at call time (unlike `helpers` above): on wallet.html
+    // this script loads before wallet-helpers.js, so a module-load-time
+    // binding would permanently miss the real implementation. Safe because
+    // cacheSet only ever runs from a user-triggered import action, long after
+    // all deferred scripts have executed — nothing here runs at IIFE eval
+    // time.
+    const token = window.dbWalletHelpers.randomToken();
     try {
       sessionStorage.setItem(CACHE_PREFIX + token, JSON.stringify(payload));
       return token;
@@ -221,6 +193,27 @@
     };
   }
 
+  // Resolved lazily at call time, same as computeSummary above: on wallet.html
+  // this script loads before wallet-summary.js, so a module-load-time binding
+  // would permanently miss the real implementation.
+  function formatPerDayDiagram(perDay) {
+    const summaryApi = window.dbWalletSummary || null;
+    if (summaryApi && typeof summaryApi.formatPerDayDiagram === "function") {
+      return summaryApi.formatPerDayDiagram(perDay);
+    }
+    return perDay.map((d) => {
+      const drinkCount =
+        typeof d.drinkCount === "number" && Number.isFinite(d.drinkCount)
+          ? d.drinkCount
+          : typeof d.drinks === "number" && Number.isFinite(d.drinks)
+            ? Math.max(0, Math.round(d.drinks))
+            : 0;
+      const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
+      const paidMark = d.paid ? " 💰" : "";
+      return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
+    });
+  }
+
   function applyThemeTransient(themeName) {
     const api = window.dbWalletTheme || null;
     const canonical =
@@ -294,20 +287,7 @@
       if (!summary.perDay.length) {
         elHistory.textContent = "Noch keine Drinks geloggt. ✨";
       } else {
-        const lines = summary.perDay
-          .slice()
-          .reverse()
-          .map((d) => {
-            const drinkCount =
-              typeof d.drinkCount === "number" && Number.isFinite(d.drinkCount)
-                ? d.drinkCount
-                : typeof d.drinks === "number" && Number.isFinite(d.drinks)
-                  ? Math.max(0, Math.round(d.drinks))
-                  : 0;
-            const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
-            const paidMark = d.paid ? " 💰" : "";
-            return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
-          });
+        const lines = formatPerDayDiagram(summary.perDay.slice().reverse());
         elHistory.textContent = lines.join("\n");
       }
     }

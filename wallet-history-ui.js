@@ -3,6 +3,7 @@
   let historyMode = "diagram"; // "diagram" | "log" | "raw"
   let rawScope = "current"; // "current" | "all"
   let rawAllCache = null;
+  let rawCurrentCache = null;
 
   let refs = null;
   let getWallet = null;
@@ -64,6 +65,23 @@
       ? summaryApi.formatLogLine
       : (e, index) => `#${index} | ${new Date(e.ts).toISOString()} | ${e.t}`;
 
+  const formatPerDayDiagram =
+    summaryApi && typeof summaryApi.formatPerDayDiagram === "function"
+      ? summaryApi.formatPerDayDiagram
+      : (perDay) =>
+          perDay.map((d) => {
+            const drinkCount =
+              typeof d.drinkCount === "number" &&
+              Number.isFinite(d.drinkCount)
+                ? d.drinkCount
+                : typeof d.drinks === "number" && Number.isFinite(d.drinks)
+                  ? Math.max(0, Math.round(d.drinks))
+                  : 0;
+            const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
+            const paidMark = d.paid ? " 💰" : "";
+            return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
+          });
+
   window.dbWalletHistoryUI = {
     init(params) {
       refs = params.refs;
@@ -104,21 +122,7 @@
         if (!summary.perDay.length) {
           refs.elHistory.textContent = "Noch keine Drinks geloggt. ✨";
         } else {
-          const lines = summary.perDay
-            .slice()
-            .reverse()
-            .map((d) => {
-              const drinkCount =
-                typeof d.drinkCount === "number" &&
-                Number.isFinite(d.drinkCount)
-                  ? d.drinkCount
-                  : typeof d.drinks === "number" && Number.isFinite(d.drinks)
-                    ? Math.max(0, Math.round(d.drinks))
-                    : 0;
-              const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
-              const paidMark = d.paid ? " 💰" : "";
-              return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
-            });
+          const lines = formatPerDayDiagram(summary.perDay.slice().reverse());
           refs.elHistory.textContent = lines.join("\n");
         }
       } else if (historyMode === "log") {
@@ -147,7 +151,10 @@
         }
       } else if (historyMode === "raw") {
         if (rawScope === "current") {
-          refs.elHistory.textContent = JSON.stringify(wallet, null, 2);
+          if (!rawCurrentCache) {
+            rawCurrentCache = JSON.stringify(wallet, null, 2);
+          }
+          refs.elHistory.textContent = rawCurrentCache;
         } else {
           if (!rawAllCache) {
             rawAllCache = JSON.stringify(getAllWallets(), null, 2);
@@ -161,6 +168,7 @@
     },
     invalidateCache() {
       rawAllCache = null;
+      rawCurrentCache = null;
     },
   };
 })();
