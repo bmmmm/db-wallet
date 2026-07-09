@@ -320,8 +320,13 @@
     if (!raw.startsWith("ac:")) return null;
     const token = raw.slice(3);
     if (!token) return null;
-    const json = base64UrlDecode(token);
-    const payload = safeParse(json);
+    let payload;
+    try {
+      const json = base64UrlDecode(token);
+      payload = safeParse(json);
+    } catch (e) {
+      return null;
+    }
     if (!payload || typeof payload !== "object") return null;
     const walletId =
       typeof payload.walletId === "string" ? payload.walletId : "";
@@ -365,6 +370,11 @@
 
   function renderQrToCanvas(canvas, url) {
     if (!canvas) return;
+    if (typeof helpers.drawQrToCanvas === "function") {
+      helpers.drawQrToCanvas(canvas, String(url || ""), { scale: 6 });
+      return;
+    }
+    // Fallback: shared helper not loaded yet, render inline as before.
     if (!window.qrcodegen || !window.qrcodegen.QrCode) {
       throw new Error("QR library missing");
     }
@@ -450,127 +460,103 @@
     return ctx.getBaseUrl() + "#" + encodeActionHash(payload);
   }
 
-  function buildTypeToggle(initialType, onChange) {
-    let currentType = normalizeType(initialType);
+  // Generic two-button toggle backing both the type toggle (Drink/Credit) and
+  // the scope toggle (Local/Global) — same DOM shape, classes, and
+  // aria-pressed behavior, just different option sets.
+  function buildToggle({ className, options, initial, normalize, onChange }) {
+    let current = normalize ? normalize(initial) : initial;
     const wrapper = document.createElement("div");
-    wrapper.className = "action-code-type-toggle";
+    wrapper.className = className;
 
-    const btnTypeDrink = document.createElement("button");
-    btnTypeDrink.type = "button";
-    btnTypeDrink.textContent = "🥤 Trinken";
-    btnTypeDrink.className = "mode-btn";
-    btnTypeDrink.setAttribute("aria-pressed", "false");
-
-    const btnTypeCredit = document.createElement("button");
-    btnTypeCredit.type = "button";
-    btnTypeCredit.textContent = "💰 Guthaben";
-    btnTypeCredit.className = "mode-btn";
-    btnTypeCredit.setAttribute("aria-pressed", "false");
+    const buttons = options.map((opt) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = opt.label;
+      btn.className = "mode-btn";
+      btn.setAttribute("aria-pressed", "false");
+      return btn;
+    });
 
     function sync() {
-      currentType = currentType === "g" ? "g" : "d";
-      const isDrink = currentType === "d";
-      btnTypeDrink.classList.toggle("active", isDrink);
-      btnTypeCredit.classList.toggle("active", !isDrink);
-      btnTypeDrink.setAttribute("aria-pressed", isDrink ? "true" : "false");
-      btnTypeCredit.setAttribute("aria-pressed", isDrink ? "false" : "true");
+      current = normalize ? normalize(current) : current;
+      options.forEach((opt, i) => {
+        const active = opt.value === current;
+        buttons[i].classList.toggle("active", active);
+        buttons[i].setAttribute("aria-pressed", active ? "true" : "false");
+      });
     }
 
-    btnTypeDrink.addEventListener("click", () => {
-      currentType = "d";
-      sync();
-      if (onChange) onChange(currentType);
-    });
-    btnTypeCredit.addEventListener("click", () => {
-      currentType = "g";
-      sync();
-      if (onChange) onChange(currentType);
+    options.forEach((opt, i) => {
+      buttons[i].addEventListener("click", () => {
+        current = opt.value;
+        sync();
+        if (onChange) onChange(current);
+      });
     });
 
     sync();
-    wrapper.appendChild(btnTypeDrink);
-    wrapper.appendChild(btnTypeCredit);
+    for (const btn of buttons) wrapper.appendChild(btn);
 
     return {
       el: wrapper,
-      getType: () => currentType,
-      setType: (type) => {
-        currentType = normalizeType(type);
+      getValue: () => current,
+      setValue: (value) => {
+        current = normalize ? normalize(value) : value;
         sync();
       },
     };
+  }
+
+  function buildTypeToggle(initialType, onChange) {
+    const toggle = buildToggle({
+      className: "action-code-type-toggle",
+      options: [
+        { value: "d", label: "🥤 Trinken" },
+        { value: "g", label: "💰 Guthaben" },
+      ],
+      initial: initialType,
+      normalize: normalizeType,
+      onChange,
+    });
+    return { el: toggle.el, getType: toggle.getValue, setType: toggle.setValue };
   }
 
   function buildScopeToggle(initialScope, onChange) {
-    let currentScope = normalizeScope(initialScope);
-    const wrapper = document.createElement("div");
-    wrapper.className = "action-code-scope-toggle";
-
-    const btnLocal = document.createElement("button");
-    btnLocal.type = "button";
-    btnLocal.textContent = "🔒 Lokal";
-    btnLocal.className = "mode-btn";
-    btnLocal.setAttribute("aria-pressed", "false");
-
-    const btnGlobal = document.createElement("button");
-    btnGlobal.type = "button";
-    btnGlobal.textContent = "🌍 Global";
-    btnGlobal.className = "mode-btn";
-    btnGlobal.setAttribute("aria-pressed", "false");
-
-    function sync() {
-      currentScope = normalizeScope(currentScope);
-      const isLocal = currentScope === "local";
-      btnLocal.classList.toggle("active", isLocal);
-      btnGlobal.classList.toggle("active", !isLocal);
-      btnLocal.setAttribute("aria-pressed", isLocal ? "true" : "false");
-      btnGlobal.setAttribute("aria-pressed", isLocal ? "false" : "true");
-    }
-
-    btnLocal.addEventListener("click", () => {
-      currentScope = "local";
-      sync();
-      if (onChange) onChange(currentScope);
+    const toggle = buildToggle({
+      className: "action-code-scope-toggle",
+      options: [
+        { value: "local", label: "🔒 Lokal" },
+        { value: "global", label: "🌍 Global" },
+      ],
+      initial: initialScope,
+      normalize: normalizeScope,
+      onChange,
     });
-    btnGlobal.addEventListener("click", () => {
-      currentScope = "global";
-      sync();
-      if (onChange) onChange(currentScope);
-    });
-
-    sync();
-    wrapper.appendChild(btnLocal);
-    wrapper.appendChild(btnGlobal);
-
-    return {
-      el: wrapper,
-      getScope: () => currentScope,
-      setScope: (scope) => {
-        currentScope = normalizeScope(scope);
-        sync();
-      },
-    };
+    return { el: toggle.el, getScope: toggle.getValue, setScope: toggle.setValue };
   }
 
-  function buildCreateForm(ctx) {
+  // Shared scaffolding for the create and edit forms: amount/label inputs,
+  // scope+type toggles, amount clamping, and save/cancel wiring. Callers
+  // supply the initial values plus the mode-specific persist logic.
+  function buildCodeForm(ctx, config) {
     const form = document.createElement("div");
     form.className = "action-code-form";
 
     const amountInput = document.createElement("input");
     amountInput.type = "number";
     amountInput.min = "1";
-    amountInput.value = "10";
+    amountInput.value = config.amount;
 
     const labelInput = document.createElement("input");
     labelInput.type = "text";
+    labelInput.value = config.label;
 
-    let autoLabel = defaultLabelForType(ctx.selectedType, amountInput.value);
-    labelInput.value = autoLabel;
+    let autoLabel = config.autoLabel ? config.label : null;
 
     const amountField = document.createElement("label");
     amountField.className = "action-code-form-field";
     const amountText = document.createElement("span");
-    amountText.textContent = amountPromptForType(ctx.selectedType);
+    amountText.textContent = amountPromptForType(config.type);
     amountField.appendChild(amountText);
     amountField.appendChild(amountInput);
 
@@ -581,21 +567,18 @@
     labelField.appendChild(labelText);
     labelField.appendChild(labelInput);
 
-    const scopeToggle = buildScopeToggle(ctx.selectedScope, (nextScope) => {
-      ctx.selectedScope = nextScope;
+    const scopeToggle = buildScopeToggle(config.scope, (nextScope) => {
+      if (config.onScopeChange) config.onScopeChange(nextScope);
       updateAmountLimit();
     });
-    const typeToggle = buildTypeToggle(ctx.selectedType, (nextType) => {
-      ctx.selectedType = nextType;
-      updateDefaults();
+    const typeToggle = buildTypeToggle(config.type, (nextType) => {
+      if (config.onTypeChange) config.onTypeChange(nextType);
+      if (config.autoLabel) updateDefaults(nextType);
       amountText.textContent = amountPromptForType(nextType);
     });
 
-    function updateDefaults() {
-      const nextDefault = defaultLabelForType(
-        typeToggle.getType(),
-        amountInput.value,
-      );
+    function updateDefaults(nextType) {
+      const nextDefault = defaultLabelForType(nextType, amountInput.value);
       const current = labelInput.value.trim();
       if (!current || current === autoLabel) {
         labelInput.value = nextDefault;
@@ -617,7 +600,7 @@
     }
 
     amountInput.addEventListener("input", () => {
-      updateDefaults();
+      if (config.autoLabel) updateDefaults(typeToggle.getType());
       updateAmountLimit();
     });
 
@@ -633,52 +616,14 @@
     btnSave.type = "button";
     btnSave.textContent = "Speichern";
     btnSave.addEventListener("click", () => {
-      const walletNow = ctx.getWallet();
-      if (!walletNow) return;
-      const scope = scopeToggle.getScope();
-      if (scope === "global") {
-        const created = buildGlobalCode({
-          type: typeToggle.getType(),
-          amount: amountInput.value,
-          label: labelInput.value,
-        });
-        ctx.globalCodes.push(created);
-        persistGlobalCodes(ctx, walletNow);
-      } else {
-        persistIfChanged(ctx, walletNow);
-        const currentCodes = Array.isArray(walletNow.actionCodes)
-          ? walletNow.actionCodes
-          : [];
-        const hadNoCodes = currentCodes.length === 0;
-        const created = buildActionCode({
-          type: typeToggle.getType(),
-          amount: amountInput.value,
-          label: labelInput.value,
-        });
-        if (!Array.isArray(walletNow.actionCodes))
-          walletNow.actionCodes = [];
-        walletNow.actionCodes.push(created);
-        const res = ensureWalletActionCodes(walletNow);
-        if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
-        ctx.persistWallet(walletNow);
-        if (hadNoCodes) {
-          const details =
-            typeof ctx.container.closest === "function"
-              ? ctx.container.closest("details")
-              : null;
-          if (details) details.open = true;
-        }
-      }
-      ctx.createOpen = false;
-      ctx.refresh();
+      config.onSave({ scopeToggle, typeToggle, amountInput, labelInput });
     });
 
     const btnCancel = document.createElement("button");
     btnCancel.type = "button";
     btnCancel.textContent = "Abbrechen";
     btnCancel.addEventListener("click", () => {
-      ctx.createOpen = false;
-      ctx.refresh();
+      config.onCancel();
     });
 
     actions.appendChild(btnSave);
@@ -693,102 +638,39 @@
     return form;
   }
 
-  function buildEditForm(ctx, code, isGlobal) {
-    const editForm = document.createElement("div");
-    editForm.className = "action-code-form";
-
-    const amountInput = document.createElement("input");
-    amountInput.type = "number";
-    amountInput.min = "1";
-    amountInput.value = String(code.amount || 1);
-
-    const labelInput = document.createElement("input");
-    labelInput.type = "text";
-    labelInput.value =
-      code.label ||
-      defaultLabelForType(code.type, normalizeAmount(code.amount));
-
-    const amountField = document.createElement("label");
-    amountField.className = "action-code-form-field";
-    const amountLabel = document.createElement("span");
-    amountLabel.textContent = amountPromptForType(code.type);
-    amountField.appendChild(amountLabel);
-    amountField.appendChild(amountInput);
-
-    const labelField = document.createElement("label");
-    labelField.className = "action-code-form-field";
-    const labelText = document.createElement("span");
-    labelText.textContent = "Name für den Action Code:";
-    labelField.appendChild(labelText);
-    labelField.appendChild(labelInput);
-
-    const scopeToggle = buildScopeToggle(
-      isGlobal ? "global" : "local",
-      () => updateAmountLimit(),
-    );
-    const typeToggle = buildTypeToggle(code.type, (nextType) => {
-      amountLabel.textContent = amountPromptForType(nextType);
-    });
-
-    amountInput.addEventListener("input", () => updateAmountLimit());
-
-    function updateAmountLimit() {
-      const scope = scopeToggle.getScope();
-      if (scope === "global") {
-        amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
-        const normalized = clampGlobalAmount(amountInput.value);
-        if (normalized !== null) amountInput.value = String(normalized);
-      } else {
-        amountInput.removeAttribute("max");
-      }
-    }
-
-    const fields = document.createElement("div");
-    fields.className = "action-code-form-fields";
-    fields.appendChild(amountField);
-    fields.appendChild(labelField);
-
-    const actions = document.createElement("div");
-    actions.className = "action-code-form-actions";
-
-    const btnSave = document.createElement("button");
-    btnSave.type = "button";
-    btnSave.textContent = "Speichern";
-    btnSave.addEventListener("click", () => {
-      const walletNow = ctx.getWallet();
-      if (!walletNow) return;
-      const scope = scopeToggle.getScope();
-      if (scope === "global") {
-        if (!isGlobal) {
-          const codesNow = Array.isArray(walletNow.actionCodes)
-            ? walletNow.actionCodes
-            : [];
-          walletNow.actionCodes = codesNow.filter(
-            (c) => c && c.id !== code.id,
-          );
-          const res = ensureWalletActionCodes(walletNow);
-          if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
-          ctx.persistWallet(walletNow);
+  function buildCreateForm(ctx) {
+    const initialAmount = "10";
+    const initialLabel = defaultLabelForType(ctx.selectedType, initialAmount);
+    return buildCodeForm(ctx, {
+      scope: ctx.selectedScope,
+      type: ctx.selectedType,
+      amount: initialAmount,
+      label: initialLabel,
+      autoLabel: true,
+      onScopeChange: (nextScope) => {
+        ctx.selectedScope = nextScope;
+      },
+      onTypeChange: (nextType) => {
+        ctx.selectedType = nextType;
+      },
+      onSave: ({ scopeToggle, typeToggle, amountInput, labelInput }) => {
+        const walletNow = ctx.getWallet();
+        if (!walletNow) return;
+        const scope = scopeToggle.getScope();
+        if (scope === "global") {
           const created = buildGlobalCode({
             type: typeToggle.getType(),
             amount: amountInput.value,
             label: labelInput.value,
           });
           ctx.globalCodes.push(created);
-        } else {
-          code.type = normalizeType(typeToggle.getType());
-          const amountRaw = clampGlobalAmount(amountInput.value);
-          code.amount = amountRaw === null ? 1 : amountRaw;
-          const labelRaw = String(labelInput.value || "").trim();
-          code.label =
-            labelRaw || defaultLabelForType(code.type, code.amount);
-          code.updatedAt = Date.now();
-        }
-        persistGlobalCodes(ctx, walletNow);
-      } else {
-        if (isGlobal) {
-          ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
           persistGlobalCodes(ctx, walletNow);
+        } else {
+          persistIfChanged(ctx, walletNow);
+          const currentCodes = Array.isArray(walletNow.actionCodes)
+            ? walletNow.actionCodes
+            : [];
+          const hadNoCodes = currentCodes.length === 0;
           const created = buildActionCode({
             type: typeToggle.getType(),
             amount: amountInput.value,
@@ -797,44 +679,105 @@
           if (!Array.isArray(walletNow.actionCodes))
             walletNow.actionCodes = [];
           walletNow.actionCodes.push(created);
-        } else {
-          const codesNow = Array.isArray(walletNow.actionCodes)
-            ? walletNow.actionCodes
-            : [];
-          const target = codesNow.find((c) => c && c.id === code.id);
-          if (!target) return;
-          applyActionCodeEdits(target, {
-            label: labelInput.value,
-            amount: amountInput.value,
-            type: typeToggle.getType(),
-          });
+          const res = ensureWalletActionCodes(walletNow);
+          if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
+          ctx.persistWallet(walletNow);
+          if (hadNoCodes) {
+            const details =
+              typeof ctx.container.closest === "function"
+                ? ctx.container.closest("details")
+                : null;
+            if (details) details.open = true;
+          }
         }
-        const res = ensureWalletActionCodes(walletNow);
-        if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
-        ctx.persistWallet(walletNow);
-      }
-      ctx.editingId = "";
-      ctx.refresh();
+        ctx.createOpen = false;
+        ctx.refresh();
+      },
+      onCancel: () => {
+        ctx.createOpen = false;
+        ctx.refresh();
+      },
     });
+  }
 
-    const btnCancel = document.createElement("button");
-    btnCancel.type = "button";
-    btnCancel.textContent = "Abbrechen";
-    btnCancel.addEventListener("click", () => {
-      ctx.editingId = "";
-      ctx.refresh();
+  function buildEditForm(ctx, code, isGlobal) {
+    const initialAmount = String(code.amount || 1);
+    const initialLabel =
+      code.label ||
+      defaultLabelForType(code.type, normalizeAmount(code.amount));
+    return buildCodeForm(ctx, {
+      scope: isGlobal ? "global" : "local",
+      type: code.type,
+      amount: initialAmount,
+      label: initialLabel,
+      autoLabel: false,
+      onSave: ({ scopeToggle, typeToggle, amountInput, labelInput }) => {
+        const walletNow = ctx.getWallet();
+        if (!walletNow) return;
+        const scope = scopeToggle.getScope();
+        if (scope === "global") {
+          if (!isGlobal) {
+            const codesNow = Array.isArray(walletNow.actionCodes)
+              ? walletNow.actionCodes
+              : [];
+            walletNow.actionCodes = codesNow.filter(
+              (c) => c && c.id !== code.id,
+            );
+            const res = ensureWalletActionCodes(walletNow);
+            if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
+            ctx.persistWallet(walletNow);
+            const created = buildGlobalCode({
+              type: typeToggle.getType(),
+              amount: amountInput.value,
+              label: labelInput.value,
+            });
+            ctx.globalCodes.push(created);
+          } else {
+            code.type = normalizeType(typeToggle.getType());
+            const amountRaw = clampGlobalAmount(amountInput.value);
+            code.amount = amountRaw === null ? 1 : amountRaw;
+            const labelRaw = String(labelInput.value || "").trim();
+            code.label =
+              labelRaw || defaultLabelForType(code.type, code.amount);
+            code.updatedAt = Date.now();
+          }
+          persistGlobalCodes(ctx, walletNow);
+        } else {
+          if (isGlobal) {
+            ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
+            persistGlobalCodes(ctx, walletNow);
+            const created = buildActionCode({
+              type: typeToggle.getType(),
+              amount: amountInput.value,
+              label: labelInput.value,
+            });
+            if (!Array.isArray(walletNow.actionCodes))
+              walletNow.actionCodes = [];
+            walletNow.actionCodes.push(created);
+          } else {
+            const codesNow = Array.isArray(walletNow.actionCodes)
+              ? walletNow.actionCodes
+              : [];
+            const target = codesNow.find((c) => c && c.id === code.id);
+            if (!target) return;
+            applyActionCodeEdits(target, {
+              label: labelInput.value,
+              amount: amountInput.value,
+              type: typeToggle.getType(),
+            });
+          }
+          const res = ensureWalletActionCodes(walletNow);
+          if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
+          ctx.persistWallet(walletNow);
+        }
+        ctx.editingId = "";
+        ctx.refresh();
+      },
+      onCancel: () => {
+        ctx.editingId = "";
+        ctx.refresh();
+      },
     });
-
-    actions.appendChild(btnSave);
-    actions.appendChild(btnCancel);
-
-    updateAmountLimit();
-    editForm.appendChild(scopeToggle.el);
-    editForm.appendChild(typeToggle.el);
-    editForm.appendChild(fields);
-    editForm.appendChild(actions);
-
-    return editForm;
   }
 
   function buildDeleteConfirm(ctx, code, isGlobal) {
