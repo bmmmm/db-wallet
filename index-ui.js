@@ -153,19 +153,20 @@
       container.appendChild(card);
     }
 
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        for (const { summaryLine, wallet } of pendingSummaries) {
-          let summary = { total: 0, unpaid: 0, credit: 0 };
-          try {
-            summary = computeSummary(wallet);
-          } catch (e) {
-            // ignore
-          }
-          summaryLine.textContent = `Total: ${summary.total} | Offen: ${summary.unpaid} | Guthaben: ${summary.credit}`;
+    // Plain macrotask, not requestAnimationFrame: rAF never fires in hidden
+    // tabs, which would leave the placeholders unfilled until the tab gains
+    // focus. A setTimeout(0) is enough to get the list painted first.
+    setTimeout(() => {
+      for (const { summaryLine, wallet } of pendingSummaries) {
+        let summary = { total: 0, unpaid: 0, credit: 0 };
+        try {
+          summary = computeSummary(wallet);
+        } catch (e) {
+          // ignore
         }
-      }, 0);
-    });
+        summaryLine.textContent = `Total: ${summary.total} | Offen: ${summary.unpaid} | Guthaben: ${summary.credit}`;
+      }
+    }, 0);
   }
 
   async function tryParseWalletIdFromHash(hash) {

@@ -22,6 +22,23 @@
     const result = runChecksResult();
     const quiet = !!options.quiet;
 
+    // Native dialogs freeze the renderer under automation, and some checks
+    // exercise production paths that call confirm()/alert() (e.g. the global
+    // action-code apply). Stub them for the whole run; restored in the outer
+    // finally after pending hashchange handlers have drained.
+    const origDialogs = {
+      alert: window.alert,
+      confirm: window.confirm,
+      prompt: window.prompt,
+    };
+    window.alert = function () {};
+    window.confirm = function () {
+      return true;
+    };
+    window.prompt = function () {
+      return null;
+    };
+
     const helpers = window.dbWalletHelpers || null;
     const storage = window.dbWalletStorage || null;
     const importV2 = window.dbWalletImportV2 || null;
@@ -502,6 +519,12 @@
           typeof storage.undoLastEvent === "function"
         ) {
           const baseTs = Date.now();
+          // Drop the persisted blob first: saveWallet union-merges with the
+          // persisted state and re-mints colliding ids, so resetting only the
+          // in-memory array would resurrect earlier sections' events here.
+          if (testStorageKey) {
+            safeRemove(testStorageKey);
+          }
           wallet.events = [];
           wallet.events.push({
             id: storage.nextEventId(wallet),
@@ -1993,6 +2016,13 @@
           saveRegistry(reg);
         }
       }
+      // Let pending hashchange handlers run against the stubs before the real
+      // dialogs come back (two macrotasks: event dispatch, then handler work).
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      window.alert = origDialogs.alert;
+      window.confirm = origDialogs.confirm;
+      window.prompt = origDialogs.prompt;
     }
 
     try {
