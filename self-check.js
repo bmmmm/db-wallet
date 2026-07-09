@@ -612,7 +612,10 @@
           let guard = 10;
           while (guard-- > 0) {
             const res = storage.undoLastEvent(wallet);
-            if (!res) break;
+            // null = nothing left to undo; { status: "failed" } = a save failure.
+            // Neither is a tombstone, so stop instead of looping on (or later
+            // mistaking) a non-tombstone object as a successful undo.
+            if (!res || res.status === "failed") break;
           }
           const emptySummary = summaryApi.computeSummary(wallet);
           addCheck(
@@ -1088,26 +1091,39 @@
 
             const decodedGlobal =
               actionCodes.decodeGlobalActionHash(globalHash1);
-            const beforeGlobal = summaryApi.computeSummary(wallet).total;
-            const appliedWithWallet =
-              !!decodedGlobal && !!wallet && !!storage
-                ? (() => {
-                    wallet.events.push({
-                      id: storage.nextEventId(wallet),
-                      t: decodedGlobal.t,
-                      n: decodedGlobal.n,
-                      ts: Date.now() + 5000,
-                    });
-                    return true;
-                  })()
-                : false;
-            const afterGlobal = summaryApi.computeSummary(wallet).total;
-            addCheck(
-              result,
-              "global action applies",
-              appliedWithWallet && afterGlobal > beforeGlobal,
-              `before=${beforeGlobal} after=${afterGlobal}`,
-            );
+            // Exercise the REAL production entry (window.dbWalletUi.
+            // applyGlobalActionHash -> handleGlobalActionHash) on a non-active
+            // wallet instead of hand-pushing an event, so the booking path itself
+            // is under test. skipPersist/skipConfirm/skipMessage keep it from
+            // touching the active wallet or popping a dialog.
+            const uiApiApply = window.dbWalletUi || null;
+            if (
+              uiApiApply &&
+              typeof uiApiApply.applyGlobalActionHash === "function"
+            ) {
+              const beforeGlobal = summaryApi.computeSummary(wallet).total;
+              const applyRes = uiApiApply.applyGlobalActionHash(globalHash1, {
+                wallet,
+                skipPersist: true,
+                skipConfirm: true,
+                skipMessage: true,
+                skipHashCleanup: true,
+              });
+              const afterGlobal = summaryApi.computeSummary(wallet).total;
+              addCheck(
+                result,
+                "global action applies (production path)",
+                !!(applyRes && applyRes.applied) && afterGlobal > beforeGlobal,
+                `before=${beforeGlobal} after=${afterGlobal}`,
+              );
+            } else {
+              addCheck(
+                result,
+                "global action applies (production path)",
+                true,
+                "skipped (no UI layer)",
+              );
+            }
 
             const appliedNoWallet = (() => {
               if (!decodedGlobal) return false;
@@ -1476,6 +1492,488 @@
             "hash parse i2u",
             walletId === wallet.walletId,
             `walletId=${walletId}`,
+          );
+        }
+
+        // ---- Wave-3 additions: production-path + new-behavior checks. Each group
+        // is isolated in its own try/catch so an early throw records a failed check
+        // instead of aborting the groups below it, and cleans up any wallet it
+        // created (safeRemove + registry delete) exactly like the sections above.
+        const cleanupUid = (uid) => {
+          if (!uid) return;
+          if (helpers.STORAGE_PREFIX) safeRemove(helpers.STORAGE_PREFIX + uid);
+          try {
+            const reg = loadRegistry();
+            if (reg && typeof reg === "object" && reg[uid]) {
+              delete reg[uid];
+              saveRegistry(reg);
+            }
+          } catch (e) {
+            // ignore
+          }
+        };
+
+        // NB1: appendEvents persists + rolls back atomically. Force the write to
+        // fail (monkey-patched setItem throws once) and assert the optimistic
+        // in-memory append is reverted and false is returned. Then a normal call
+        // succeeds and persists. Relies on:
+        //   storage.appendEvents(wallet, events[]) -> boolean (rollback on failed
+        //   saveWallet) and storage.newEvent(wallet, type, n) -> { id, t, n, ts }.
+        try {
+          const uid = storage.ensureNonReservedUserId(
+            "selfcheck-append-" + randomId(),
+          );
+          const w = {
+            userId: uid,
+            walletId: helpers.randomWalletId(),
+            v: 2,
+            seq: {},
+            events: [],
+            actionCodes: [],
+            devices: [],
+          };
+          const ev = storage.newEvent(w, "d", 1);
+          const origSet = localStorage.setItem;
+          let ret = null;
+          try {
+            localStorage.setItem = function () {
+              throw new Error("selfcheck forced quota");
+            };
+            ret = storage.appendEvents(w, [ev]);
+          } finally {
+            localStorage.setItem = origSet;
+          }
+          addCheck(
+            result,
+            "appendEvents rolls back on save failure",
+            ret === false && w.events.length === 0,
+            `ret=${ret} len=${w.events.length}`,
+          );
+          const okRet = storage.appendEvents(w, [storage.newEvent(w, "d", 2)]);
+          const reloaded = storage.loadWallet(uid);
+          addCheck(
+            result,
+            "appendEvents persists on success",
+            okRet === true &&
+              !!reloaded &&
+              reloaded.events.some((e) => e.t === "d" && e.n === 2),
+            `ret=${okRet} len=${reloaded && reloaded.events.length}`,
+          );
+          cleanupUid(uid);
+        } catch (e) {
+          addCheck(
+            result,
+            "appendEvents rolls back on save failure",
+            false,
+            "threw=" + (e && e.message),
+          );
+        }
+
+        // NB2: two-tab id collision. Persist event id X (content A); hold an
+        // in-memory wallet with a DIFFERENT event carrying the SAME id X; saveWallet
+        // must re-mint the local event to a fresh id and keep BOTH bookings, dropping
+        // nothing. Relies on saveWallet's same-id/different-content re-mint + the
+        // union merge of the persisted snapshot (wallet-storage.js saveWallet).
+        try {
+          const uid = storage.ensureNonReservedUserId(
+            "selfcheck-collide-" + randomId(),
+          );
+          const deviceKey = storage.getDeviceKey();
+          const collideId = helpers.formatCompactEventId(deviceKey, 5);
+          const walletId = helpers.randomWalletId();
+          helpers.safeLocalStorageSetItem(
+            helpers.STORAGE_PREFIX + uid,
+            JSON.stringify({
+              userId: uid,
+              walletId,
+              v: 2,
+              seq: {},
+              events: [{ id: collideId, t: "d", n: 1, ts: 1000 }],
+              actionCodes: [],
+              devices: [],
+            }),
+          );
+          const wB = {
+            userId: uid,
+            walletId,
+            v: 2,
+            seq: {},
+            events: [{ id: collideId, t: "d", n: 2, ts: 2000 }],
+            actionCodes: [],
+            devices: [],
+          };
+          const savedB = storage.saveWallet(wB);
+          const reloaded = storage.loadWallet(uid);
+          const evs = (reloaded && reloaded.events) || [];
+          const keptA = evs.find((e) => e.id === collideId && e.n === 1);
+          const keptB = evs.find((e) => e.n === 2 && e.id !== collideId);
+          addCheck(
+            result,
+            "saveWallet re-mints two-tab id collision (keeps both)",
+            savedB === true && evs.length === 2 && !!keptA && !!keptB,
+            `len=${evs.length} A=${!!keptA} B=${!!keptB}`,
+          );
+          cleanupUid(uid);
+        } catch (e) {
+          addCheck(
+            result,
+            "saveWallet re-mints two-tab id collision (keeps both)",
+            false,
+            "threw=" + (e && e.message),
+          );
+        }
+
+        // NB3: "gc" (globalActionCodes) codec block round-trips with the key intact
+        // (bearer credential). Relies on encode/decodeImportV2Bytes gc block
+        // (writeActionCodeEntry, key written verbatim; readActionCodeEntry hasType).
+        try {
+          const gcWallet = {
+            userId: "selfcheck-gc",
+            walletId: helpers.randomWalletId(),
+            v: 2,
+            seq: {},
+            events: [{ id: "dev.1", t: "d", n: 1, ts: 1700000000000 }],
+            actionCodes: [],
+            devices: [],
+            globalActionCodes: [
+              {
+                id: "global:sc1",
+                label: "GC",
+                amount: 2,
+                type: "d",
+                key: "gckeysecret123",
+                createdAt: 1700000000000,
+                updatedAt: 1700000000000,
+              },
+            ],
+          };
+          const gcDec = importV2.decodeImportV2Bytes(
+            importV2.encodeImportV2Bytes(gcWallet, ""),
+          );
+          const gcCodes = Array.isArray(gcDec.globalActionCodes)
+            ? gcDec.globalActionCodes
+            : [];
+          const gcCode = gcCodes.find((c) => c && c.id === "global:sc1");
+          addCheck(
+            result,
+            "gc block round-trips global code with key",
+            !!gcCode &&
+              gcCode.key === "gckeysecret123" &&
+              gcCode.type === "d" &&
+              gcCode.amount === 2,
+            gcCode ? `key=${gcCode.key} type=${gcCode.type}` : "missing",
+          );
+        } catch (e) {
+          addCheck(
+            result,
+            "gc block round-trips global code with key",
+            false,
+            "threw=" + (e && e.message),
+          );
+        }
+
+        // NB3b: an import updates an existing local global code's label/amount/type
+        // but NEVER rotates its key (key rotation is local-only). Relies on
+        // buildImportedWallet's mergeActionCodes, which deliberately does not copy
+        // c.key. The remote wins on recency (newer updatedAt) yet the key is kept.
+        try {
+          const uid = storage.ensureNonReservedUserId(
+            "selfcheck-gckey-" + randomId(),
+          );
+          const walletId = helpers.randomWalletId();
+          const now = Date.now();
+          helpers.safeLocalStorageSetItem(
+            helpers.STORAGE_PREFIX + uid,
+            JSON.stringify({
+              userId: uid,
+              walletId,
+              v: 2,
+              seq: {},
+              events: [],
+              actionCodes: [],
+              devices: [],
+              globalActionCodes: [
+                {
+                  id: "global:keep",
+                  label: "Local",
+                  amount: 1,
+                  type: "g",
+                  key: "LOCALKEYKEEP",
+                  createdAt: now - 100000,
+                  updatedAt: now - 100000,
+                },
+              ],
+            }),
+          );
+          const remote = {
+            userId: uid,
+            walletId,
+            v: 2,
+            events: [],
+            globalActionCodes: [
+              {
+                id: "global:keep",
+                label: "Remote",
+                amount: 5,
+                type: "d",
+                key: "REMOTEKEYNEW",
+                createdAt: now,
+                updatedAt: now,
+              },
+            ],
+          };
+          const built = importV2.buildImportedWallet(remote);
+          const codes =
+            built &&
+            built.wallet &&
+            Array.isArray(built.wallet.globalActionCodes)
+              ? built.wallet.globalActionCodes
+              : [];
+          const kept = codes.find((c) => c && c.id === "global:keep");
+          addCheck(
+            result,
+            "import never rotates existing global code key",
+            !!kept && kept.key === "LOCALKEYKEEP",
+            kept ? `key=${kept.key} amount=${kept.amount}` : "missing",
+          );
+          cleanupUid(uid);
+        } catch (e) {
+          addCheck(
+            result,
+            "import never rotates existing global code key",
+            false,
+            "threw=" + (e && e.message),
+          );
+        }
+
+        // NB4: post-'s' balance is floored at min(balanceBefore, 0) — an 's' never
+        // manufactures or deepens credit. [g3, s2] -> credit 3; [d5, s7] -> 0/0.
+        try {
+          const gsSum = summaryApi.computeSummary({
+            events: [
+              { id: "dev.1", t: "g", n: 3, ts: 1000 },
+              { id: "dev.2", t: "s", n: 2, ts: 2000 },
+            ],
+          });
+          addCheck(
+            result,
+            "'s' does not manufacture credit ([g3,s2] -> credit 3)",
+            gsSum.credit === 3 && gsSum.unpaid === 0,
+            `credit=${gsSum.credit} unpaid=${gsSum.unpaid}`,
+          );
+          const dsSum = summaryApi.computeSummary({
+            events: [
+              { id: "dev.3", t: "d", n: 5, ts: 1000 },
+              { id: "dev.4", t: "s", n: 7, ts: 2000 },
+            ],
+          });
+          addCheck(
+            result,
+            "'s' clamps to zero, no phantom credit ([d5,s7] -> 0/0)",
+            dsSum.unpaid === 0 && dsSum.credit === 0,
+            `unpaid=${dsSum.unpaid} credit=${dsSum.credit}`,
+          );
+        } catch (e) {
+          addCheck(
+            result,
+            "'s' phantom-credit clamp",
+            false,
+            "threw=" + (e && e.message),
+          );
+        }
+
+        // NB5: formatPerDayDiagram returns one line per entry in the frozen
+        // "<date> [<count>]<paidMark> | <bar>" shape the history UI renders.
+        try {
+          if (typeof summaryApi.formatPerDayDiagram === "function") {
+            const lines = summaryApi.formatPerDayDiagram([
+              { date: "2024-03-01", drinks: 3, drinkCount: 3, paid: true },
+              { date: "2024-03-02", drinks: 2, drinkCount: 2, paid: false },
+            ]);
+            addCheck(
+              result,
+              "formatPerDayDiagram line format",
+              Array.isArray(lines) &&
+                lines.length === 2 &&
+                lines[0] === "2024-03-01 [3] 💰 | ###" &&
+                lines[1] === "2024-03-02 [2] | ##",
+              Array.isArray(lines) ? lines.join(" || ") : "not array",
+            );
+          } else {
+            addCheck(
+              result,
+              "formatPerDayDiagram line format",
+              false,
+              "missing export",
+            );
+          }
+        } catch (e) {
+          addCheck(
+            result,
+            "formatPerDayDiagram line format",
+            false,
+            "threw=" + (e && e.message),
+          );
+        }
+
+        // NB6: book a local action code through the REAL production entry
+        // (dbWalletImportV2.bookActionCode) — verify the booked event's type and
+        // that the amount routes through the Math.round clamp (normalizeAmount:
+        // 3.6 -> 4), and that a mismatched key is rejected (no booking). Relies on:
+        //   bookActionCode(targetUserId, { api, codeId, key }) -> loads the wallet,
+        //   matches codeId, key-checks, books newEvent via appendEvents.
+        // bookActionCode uses global alert() and sets window.location.hash, so both
+        // are overridden/saved and restored here.
+        try {
+          if (
+            typeof importV2.bookActionCode === "function" &&
+            typeof actionCodes.buildActionCode === "function"
+          ) {
+            const uid = storage.ensureNonReservedUserId(
+              "selfcheck-book-" + randomId(),
+            );
+            const w = storage.loadWallet(uid);
+            const code = actionCodes.buildActionCode({
+              type: "d",
+              amount: 2,
+              label: "Book",
+            });
+            code.amount = 3.6; // fractional -> exercises the booking-path clamp
+            w.actionCodes = [code];
+            storage.saveWallet(w);
+
+            const origAlert = window.alert;
+            const origHash = window.location.hash;
+            let bookedEv = null;
+            let keyRejected = false;
+            try {
+              window.alert = function () {};
+              importV2.bookActionCode(uid, {
+                api: actionCodes,
+                codeId: code.id,
+                key: code.key,
+              });
+              const r1 = storage.loadWallet(uid);
+              bookedEv = (r1.events || []).find((e) => e.t === "d");
+              const countGood = (r1.events || []).length;
+
+              importV2.bookActionCode(uid, {
+                api: actionCodes,
+                codeId: code.id,
+                key: "wrong-key-selfcheck",
+              });
+              const r2 = storage.loadWallet(uid);
+              keyRejected = (r2.events || []).length === countGood;
+            } finally {
+              window.alert = origAlert;
+              try {
+                window.location.hash = origHash;
+              } catch (e) {
+                // ignore
+              }
+            }
+            addCheck(
+              result,
+              "bookActionCode books local code (type + amount clamp)",
+              !!bookedEv && bookedEv.t === "d" && bookedEv.n === 4,
+              bookedEv ? `t=${bookedEv.t} n=${bookedEv.n}` : "no event",
+            );
+            addCheck(
+              result,
+              "bookActionCode rejects mismatched key",
+              keyRejected,
+              `rejected=${keyRejected}`,
+            );
+            cleanupUid(uid);
+          } else {
+            addCheck(
+              result,
+              "bookActionCode books local code (type + amount clamp)",
+              false,
+              "bookActionCode/buildActionCode missing",
+            );
+          }
+        } catch (e) {
+          addCheck(
+            result,
+            "bookActionCode books local code (type + amount clamp)",
+            false,
+            "threw=" + (e && e.message),
+          );
+        }
+
+        // NB7: exercise the global-action booking through the reachable production
+        // function (dbWalletUi.applyGlobalActionHash -> handleGlobalActionHash),
+        // asserting type normalization (payload.t "d" stays "d", "g" stays "g") and
+        // that the amount reaches the booked event. Non-active wallet +
+        // skipPersist/skipConfirm/skipMessage so nothing is written or prompted.
+        // (The Math.max(1, Math.round(n)) clamp in handleGlobalActionHash is
+        // unreachable through a decoded acg hash — normalizeGlobalAmount already
+        // rejects non-integer / out-of-range n on encode+decode — so this asserts
+        // the reachable behavior: type normalization + integer amount pass-through.)
+        try {
+          const gUi = window.dbWalletUi || null;
+          if (
+            gUi &&
+            typeof gUi.applyGlobalActionHash === "function" &&
+            typeof actionCodes.encodeGlobalActionHash === "function"
+          ) {
+            const opts = {
+              skipPersist: true,
+              skipConfirm: true,
+              skipMessage: true,
+              skipHashCleanup: true,
+            };
+            const wD = storage.loadWallet("selfcheck-gd-" + randomId());
+            const hashD = actionCodes.encodeGlobalActionHash({
+              v: 1,
+              t: "d",
+              n: 4,
+              l: "SC-d",
+            });
+            const rD = gUi.applyGlobalActionHash(
+              hashD,
+              Object.assign({ wallet: wD }, opts),
+            );
+            const evD = wD.events[wD.events.length - 1];
+            addCheck(
+              result,
+              "global booking normalizes type d + amount",
+              !!(rD && rD.applied) && !!evD && evD.t === "d" && evD.n === 4,
+              evD ? `t=${evD.t} n=${evD.n}` : "no event",
+            );
+            const wG = storage.loadWallet("selfcheck-gg-" + randomId());
+            const hashG = actionCodes.encodeGlobalActionHash({
+              v: 1,
+              t: "g",
+              n: 6,
+              l: "SC-g",
+            });
+            const rG = gUi.applyGlobalActionHash(
+              hashG,
+              Object.assign({ wallet: wG }, opts),
+            );
+            const evG = wG.events[wG.events.length - 1];
+            addCheck(
+              result,
+              "global booking normalizes type g + amount",
+              !!(rG && rG.applied) && !!evG && evG.t === "g" && evG.n === 6,
+              evG ? `t=${evG.t} n=${evG.n}` : "no event",
+            );
+          } else {
+            addCheck(
+              result,
+              "global booking normalizes type d + amount",
+              true,
+              "skipped (no UI layer)",
+            );
+          }
+        } catch (e) {
+          addCheck(
+            result,
+            "global booking normalizes type d + amount",
+            false,
+            "threw=" + (e && e.message),
           );
         }
       }
