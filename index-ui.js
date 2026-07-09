@@ -18,6 +18,8 @@
     safeLocalStorageRemoveItem,
     loadRegistry,
     saveRegistry,
+    formatDateTime,
+    normalizeUserId,
   } = helpers;
 
   const {
@@ -35,26 +37,9 @@
 
   const { buildImportedWallet, applyImportedTheme } = importV2;
 
-  function formatDateTime(ts) {
-    if (typeof ts !== "number" || !Number.isFinite(ts) || ts <= 0) {
-      return "—";
-    }
-    const d = new Date(ts);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${y}-${m}-${day} ${hh}:${mm}`;
-  }
-
-  function normalizeUserName(input) {
-    let n = String(input || "")
-      .trim()
-      .toLowerCase();
-    n = n.replace(/\s+/g, "-");
-    n = n.replace(/[^a-z0-9_-]/g, "");
-    return n;
+  function formatDateTimeDisplay(ts) {
+    const out = formatDateTime(ts);
+    return out || "—";
   }
 
   function clearRawOutput() {
@@ -90,14 +75,13 @@
 
     if (section) section.style.display = "block";
 
+    // Per-wallet summaries (computeSummary walks the full event log) are filled
+    // in after first paint so the user list appears immediately instead of
+    // blocking on every wallet's history.
+    const pendingSummaries = [];
+
     for (const userId of userIds) {
       const wallet = wallets[userId];
-      let summary = { total: 0, unpaid: 0, credit: 0 };
-      try {
-        summary = computeSummary(wallet);
-      } catch (e) {
-        // ignore
-      }
 
       const card = document.createElement("div");
       card.className = "stat";
@@ -120,11 +104,12 @@
       meta.style.marginTop = "0.35rem";
       meta.style.fontSize = "0.9rem";
       meta.style.color = "var(--muted)";
-      meta.textContent = "Letztes Update: " + formatDateTime(lastUpdated);
+      meta.textContent = "Letztes Update: " + formatDateTimeDisplay(lastUpdated);
 
       const summaryLine = document.createElement("div");
       summaryLine.style.marginTop = "0.35rem";
-      summaryLine.textContent = `Total: ${summary.total} | Offen: ${summary.unpaid} | Guthaben: ${summary.credit}`;
+      summaryLine.textContent = "Lädt …";
+      pendingSummaries.push({ summaryLine, wallet });
 
       const actions = document.createElement("div");
       actions.className = "action-buttons";
@@ -167,6 +152,20 @@
 
       container.appendChild(card);
     }
+
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        for (const { summaryLine, wallet } of pendingSummaries) {
+          let summary = { total: 0, unpaid: 0, credit: 0 };
+          try {
+            summary = computeSummary(wallet);
+          } catch (e) {
+            // ignore
+          }
+          summaryLine.textContent = `Total: ${summary.total} | Offen: ${summary.unpaid} | Guthaben: ${summary.credit}`;
+        }
+      }, 0);
+    });
   }
 
   async function tryParseWalletIdFromHash(hash) {
@@ -234,7 +233,7 @@
   function startNewUser() {
     const input = document.getElementById("username");
     const raw = input ? input.value : "";
-    let userId = normalizeUserName(raw);
+    let userId = normalizeUserId(raw);
     userId = ensureNonReservedUserId(userId);
     if (userIdExists(userId)) {
       userId = makeUniqueUserId(userId);
