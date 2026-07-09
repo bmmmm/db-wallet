@@ -13,33 +13,26 @@
   const {
     saveWallet,
     nextEventId,
+    newEvent,
+    appendEvents,
     undoLastEvent,
     appendTombstone,
     resolveUndoTarget,
   } = storage;
   const { dateStrFromTimestamp, parseDeleteRange } = summaryApi;
 
-  function newEvent(wallet, type, n) {
-    return {
-      id: nextEventId(wallet),
-      t: type,
-      n: typeof n === "number" ? n : undefined,
-      ts: Date.now(),
-    };
-  }
-
   // Persist a wallet mutation, rolling back the optimistic in-memory append when
   // the write fails (quota exceeded / disabled storage). Returns true on success.
-  // `mutate` must only APPEND events. We snapshot the events array (not just its
-  // length) because saveWallet re-reads and union-merges the persisted snapshot
-  // on every write — it may legitimately replace wallet.events — so restoring the
-  // exact pre-mutation array is the only correct rollback. Without this the UI
-  // reports success on a quota-failed write and the booking vanishes on reload.
+  // `mutate` must only APPEND events. Built on storage.appendEvents: we capture
+  // exactly the events `mutate` appended, restore the pre-mutation array, then let
+  // appendEvents snapshot + push + save + roll back atomically. This keeps the
+  // dialog/alert here in the UI layer while the save/rollback lives in storage.
   function persistMutation(ctx, wallet, mutate) {
     const before = Array.isArray(wallet.events) ? wallet.events.slice() : [];
     mutate();
-    if (saveWallet(wallet)) return true;
+    const appended = wallet.events.slice(before.length);
     wallet.events = before;
+    if (appendEvents(wallet, appended)) return true;
     ctx.dialogAlert(
       "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
     );
@@ -88,8 +81,20 @@
         return;
       }
     }
-    const removed = undoLastEvent(wallet);
+    // Pass the already-resolved plan so undoLastEvent doesn't re-resolve it.
+    const removed = undoLastEvent(wallet, plan);
+    if (removed && removed.status === "failed") {
+      // A real save failure (quota / blocked storage) — surface it instead of
+      // failing silently like an empty log. Mirror persistMutation's wording.
+      ctx.dialogAlert(
+        "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
+      );
+      ctx.resetAmount();
+      ctx.clearExport();
+      return;
+    }
     if (!removed) {
+      // Nothing to undo — keep today's silent behavior.
       ctx.resetAmount();
       ctx.clearExport();
       return;
@@ -229,22 +234,12 @@
     }
     if (!ctx.dialogConfirm(msg)) return;
 
-    // Stamp tombstones strictly after the newest known event so deletions always
-    // sort last in the log, even if the target was future-dated via editEntry or
-    // the device clock is skewed backward.
-    let maxTs = Date.now();
-    for (const e of wallet.events) {
-      if (e && typeof e.ts === "number" && Number.isFinite(e.ts) && e.ts > maxTs) {
-        maxTs = e.ts;
-      }
-    }
-    const baseTs = maxTs + 1;
-    let added = 0;
+    // Tombstones are stamped strictly after the newest event by buildTombstoneEvent
+    // (default ts = max(now, maxEventTs + 1)); each one pushed here raises the max
+    // so successive deletions keep incrementing and sort last, in order.
     const ok = persistMutation(ctx, wallet, () => {
       for (const id of idsToDelete) {
-        if (appendTombstone(wallet, id, baseTs + added)) {
-          added++;
-        }
+        appendTombstone(wallet, id);
       }
     });
     if (!ok) return;
@@ -330,7 +325,15 @@
       now.getSeconds(),
       now.getMilliseconds(),
     );
-    if (isNaN(testDate.getTime())) {
+    // The regex only checks the shape — new Date(2024, 12, 45) silently rolls
+    // over into the next month/year. Reject any input the Date constructor did
+    // not round-trip back to the exact parsed components.
+    if (
+      isNaN(testDate.getTime()) ||
+      testDate.getFullYear() !== year ||
+      testDate.getMonth() !== month ||
+      testDate.getDate() !== day
+    ) {
       ctx.dialogAlert("Ungültiges Datum.");
       ctx.clearExport();
       ctx.clearDeleteRange();
@@ -350,10 +353,7 @@
     const targetId = targetEvent.id;
     // The entry's root: when editing an already-edited entry, the target is a
     // replacement carrying supersedes, so resolve to the chain root.
-    const probeRootId =
-      typeof targetEvent.supersedes === "string" && targetEvent.supersedes
-        ? targetEvent.supersedes
-        : targetId;
+    const probeRootId = summaryApi.rootIdOf(targetEvent);
 
     // Reject moving the entry across a pay ("p") boundary in EITHER direction.
     // Balance is folded in strict ts order and a pay clamps it to 0, so
@@ -424,10 +424,7 @@
     // tombstone is appended — the replacement supersedes the original (and any
     // earlier replacement) directly. Editing an already-edited entry keeps
     // pointing at the chain root so the chain collapses cleanly.
-    const rootId =
-      typeof targetEvent.supersedes === "string" && targetEvent.supersedes
-        ? targetEvent.supersedes
-        : targetId;
+    const rootId = summaryApi.rootIdOf(targetEvent);
     const ok = persistMutation(ctx, wallet, () => {
       wallet.events.push({
         id: nextEventId(wallet),

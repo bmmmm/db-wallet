@@ -82,19 +82,11 @@
   let fallbackDeviceKey = null;
 
   function getDeviceKey() {
-    try {
-      const existing = localStorage.getItem(DEVICE_KEY_STORAGE);
-      if (existing) return existing;
-    } catch (e) {
-      // ignore
-    }
+    const existing = safeLocalStorageGetItem(DEVICE_KEY_STORAGE);
+    if (existing) return existing;
     if (fallbackDeviceKey) return fallbackDeviceKey;
     const created = randomWalletId(6);
-    try {
-      localStorage.setItem(DEVICE_KEY_STORAGE, created);
-    } catch (e) {
-      // ignore
-    }
+    safeLocalStorageSetItem(DEVICE_KEY_STORAGE, created);
     fallbackDeviceKey = created;
     return created;
   }
@@ -245,6 +237,31 @@
 
   const parseCompactEventId = helpers.parseCompactEventId;
 
+  // Highest seq already used by a device across the wallet's events. Shared by
+  // ensureDeviceSeq and nextEventId so both agree on where the next id starts.
+  function maxSeqForDevice(wallet, deviceKey) {
+    let maxSeq = 0;
+    for (const e of (wallet && wallet.events) || []) {
+      const parsed = parseCompactEventId(e && e.id);
+      if (parsed && parsed.deviceKey === deviceKey && parsed.seq > maxSeq) {
+        maxSeq = parsed.seq;
+      }
+    }
+    return maxSeq;
+  }
+
+  // Highest event ts currently in the log (0 when none). Used to stamp locally
+  // built tombstones strictly after the newest event so they always sort last.
+  function maxEventTs(wallet) {
+    let maxTs = 0;
+    for (const e of (wallet && wallet.events) || []) {
+      if (e && typeof e.ts === "number" && Number.isFinite(e.ts) && e.ts > maxTs) {
+        maxTs = e.ts;
+      }
+    }
+    return maxTs;
+  }
+
   function ensureDeviceSeq(wallet) {
     if (!wallet || typeof wallet !== "object") return;
     const deviceKey = getDeviceKey();
@@ -252,13 +269,7 @@
       wallet.seq = {};
     }
 
-    let maxSeq = 0;
-    for (const e of wallet.events || []) {
-      const parsed = parseCompactEventId(e && e.id);
-      if (parsed && parsed.deviceKey === deviceKey && parsed.seq > maxSeq) {
-        maxSeq = parsed.seq;
-      }
-    }
+    const maxSeq = maxSeqForDevice(wallet, deviceKey);
 
     const current = wallet.seq[deviceKey];
     const currentNum =
@@ -273,10 +284,14 @@
   function buildTombstoneEvent(wallet, refId, ts) {
     const ref = typeof refId === "string" ? refId.trim() : "";
     if (!ref) return null;
+    // With an explicit ts (e.g. a decoded remote tombstone keeping its wire ts)
+    // honor it verbatim. Otherwise default to strictly after the newest event so
+    // locally built delete/undo tombstones always sort last, even against future-
+    // dated entries or a backward-skewed clock. Callers no longer scan for this.
     const stamp =
       typeof ts === "number" && Number.isFinite(ts)
         ? Math.floor(ts)
-        : Date.now();
+        : Math.max(Date.now(), maxEventTs(wallet) + 1);
     return {
       id: nextEventId(wallet),
       t: "x",
@@ -351,33 +366,24 @@
     return { type: "undo", id: rootId, event: target, afterDeletion };
   }
 
-  function undoLastEvent(wallet) {
-    const plan = resolveUndoTarget(wallet);
-    if (!plan) return null;
-
-    // Stamp the undo tombstone strictly after the newest event so it always
-    // sorts last (mirrors deleteSelection). This keeps "last appended" detection
-    // in resolveUndoTarget reliable across repeated undos and backward clock skew.
-    let maxTs = Date.now();
-    for (const e of wallet.events) {
-      if (
-        e &&
-        typeof e.ts === "number" &&
-        Number.isFinite(e.ts) &&
-        e.ts > maxTs
-      ) {
-        maxTs = e.ts;
-      }
-    }
-    const stampTs = maxTs + 1;
+  // Returns the tombstone event on success, null when there is nothing to undo,
+  // and { status: "failed" } when the write failed — so the caller can tell a
+  // real save failure apart from an empty log and surface a dialog. (The success
+  // path keeps returning the event itself for existing consumers.) The tombstone
+  // ts default (strictly after the newest event) now lives in buildTombstoneEvent.
+  // `plan` is optional: undoLast passes its already-resolved target to avoid a
+  // second resolveUndoTarget pass; without one we resolve here.
+  function undoLastEvent(wallet, plan) {
+    const target = plan || resolveUndoTarget(wallet);
+    if (!target) return null;
 
     const before = wallet.events.slice();
-    const tombstone = appendTombstone(wallet, plan.id, stampTs);
+    const tombstone = appendTombstone(wallet, target.id);
     if (!tombstone) return null;
     ensureDeviceSeq(wallet);
     if (!saveWallet(wallet)) {
       wallet.events = before; // roll back optimistic append on a failed write
-      return null;
+      return { status: "failed" };
     }
     return tombstone;
   }
@@ -388,19 +394,41 @@
       wallet.seq = {};
     }
     if (typeof wallet.seq[deviceKey] !== "number") {
-      let maxSeq = 0;
-      for (const e of wallet.events || []) {
-        const parsed = parseCompactEventId(e && e.id);
-        if (parsed && parsed.deviceKey === deviceKey && parsed.seq > maxSeq) {
-          maxSeq = parsed.seq;
-        }
-      }
-      wallet.seq[deviceKey] = maxSeq + 1;
+      wallet.seq[deviceKey] = maxSeqForDevice(wallet, deviceKey) + 1;
     }
 
     const seq = wallet.seq[deviceKey];
     wallet.seq[deviceKey] = seq + 1;
     return `${deviceKey}.${seq.toString(36)}`;
+  }
+
+  // Canonical event factory — a fresh id + timestamp for a drink/pay/credit.
+  // Shared so callers (wallet-actions, sync, UI) all mint identical shapes.
+  function newEvent(wallet, type, n) {
+    return {
+      id: nextEventId(wallet),
+      t: type,
+      n: typeof n === "number" ? n : undefined,
+      ts: Date.now(),
+    };
+  }
+
+  // Append events and persist, rolling back the optimistic in-memory append when
+  // the write fails (quota exceeded / disabled storage). Returns true on success,
+  // false on failure. Snapshots the array (not just its length) because saveWallet
+  // re-reads and union-merges the persisted snapshot on every write and may
+  // legitimately replace wallet.events — so restoring the exact pre-append array
+  // is the only correct rollback.
+  function appendEvents(wallet, eventsArray) {
+    if (!wallet || typeof wallet !== "object") return false;
+    if (!Array.isArray(wallet.events)) wallet.events = [];
+    const before = wallet.events.slice();
+    for (const ev of eventsArray || []) {
+      wallet.events.push(ev);
+    }
+    if (saveWallet(wallet)) return true;
+    wallet.events = before;
+    return false;
   }
 
   // Sanity ceiling for a single event's amount — far above any real drink count.
@@ -535,6 +563,91 @@
     }
   }
 
+  // Two events sharing an id are "the same booking" only when every other field
+  // matches; a mismatch is a real cross-tab id collision (same seq, different
+  // content) that must not be deduped away.
+  function sameEventContent(a, b) {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+    return (
+      a.t === b.t &&
+      a.n === b.n &&
+      a.ts === b.ts &&
+      (a.ref || "") === (b.ref || "") &&
+      (a.supersedes || "") === (b.supersedes || "") &&
+      (a.oid || "") === (b.oid || "")
+    );
+  }
+
+  // Union two arrays of objects keyed by `keyName`; the local version wins on a
+  // shared key. Used to reconcile action codes / devices with a concurrent tab's
+  // persisted copy instead of clobbering it with our stale in-memory array.
+  function unionArrayByKey(localArr, persistedArr, keyName) {
+    const local = Array.isArray(localArr) ? localArr : [];
+    const persisted = Array.isArray(persistedArr) ? persistedArr : [];
+    if (!persisted.length) return local;
+    const byKey = new Map();
+    for (const item of persisted) {
+      const k = item && typeof item[keyName] === "string" ? item[keyName] : null;
+      if (k) byKey.set(k, item);
+    }
+    for (const item of local) {
+      const k = item && typeof item[keyName] === "string" ? item[keyName] : null;
+      if (k) byKey.set(k, item);
+    }
+    return Array.from(byKey.values());
+  }
+
+  // Field-wise reconcile of everything except events (handled by mergeEvents) so
+  // saving from a stale in-memory wallet doesn't clobber a concurrent tab's
+  // persisted action codes / devices / sync peers. Scalars stay local-wins.
+  function reconcilePersistedFields(wallet, persisted) {
+    if (Array.isArray(persisted.actionCodes)) {
+      wallet.actionCodes = unionArrayByKey(
+        wallet.actionCodes,
+        persisted.actionCodes,
+        "id",
+      );
+    }
+    if (Array.isArray(persisted.globalActionCodes)) {
+      wallet.globalActionCodes = unionArrayByKey(
+        wallet.globalActionCodes,
+        persisted.globalActionCodes,
+        "id",
+      );
+    }
+    if (Array.isArray(persisted.devices)) {
+      wallet.devices = unionArrayByKey(
+        wallet.devices,
+        persisted.devices,
+        "deviceKey",
+      );
+    }
+    // syncPeers is a plain object map keyed by peer key — union keys, local wins.
+    if (
+      persisted.syncPeers &&
+      typeof persisted.syncPeers === "object" &&
+      !Array.isArray(persisted.syncPeers)
+    ) {
+      const merged = Object.create(null);
+      for (const k of Object.keys(persisted.syncPeers)) {
+        merged[k] = persisted.syncPeers[k];
+      }
+      const localPeers =
+        wallet.syncPeers &&
+        typeof wallet.syncPeers === "object" &&
+        !Array.isArray(wallet.syncPeers)
+          ? wallet.syncPeers
+          : null;
+      if (localPeers) {
+        for (const k of Object.keys(localPeers)) {
+          merged[k] = localPeers[k];
+        }
+      }
+      wallet.syncPeers = merged;
+    }
+  }
+
   function saveWallet(wallet) {
     if (!wallet || !wallet.userId) return false;
 
@@ -571,10 +684,64 @@
           mergeApi &&
           typeof mergeApi.mergeEvents === "function"
         ) {
+          // Two tabs of the same wallet share the deviceKey and the persisted seq,
+          // so they can mint the SAME id for DIFFERENT bookings. mergeEvents dedups
+          // by id and (seeding local ids first) would drop the persisted event —
+          // permanently losing a real booking. Detect same-id/different-content
+          // collisions and re-mint the LOCAL event to a fresh seq above the combined
+          // max, rewriting any local references (tombstone ref / supersedes) to it.
+          // The persisted event keeps the original id. Content-identical duplicates
+          // fall through to normal dedup, so mergeEvents' import contract is intact.
+          const persistedById = new Map();
+          for (const e of persisted.events) {
+            if (e && typeof e.id === "string" && e.id) {
+              persistedById.set(e.id, e);
+            }
+          }
+          const nextSeqByDevice = new Map();
+          const mintFreshId = (deviceKey) => {
+            let next = nextSeqByDevice.get(deviceKey);
+            if (next === undefined) {
+              next =
+                Math.max(
+                  maxSeqForDevice(wallet, deviceKey),
+                  maxSeqForDevice({ events: persisted.events }, deviceKey),
+                ) + 1;
+            }
+            nextSeqByDevice.set(deviceKey, next + 1);
+            return `${deviceKey}.${next.toString(36)}`;
+          };
+          const remap = new Map();
+          for (const e of wallet.events) {
+            if (!e || typeof e.id !== "string" || !e.id) continue;
+            const clash = persistedById.get(e.id);
+            if (clash && !sameEventContent(e, clash)) {
+              const parsed = parseCompactEventId(e.id);
+              const deviceKey = parsed ? parsed.deviceKey : getDeviceKey();
+              const freshId = mintFreshId(deviceKey);
+              remap.set(e.id, freshId);
+              e.id = freshId;
+            }
+          }
+          if (remap.size) {
+            for (const e of wallet.events) {
+              if (!e) continue;
+              if (typeof e.ref === "string" && remap.has(e.ref)) {
+                e.ref = remap.get(e.ref);
+              }
+              if (typeof e.supersedes === "string" && remap.has(e.supersedes)) {
+                e.supersedes = remap.get(e.supersedes);
+              }
+            }
+          }
+
           wallet.events = mergeApi.mergeEvents(wallet.events, persisted.events);
           // Reconcile the local seq counter to the merged max so the next id
           // mint can't collide with an event just merged in from another tab.
           ensureDeviceSeq(wallet);
+          // Reconcile the remaining fields too — otherwise a concurrent tab's
+          // action codes / devices / sync peers get clobbered by our stale copy.
+          reconcilePersistedFields(wallet, persisted);
         }
       }
     } catch (e) {
@@ -727,6 +894,8 @@
     resolveUndoTarget,
     undoLastEvent,
     nextEventId,
+    newEvent,
+    appendEvents,
     loadWallet,
     saveWallet,
     getAllWallets,
