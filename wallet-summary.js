@@ -1,34 +1,13 @@
 (function () {
-  function cmpStr(a, b) {
-    if (a === b) return 0;
-    return a < b ? -1 : 1;
-  }
-
-  // Tie-break for equal-timestamp events; delegates to the canonical comparator
-  // in helpers (deviceKey lexical, seq numeric). Lexical fallback only if helpers
-  // failed to load — in practice it is always present (loaded first).
-  function cmpEventId(a, b) {
-    const helpers = window.dbWalletHelpers || null;
-    if (helpers && typeof helpers.cmpEventId === "function") {
-      return helpers.cmpEventId(a, b);
-    }
-    return cmpStr(a, b);
-  }
-
+  // Date formatting + string/event comparators live in wallet-helpers.js (loaded
+  // first) so summary/storage/import share one source of truth. Access them via
+  // window.dbWalletHelpers, matching the module's existing dependency pattern.
   function todayDateStr() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return window.dbWalletHelpers.formatDate(Date.now());
   }
 
   function dateStrFromTimestamp(ts) {
-    const d = new Date(ts);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return window.dbWalletHelpers.formatDate(ts);
   }
 
   let computeSummarySafeLogged = false;
@@ -202,38 +181,29 @@
     };
   }
 
-  // liefert auch die sortierten Events zurück
-  // Erweiterung: unterstützt jetzt auch Gutschriften ("g")
-  // Balance-Logik:
-  //  - "d" (Drink)      => balance += n
-  //  - "s" (Subtract)   => balance -= n
-  //  - "g" (Gutschrift) => balance -= n
-  //  - "p" (Bezahlt)    => wenn balance > 0, dann balance = 0
-  // Am Ende:
-  //  - unpaid  = max(balance, 0)       (offene Getränke)
-  //  - credit  = max(-balance, 0)      (verbleibende Gutschrift in Getränken)
+  // Also returns the sorted events.
+  // Extension: now also supports credits ("g").
+  // Balance logic:
+  //  - "d" (drink)    => balance += n
+  //  - "s" (subtract) => balance -= n
+  //  - "g" (credit)   => balance -= n
+  //  - "p" (paid)     => if balance > 0, then balance = 0
+  // At the end:
+  //  - unpaid  = max(balance, 0)       (open drinks)
+  //  - credit  = max(-balance, 0)      (remaining credit in drinks)
   function computeSummary(wallet) {
-    const eventsSorted = wallet.events
-      .slice()
-      .sort((a, b) => a.ts - b.ts || cmpEventId(a.id, b.id));
+    const helpers = window.dbWalletHelpers || null;
+    const eventsSorted = wallet.events.slice().sort(helpers.compareEventsByTime);
     const tombstoneRes = applyTombstones(eventsSorted);
     const eventsEffective = tombstoneRes.effectiveEvents;
     const eventsVisible = tombstoneRes.visibleEvents;
 
     let total = 0;
     const perDayMap = new Map();
-    let balance = 0; // >0 = offene Getränke, <0 = Guthaben
-
-    function dayKey(ts) {
-      const d = new Date(ts);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    }
+    let balance = 0; // >0 = open drinks, <0 = credit
 
     for (const e of eventsEffective) {
-      const key = dayKey(e.ts);
+      const key = dateStrFromTimestamp(e.ts);
       if (!perDayMap.has(key)) {
         perDayMap.set(key, {
           date: key,
@@ -256,10 +226,13 @@
       } else if (e.t === "s") {
         // 's' (subtract) is import/legacy only — the action layer never produces
         // it (undo/delete/edit use tombstones t:"x"). It removes unpaid drinks
-        // but must NOT manufacture credit: if subtracting would push a
-        // non-negative balance below zero, clamp at zero so a stray/crafted 's'
-        // can't surface as phantom Guthaben (the symmetric counterpart to the
-        // `total < 0` clamp below).
+        // but must NOT manufacture credit: an 's' is a correction that removes
+        // drinks, so it can only push an open balance toward zero, never deeper
+        // into credit. Bound the post-'s' balance below by min(balanceBefore, 0):
+        // from a non-negative balance it clamps at 0 (subtracting more drinks
+        // than are open cannot create Guthaben); from an already-negative balance
+        // it holds at that prior credit (an 's' never deepens credit). Symmetric
+        // counterpart to the `total < 0` clamp below.
         const n =
           typeof e.n === "number" && isFinite(e.n)
             ? Math.max(1, Math.round(e.n))
@@ -272,7 +245,8 @@
         // with a shorter/empty bar.
         day.drinkCount -= n;
         balance -= n;
-        if (balanceBefore >= 0 && balance < 0) balance = 0;
+        const balanceFloor = Math.min(balanceBefore, 0);
+        if (balance < balanceFloor) balance = balanceFloor;
       } else if (e.t === "p") {
         // day.paid flags that a payment occurred ON this day — it does not mark
         // the earlier days this pay settles. The actual settlement is the global
@@ -303,7 +277,7 @@
     const credit = Math.max(-balance, 0);
 
     const perDay = Array.from(perDayMap.values()).sort((a, b) =>
-      cmpStr(a.date, b.date),
+      helpers.cmpStr(a.date, b.date),
     );
 
     return {
@@ -424,14 +398,7 @@
   }
 
   function formatLogLine(e, index) {
-    const d = new Date(e.ts);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    const dateStr = `${y}-${m}-${day}`;
-    const timeStr = `${hh}:${mm}`;
+    const dateTimeStr = window.dbWalletHelpers.formatDateTime(e.ts);
     let action = "";
     const n =
       typeof e.n === "number" && isFinite(e.n)
@@ -447,7 +414,27 @@
         ? `🗑️ gelöscht: ${ref} (nicht bearbeitbar)`
         : "🗑️ gelöscht (nicht bearbeitbar)";
     }
-    return `#${index} | ${dateStr} ${timeStr} | ${action}`;
+    return `#${index} | ${dateTimeStr} | ${action}`;
+  }
+
+  // Renders the per-day diagram lines. FROZEN contract: returns an ARRAY of line
+  // strings, one per input entry, in the SAME order as `perDay` (no reversing —
+  // the caller decides display order). Logic is byte-identical to the historic
+  // inline blocks in wallet-history-ui.js and import-preview.js so every consumer
+  // stays in sync.
+  function formatPerDayDiagram(perDay) {
+    const list = Array.isArray(perDay) ? perDay : [];
+    return list.map((d) => {
+      const drinkCount =
+        typeof d.drinkCount === "number" && Number.isFinite(d.drinkCount)
+          ? d.drinkCount
+          : typeof d.drinks === "number" && Number.isFinite(d.drinks)
+            ? Math.max(0, Math.round(d.drinks))
+            : 0;
+      const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
+      const paidMark = d.paid ? " 💰" : "";
+      return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
+    });
   }
 
   window.dbWalletSummary = {
@@ -460,5 +447,6 @@
     computeSummarySafe,
     parseDeleteRange,
     formatLogLine,
+    formatPerDayDiagram,
   };
 })();
