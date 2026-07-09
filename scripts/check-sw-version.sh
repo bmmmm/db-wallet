@@ -22,11 +22,54 @@ else
   sw_diff="$(git diff --cached -- "$SW")"
 fi
 
-[ -n "$changed" ] || exit 0
-
 # Extract APP_SHELL entries ("./foo.js" -> foo.js).
 shell_files="$(sed -n '/APP_SHELL = \[/,/\];/p' "$SW" \
   | grep -oE '"\./[^"]+"' | tr -d '"' | sed 's|^\./||')"
+
+# Completeness check: every LOCAL asset referenced by an HTML page that is
+# itself in APP_SHELL must also be listed in APP_SHELL. Otherwise a newly
+# added <script>/<link> tag is invisible to the cache warm-up and CI stays
+# green while the app breaks offline. Runs unconditionally (not gated on a
+# diff) because it validates the current tree, not just what changed.
+extract_page_refs() {
+  # script src="..."
+  grep -oE '<script[^>]*\bsrc="[^"]+"' "$1" | grep -oE 'src="[^"]+"' | sed -E 's/^src="//; s/"$//'
+  # link rel="stylesheet" href="..."
+  grep -oE '<link[^>]*>' "$1" | grep -E 'rel="stylesheet"' | grep -oE 'href="[^"]+"' | sed -E 's/^href="//; s/"$//'
+  # link rel="manifest" href="..."
+  grep -oE '<link[^>]*>' "$1" | grep -E 'rel="manifest"' | grep -oE 'href="[^"]+"' | sed -E 's/^href="//; s/"$//'
+}
+
+pages="$(printf '%s\n' "$shell_files" | grep -E '\.html$' || true)"
+
+missing=""
+while IFS= read -r page; do
+  [ -n "$page" ] || continue
+  [ -f "$page" ] || continue
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    case "$ref" in
+      http://*|https://*) continue ;;
+    esac
+    norm="${ref#./}"
+    norm="${norm%%\?*}"
+    norm="${norm%%#*}"
+    if ! printf '%s\n' "$shell_files" | grep -qxF "$norm"; then
+      missing="${missing}${page}: ${ref}\n"
+    fi
+  done <<PAGEREFS
+$(extract_page_refs "$page")
+PAGEREFS
+done <<PAGES
+$pages
+PAGES
+
+if [ -n "$missing" ]; then
+  echo "ERROR: local asset(s) referenced by an APP_SHELL page are missing from APP_SHELL:" >&2
+  printf '%b' "$missing" >&2
+  echo "Add the missing file(s) (as \"./<name>\") to APP_SHELL in $SW and bump VERSION." >&2
+  exit 1
+fi
 
 shell_changed=0
 while IFS= read -r f; do
