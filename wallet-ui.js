@@ -59,7 +59,8 @@
     touchLocalDevice,
     parseCompactEventId,
     ensureDeviceSeq,
-    nextEventId,
+    newEvent,
+    appendEvents,
     loadWallet,
     saveWallet,
     getAllWallets,
@@ -153,15 +154,6 @@
       replaceHashSilently(userId);
     }
     return userId;
-  }
-
-  function newEvent(wallet, type, n) {
-    return {
-      id: nextEventId(wallet),
-      t: type, // 'd' = drink, 's' = Korrektur/Rückgängig, 'p' = bezahlt, 'g' = Guthaben
-      n: typeof n === "number" ? n : undefined,
-      ts: Date.now(),
-    };
   }
 
   document.addEventListener("DOMContentLoaded", async () => {
@@ -552,7 +544,7 @@
     }
 
     updateUidLabel();
-    elExportUrl.value = ""; // initial leer
+    elExportUrl.value = ""; // initially empty
 
     function openExportSection() {
       if (exportUi && typeof exportUi.openSection === "function") {
@@ -629,6 +621,7 @@
         seq: wallet.seq,
         events: wallet.events,
         actionCodes: wallet.actionCodes,
+        globalActionCodes: wallet.globalActionCodes,
         devices: wallet.devices,
         theme,
       };
@@ -730,8 +723,7 @@
         }
       }
 
-      const eventsBefore = targetWallet.events.slice();
-      targetWallet.events.push(newEvent(targetWallet, type, amount));
+      const event = newEvent(targetWallet, type, amount);
 
       const isActiveWallet = targetWallet === wallet;
       // Only arm the dedup guard on the active-wallet path (the boot vs.
@@ -741,16 +733,25 @@
         markGlobalActionHandled(hash);
       }
       if (isActiveWallet && !options.skipPersist) {
-        if (!saveWallet(wallet)) {
-          // Roll back the optimistic append on a failed write instead of
-          // rendering a balance storage didn't accept.
-          wallet.events = eventsBefore;
+        // appendEvents snapshots + pushes + persists + rolls back atomically, so
+        // a failed write leaves the balance untouched instead of rolling back
+        // silently. Surface the failure — wording mirrors wallet-actions.js's
+        // persistMutation alert — instead of pretending the booking happened.
+        if (!appendEvents(wallet, [event])) {
+          alert(
+            "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
+          );
           return { handled: true, applied: false, reason: "save-failed" };
         }
         invalidateCaches();
         resetAmount();
         clearExport();
         refreshSummary();
+      } else {
+        // Non-persisting path: the boot pre-apply (skipPersist — the caller
+        // saves later) or a non-active/programmatic wallet. Stage the append in
+        // memory only.
+        targetWallet.events.push(event);
       }
 
       if (isActiveWallet && !options.skipHashCleanup) {
@@ -897,7 +898,7 @@
       return isNaN(n) || n <= 0 ? 1 : n;
     }
 
-    // Setzt das Zahlungs-UI zentral zurück
+    // Resets the payment UI centrally
     function resetPayUi() {
       if (payOptions) {
         payOptions.style.display = "none";
@@ -941,11 +942,17 @@
         toggleStatVisibility(elCredit, summary.credit);
       }
 
-      if (syncUi && typeof syncUi.refresh === "function") {
-        syncUi.refresh();
-      }
+      // syncUi.refresh() runs via historyUi.render()'s onAfterRender callback
+      // (see historyUi.init), which also fires on the mode/raw-scope toggles that
+      // re-render without going through refreshSummary — so the sync line is
+      // refreshed on exactly one path. Do NOT add a direct syncUi.refresh() here
+      // when historyUi is present: that would rebuild the ASCII timeline + device
+      // legend twice per mutation.
       if (historyUi && typeof historyUi.render === "function") {
         historyUi.render();
+      } else if (syncUi && typeof syncUi.refresh === "function") {
+        // No historyUi → no onAfterRender, so refresh the sync line directly.
+        syncUi.refresh();
       }
     }
 
@@ -1023,18 +1030,18 @@
 
     btnPay.addEventListener("click", () => {
       if (!payOptions) return;
-      // Toggle Sichtbarkeit der Zahlungsoptionen
+      // Toggle visibility of the payment options
       if (
         payOptions.style.display === "none" ||
         payOptions.style.display === ""
       ) {
         payOptions.style.display = "flex";
-        // Während des Zahlungsvorgangs Bezahlen-, Rückgängig- und Trinken-Button ausblenden
+        // During the payment flow, hide the pay, undo and drink buttons
         if (btnPay) btnPay.style.display = "none";
         if (btnUndo) btnUndo.style.display = "none";
         if (btnDrink) btnDrink.style.display = "none";
       } else {
-        // Zahlungsvorgang abbrechen/zuklappen -> UI zurücksetzen
+        // Cancel/collapse the payment flow -> reset the UI
         resetPayUi();
       }
     });
