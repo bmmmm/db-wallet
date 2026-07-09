@@ -6,10 +6,8 @@ PWA (Progressive Web App) für Getränke-Tracking und -Verwaltung.
 ## Identity
 
 Commits use the repo's configured git identity (GitHub user `bmmmm`). `origin` is the
-public GitHub repo — push with `git push origin main`.
-
-**Planned:** move the source of truth to a self-hosted Forgejo with a one-way push-mirror
-to GitHub. Until then, GitHub is the only remote. Real hosts/tokens live in `~/.env` /
+self-hosted Forgejo (source of truth); `github` is the public mirror remote — push both:
+`git push origin main && git push github main`. Real hosts/tokens live in `~/.env` /
 `~/ops/runbooks/identity-setup.md` — not in tracked source.
 
 ## Conventions
@@ -35,7 +33,12 @@ Kein Build-Schritt. Direkt die HTML-Dateien bearbeiten.
 Verify changes: open `wallet.html` and run `await dbWalletSelfCheck.run()` in the console
 (returns `{ok, checks}`). Caveat: the Service Worker caches the app shell cache-first and
 CSP blocks `eval`, so a normal reload serves stale scripts after an edit — unregister the
-SW + clear caches, or serve on a fresh port.
+SW + clear caches, or serve on a fresh port. That alone is NOT enough: the re-registering
+SW's `cache.addAll` fetches through the browser HTTP cache (python's http.server sends no
+cache headers → heuristic caching), so it re-caches the stale copy. After an edit, force
+the HTTP cache fresh first: `await fetch("<file>.js", {cache: "reload"})`, then unregister
++ clear + reload. Also: automation tabs are usually hidden — `requestAnimationFrame` never
+fires there, so rAF-deferred UI work looks broken under browser automation.
 
 ## Key files
 
