@@ -231,6 +231,11 @@
     return { deviceKey, seq };
   }
 
+  // Inverse of parseCompactEventId.
+  function formatCompactEventId(deviceKey, seq) {
+    return `${deviceKey}.${seq.toString(36)}`;
+  }
+
   function cmpStr(a, b) {
     if (a === b) return 0;
     return a < b ? -1 : 1;
@@ -292,6 +297,78 @@
     return cleaned || "legacy";
   }
 
+  function formatDate(tsMs) {
+    if (typeof tsMs !== "number" || !Number.isFinite(tsMs) || tsMs <= 0) {
+      return "";
+    }
+    const d = new Date(tsMs);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function formatDateTime(tsMs) {
+    const datePart = formatDate(tsMs);
+    if (!datePart) return "";
+    const d = new Date(tsMs);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${datePart} ${hh}:${mm}`;
+  }
+
+  // Sanitizes a raw user-supplied string into a safe user id: lowercase,
+  // spaces collapsed to hyphens, anything outside [a-z0-9_-] stripped, capped
+  // at 64 chars. Returns "" if nothing usable remains (caller decides the
+  // fallback — e.g. generating a random id).
+  function normalizeUserId(raw) {
+    return String(raw || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9_-]/g, "")
+      .slice(0, 64);
+  }
+
+  // Renders a QR code for `text` onto `canvas` using the global qrcodegen
+  // library. opts: { scale, maxPx, border }. `scale` is a fixed pixel-per-module
+  // integer; if omitted and `maxPx` is given, scale is derived to fit within
+  // maxPx. `border` defaults to 4 modules. Throws if the QR library is missing
+  // or encodeText fails — callers are expected to catch.
+  function drawQrToCanvas(canvas, text, opts) {
+    if (!canvas) return;
+    if (!window.qrcodegen || !window.qrcodegen.QrCode) {
+      throw new Error("QR library missing");
+    }
+    const o = opts || {};
+    const border = typeof o.border === "number" ? o.border : 4;
+    const ecc = window.qrcodegen.QrCode.Ecc.LOW;
+    const qr = window.qrcodegen.QrCode.encodeText(String(text || ""), ecc);
+    const size = qr.size;
+    const modules = size + border * 2;
+    let scale = typeof o.scale === "number" ? o.scale : 0;
+    if (!scale && typeof o.maxPx === "number") {
+      scale = Math.max(2, Math.floor(o.maxPx / modules));
+    }
+    if (!scale) scale = 2;
+    const dim = modules * scale;
+    canvas.width = dim;
+    canvas.height = dim;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, dim, dim);
+    ctx.fillStyle = "#000000";
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (qr.getModule(x, y)) {
+          ctx.fillRect((x + border) * scale, (y + border) * scale, scale, scale);
+        }
+      }
+    }
+  }
+
   window.dbWalletHelpers = {
     STORAGE_PREFIX,
     REGISTRY_KEY,
@@ -312,10 +389,16 @@
     safeLocalStorageSetItem,
     safeLocalStorageRemoveItem,
     parseCompactEventId,
+    formatCompactEventId,
+    cmpStr,
     cmpEventId,
     compareEventsByTime,
     fnv1a64,
     hash53,
     extractLegacyDeviceKey,
+    formatDate,
+    formatDateTime,
+    normalizeUserId,
+    drawQrToCanvas,
   };
 })();
