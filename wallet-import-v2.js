@@ -24,6 +24,8 @@
     hash53,
     extractLegacyDeviceKey,
     cmpEventId,
+    formatCompactEventId,
+    normalizeUserId,
   } = helpers;
 
   const {
@@ -32,7 +34,8 @@
     ensureWalletDevices,
     mergeWalletDevices,
     ensureDeviceSeq,
-    nextEventId,
+    newEvent,
+    appendEvents,
     loadWallet,
     saveWallet,
     userIdExists,
@@ -169,9 +172,107 @@
     return bytes.slice(offset, offset + len);
   }
 
+  // Shared UTF-8 codecs for the length-prefixed string primitives below. The
+  // decoder is fatal so a corrupt/crafted payload throws instead of yielding
+  // replacement characters.
+  const stringEncoder = new TextEncoder();
+  const stringDecoder = new TextDecoder("utf-8", { fatal: true });
+
+  // Length-prefixed string primitives: a varint byte-length followed by the
+  // UTF-8 bytes. writeString mirrors the (encode + writeVarUint(len) + push)
+  // pattern that repeated across the encoder; readString mirrors the inverse
+  // (readVarUint + sliceChecked-bounded decode). Byte layout is unchanged.
+  function writeString(str, out) {
+    const bytes = stringEncoder.encode(str);
+    writeVarUint(bytes.length, out);
+    for (const b of bytes) out.push(b);
+  }
+
+  function readString(bytes, offset) {
+    const [len, next] = readVarUint(bytes, offset);
+    const str = stringDecoder.decode(sliceChecked(bytes, next, len));
+    return [str, next + len];
+  }
+
+  // Length-prefixed base64url-decoded byte blob (walletId). Separate from
+  // writeString because the walletId is stored as raw bytes, not UTF-8 text.
+  function writeBytesBlob(byteArray, out) {
+    writeVarUint(byteArray.length, out);
+    for (const b of byteArray) out.push(b);
+  }
+
   // Bound a decoded count so a corrupt/crafted payload can't produce absurd
   // values. Far above any real drink count, so legitimate data is untouched.
   const MAX_DECODED_AMOUNT = 1000000000;
+
+  // Encodes one action-code record (v2 layout: id, label, amount, key,
+  // createdAt, updatedAt, type). Shared by the "ac" (local) and "gc" (global)
+  // extension blocks so both stay byte-compatible. The key is written verbatim —
+  // the export is a bearer credential by design.
+  function writeActionCodeEntry(c, out) {
+    const id = c && typeof c.id === "string" ? c.id : "";
+    const label = c && typeof c.label === "string" ? c.label : "";
+    const key = c && typeof c.key === "string" ? c.key : "";
+    const amountRaw =
+      c && typeof c.amount === "number" ? c.amount : parseInt(c && c.amount, 10);
+    const amount =
+      typeof amountRaw === "number" && isFinite(amountRaw)
+        ? Math.max(1, Math.round(amountRaw))
+        : 1;
+    const createdAtRaw = c && typeof c.createdAt === "number" ? c.createdAt : 0;
+    const createdAt =
+      typeof createdAtRaw === "number" &&
+      isFinite(createdAtRaw) &&
+      createdAtRaw > 0
+        ? Math.floor(createdAtRaw)
+        : Date.now();
+    const updatedAtRaw = c && typeof c.updatedAt === "number" ? c.updatedAt : 0;
+    const updatedAt =
+      typeof updatedAtRaw === "number" &&
+      isFinite(updatedAtRaw) &&
+      updatedAtRaw > 0
+        ? Math.floor(updatedAtRaw)
+        : createdAt;
+
+    writeString(id, out);
+    writeString(label, out);
+    writeVarUint(amount, out);
+    writeString(key, out);
+    writeVarUint(createdAt, out);
+    writeVarUint(updatedAt, out);
+    const type = c && typeof c.type === "string" ? c.type : "";
+    writeVarUint(type === "d" ? 1 : 0, out);
+  }
+
+  // Inverse of writeActionCodeEntry. `hasType` reads the trailing type byte
+  // (ac v2 / gc v1); when false (ac v1) the type defaults to "g".
+  function readActionCodeEntry(bytes, offset, hasType) {
+    let id, label, key, amount, createdAt, updatedAt;
+    [id, offset] = readString(bytes, offset);
+    [label, offset] = readString(bytes, offset);
+    [amount, offset] = readVarUint(bytes, offset);
+    [key, offset] = readString(bytes, offset);
+    [createdAt, offset] = readVarUint(bytes, offset);
+    [updatedAt, offset] = readVarUint(bytes, offset);
+    let type = "g";
+    if (hasType) {
+      let typeCode;
+      [typeCode, offset] = readVarUint(bytes, offset);
+      type = typeCode === 1 ? "d" : "g";
+    }
+    return [
+      {
+        id,
+        label,
+        amount: Math.min(amount, MAX_DECODED_AMOUNT),
+        key,
+        createdAt,
+        updatedAt,
+        type,
+      },
+      offset,
+    ];
+  }
 
   function themeIndexFromName(name) {
     const canonical = canonicalThemeName(name);
@@ -199,20 +300,15 @@
     offset += walletIdLen;
     const walletId = base64UrlEncodeBytes(walletIdBytes);
 
-    const decoder = new TextDecoder("utf-8", { fatal: true });
-    const [userIdLen, o3] = readVarUint(bytes, offset);
-    offset = o3;
-    const userId = decoder.decode(sliceChecked(bytes, offset, userIdLen));
-    offset += userIdLen;
+    let userId;
+    [userId, offset] = readString(bytes, offset);
 
     const [deviceCount, o4] = readVarUint(bytes, offset);
     offset = o4;
     const deviceKeys = [];
     for (let i = 0; i < deviceCount; i++) {
-      const [len, o5] = readVarUint(bytes, offset);
-      offset = o5;
-      const key = decoder.decode(sliceChecked(bytes, offset, len));
-      offset += len;
+      let key;
+      [key, offset] = readString(bytes, offset);
       deviceKeys.push(key);
     }
 
@@ -224,7 +320,7 @@
 
   // Reads the events section and pushes decoded events into out.events.
   // Returns the new offset after consuming all event bytes.
-  function decodeV2Events(bytes, decoder, deviceKeys, baseTsMin, startOffset) {
+  function decodeV2Events(bytes, deviceKeys, baseTsMin, startOffset) {
     let offset = startOffset;
     const [eventCount, o7] = readVarUint(bytes, offset);
     offset = o7;
@@ -258,10 +354,7 @@
 
       let id = "";
       if (idIsString) {
-        const [len, o10] = readVarUint(bytes, offset);
-        offset = o10;
-        id = decoder.decode(sliceChecked(bytes, offset, len));
-        offset += len;
+        [id, offset] = readString(bytes, offset);
       } else {
         const [deviceIndex, o10] = readVarUint(bytes, offset);
         offset = o10;
@@ -303,9 +396,9 @@
     return { events, offset };
   }
 
-  // Reads the optional trailing extension blocks ("ac", "sp", "dv", "xt", "se")
-  // and mutates decoded in place. Tolerates parse errors for forward-compat.
-  function decodeV2Extensions(bytes, decoder, startOffset, decoded) {
+  // Reads the optional trailing extension blocks ("ac", "gc", "sp", "dv", "xt",
+  // "se") and mutates decoded in place. Tolerates parse errors for forward-compat.
+  function decodeV2Extensions(bytes, startOffset, decoded) {
     let offset = startOffset;
     try {
       while (offset + 1 < bytes.length) {
@@ -323,47 +416,31 @@
           offset = o9;
           const actionCodes = [];
           for (let i = 0; i < count; i++) {
-            const [idLen, o10] = readVarUint(bytes, offset);
-            offset = o10;
-            const id = decoder.decode(sliceChecked(bytes, offset, idLen));
-            offset += idLen;
-
-            const [labelLen, o11] = readVarUint(bytes, offset);
-            offset = o11;
-            const label = decoder.decode(sliceChecked(bytes, offset, labelLen));
-            offset += labelLen;
-
-            const [amount, o12] = readVarUint(bytes, offset);
-            offset = o12;
-
-            const [keyLen, o13] = readVarUint(bytes, offset);
-            offset = o13;
-            const key = decoder.decode(sliceChecked(bytes, offset, keyLen));
-            offset += keyLen;
-
-            const [createdAt, o14] = readVarUint(bytes, offset);
-            offset = o14;
-            const [updatedAt, o15] = readVarUint(bytes, offset);
-            offset = o15;
-
-            let type = "g";
-            if (acVersion === 2) {
-              const [typeCode, o16] = readVarUint(bytes, offset);
-              offset = o16;
-              type = typeCode === 1 ? "d" : "g";
-            }
-
-            actionCodes.push({
-              id,
-              label,
-              amount: Math.min(amount, MAX_DECODED_AMOUNT),
-              key,
-              createdAt,
-              updatedAt,
-              type,
-            });
+            let code;
+            [code, offset] = readActionCodeEntry(bytes, offset, acVersion === 2);
+            actionCodes.push(code);
           }
           decoded.actionCodes = actionCodes;
+          continue;
+        }
+
+        if (
+          bytes[offset] === 103 && // "g"
+          bytes[offset + 1] === 99 // "c"
+        ) {
+          offset += 2;
+          const [gcVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (gcVersion !== 1) break;
+          const [count, o9] = readVarUint(bytes, offset);
+          offset = o9;
+          const globalActionCodes = [];
+          for (let i = 0; i < count; i++) {
+            let code;
+            [code, offset] = readActionCodeEntry(bytes, offset, true);
+            globalActionCodes.push(code);
+          }
+          decoded.globalActionCodes = globalActionCodes;
           continue;
         }
 
@@ -375,10 +452,8 @@
           const [spVersion, o8] = readVarUint(bytes, offset);
           offset = o8;
           if (spVersion !== 1) break;
-          const [len, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const deviceId = decoder.decode(sliceChecked(bytes, offset, len));
-          offset += len;
+          let deviceId;
+          [deviceId, offset] = readString(bytes, offset);
           if (deviceId) decoded.deviceId = deviceId;
           continue;
         }
@@ -395,12 +470,8 @@
           offset = o9;
           const devices = [];
           for (let i = 0; i < count; i++) {
-            const [keyLen, o10] = readVarUint(bytes, offset);
-            offset = o10;
-            const deviceKey = decoder.decode(
-              sliceChecked(bytes, offset, keyLen),
-            );
-            offset += keyLen;
+            let deviceKey;
+            [deviceKey, offset] = readString(bytes, offset);
 
             const [symCode, o11] = readVarUint(bytes, offset);
             offset = o11;
@@ -433,15 +504,9 @@
           const [count, o9] = readVarUint(bytes, offset);
           offset = o9;
           for (let i = 0; i < count; i++) {
-            const [idLen, o10] = readVarUint(bytes, offset);
-            offset = o10;
-            const id = decoder.decode(sliceChecked(bytes, offset, idLen));
-            offset += idLen;
-
-            const [refLen, o11] = readVarUint(bytes, offset);
-            offset = o11;
-            const ref = decoder.decode(sliceChecked(bytes, offset, refLen));
-            offset += refLen;
+            let id, ref;
+            [id, offset] = readString(bytes, offset);
+            [ref, offset] = readString(bytes, offset);
 
             const [tsMs, o12] = readVarUint(bytes, offset);
             offset = o12;
@@ -472,15 +537,9 @@
           offset = o9;
           const supById = new Map();
           for (let i = 0; i < count; i++) {
-            const [idLen, o10] = readVarUint(bytes, offset);
-            offset = o10;
-            const id = decoder.decode(sliceChecked(bytes, offset, idLen));
-            offset += idLen;
-
-            const [supLen, o11] = readVarUint(bytes, offset);
-            offset = o11;
-            const sup = decoder.decode(sliceChecked(bytes, offset, supLen));
-            offset += supLen;
+            let id, sup;
+            [id, offset] = readString(bytes, offset);
+            [sup, offset] = readString(bytes, offset);
 
             if (id && sup && id !== sup) supById.set(id, sup);
           }
@@ -566,11 +625,10 @@
       }
     }
 
-    const decoder = new TextDecoder("utf-8", { fatal: true });
     const header = decodeV2Header(bytes, 4);
     const { themeIdx, walletV, walletId, userId, deviceKeys, baseTsMin } = header;
 
-    const evResult = decodeV2Events(bytes, decoder, deviceKeys, baseTsMin, header.offset);
+    const evResult = decodeV2Events(bytes, deviceKeys, baseTsMin, header.offset);
     const { events } = evResult;
 
     const theme = themeNameFromIndex(themeIdx);
@@ -588,16 +646,16 @@
     //  - sync peer device id ("sp", v1)
     //  - device list ("dv", v1)
     //  - supersedes links ("se", v1)
+    //  - global action codes ("gc", v1)
     //  - integrity checksum ("ck", v1)
     if (evResult.offset < bytes.length) {
-      decodeV2Extensions(bytes, decoder, evResult.offset, decoded);
+      decodeV2Extensions(bytes, evResult.offset, decoded);
     }
 
     return decoded;
   }
 
   function encodeImportV2Bytes(wallet, themeName) {
-    const encoder = new TextEncoder();
     const out = [];
 
     out.push(100, 98, 119, 2); // "dbw" + codec v2
@@ -608,17 +666,13 @@
       wallet && typeof wallet.walletId === "string"
         ? wallet.walletId
         : randomWalletId();
-    const walletIdBytes = base64UrlDecodeBytes(walletIdStr);
-    writeVarUint(walletIdBytes.length, out);
-    for (const b of walletIdBytes) out.push(b);
+    writeBytesBlob(base64UrlDecodeBytes(walletIdStr), out);
 
     const userIdStr =
       wallet && typeof wallet.userId === "string"
         ? wallet.userId
         : "user-" + randomId();
-    const userIdBytes = encoder.encode(userIdStr);
-    writeVarUint(userIdBytes.length, out);
-    for (const b of userIdBytes) out.push(b);
+    writeString(userIdStr, out);
 
     const deviceKeyToIndex = new Map();
     const deviceKeys = [];
@@ -652,12 +706,20 @@
       const id = typeof e.id === "string" && e.id ? e.id : "";
       if (!id) continue;
 
-      const parsed = parseCompactEventId(id);
-      if (parsed) {
-        if (!deviceKeyToIndex.has(parsed.deviceKey)) {
-          deviceKeyToIndex.set(parsed.deviceKey, deviceKeys.length);
-          deviceKeys.push(parsed.deviceKey);
-        }
+      // Only take the compact (device-index + seq) path when the id round-trips
+      // EXACTLY. A non-canonical seq like "dev.01" parses to seq 1 but the
+      // decoder rebuilds it as "dev.1", silently rewriting the id and breaking
+      // dedup / supersedes matching. When it doesn't round-trip, fall through to
+      // the verbatim string-id path below (parsed stays null).
+      const parsedRaw = parseCompactEventId(id);
+      const parsed =
+        parsedRaw &&
+        formatCompactEventId(parsedRaw.deviceKey, parsedRaw.seq) === id
+          ? parsedRaw
+          : null;
+      if (parsed && !deviceKeyToIndex.has(parsed.deviceKey)) {
+        deviceKeyToIndex.set(parsed.deviceKey, deviceKeys.length);
+        deviceKeys.push(parsed.deviceKey);
       }
 
       let amount = 1;
@@ -695,9 +757,7 @@
 
     writeVarUint(deviceKeys.length, out);
     for (const key of deviceKeys) {
-      const bytes = encoder.encode(key);
-      writeVarUint(bytes.length, out);
-      for (const b of bytes) out.push(b);
+      writeString(key, out);
     }
 
     const baseTsMin =
@@ -723,9 +783,7 @@
       }
 
       if ((flags & 0x08) !== 0) {
-        const idBytes = encoder.encode(e.id);
-        writeVarUint(idBytes.length, out);
-        for (const b of idBytes) out.push(b);
+        writeString(e.id, out);
       } else {
         const deviceIndex = deviceKeyToIndex.get(e.parsed.deviceKey);
         writeVarUint(deviceIndex, out);
@@ -744,14 +802,8 @@
       writeVarUint(1, out);
       writeVarUint(tombstones.length, out);
       for (const t of tombstones) {
-        const idBytes = encoder.encode(t.id);
-        writeVarUint(idBytes.length, out);
-        for (const b of idBytes) out.push(b);
-
-        const refBytes = encoder.encode(t.ref);
-        writeVarUint(refBytes.length, out);
-        for (const b of refBytes) out.push(b);
-
+        writeString(t.id, out);
+        writeString(t.ref, out);
         writeVarUint(t.tsMs, out);
       }
     }
@@ -774,53 +826,7 @@
       writeVarUint(2, out);
       writeVarUint(actionCodes.length, out);
       for (const c of actionCodes) {
-        const id = c && typeof c.id === "string" ? c.id : "";
-        const label = c && typeof c.label === "string" ? c.label : "";
-        const key = c && typeof c.key === "string" ? c.key : "";
-        const amountRaw =
-          c && typeof c.amount === "number"
-            ? c.amount
-            : parseInt(c && c.amount, 10);
-        const amount =
-          typeof amountRaw === "number" && isFinite(amountRaw)
-            ? Math.max(1, Math.round(amountRaw))
-            : 1;
-        const createdAtRaw =
-          c && typeof c.createdAt === "number" ? c.createdAt : 0;
-        const createdAt =
-          typeof createdAtRaw === "number" &&
-          isFinite(createdAtRaw) &&
-          createdAtRaw > 0
-            ? Math.floor(createdAtRaw)
-            : Date.now();
-        const updatedAtRaw =
-          c && typeof c.updatedAt === "number" ? c.updatedAt : 0;
-        const updatedAt =
-          typeof updatedAtRaw === "number" &&
-          isFinite(updatedAtRaw) &&
-          updatedAtRaw > 0
-            ? Math.floor(updatedAtRaw)
-            : createdAt;
-
-        const idBytes = encoder.encode(id);
-        writeVarUint(idBytes.length, out);
-        for (const b of idBytes) out.push(b);
-
-        const labelBytes = encoder.encode(label);
-        writeVarUint(labelBytes.length, out);
-        for (const b of labelBytes) out.push(b);
-
-        writeVarUint(amount, out);
-
-        const keyBytes = encoder.encode(key);
-        writeVarUint(keyBytes.length, out);
-        for (const b of keyBytes) out.push(b);
-
-        writeVarUint(createdAt, out);
-        writeVarUint(updatedAt, out);
-
-        const type = c && typeof c.type === "string" ? c.type : "";
-        writeVarUint(type === "d" ? 1 : 0, out);
+        writeActionCodeEntry(c, out);
       }
     }
 
@@ -829,9 +835,7 @@
     if (deviceId) {
       out.push(115, 112); // "sp"
       writeVarUint(1, out);
-      const bytes = encoder.encode(deviceId);
-      writeVarUint(bytes.length, out);
-      for (const b of bytes) out.push(b);
+      writeString(deviceId, out);
     }
 
     // optional extension: device list ("dv", v1)
@@ -847,9 +851,7 @@
         for (const d of devices) {
           const deviceKey =
             d && typeof d.deviceKey === "string" ? d.deviceKey : "";
-          const keyBytes = encoder.encode(deviceKey);
-          writeVarUint(keyBytes.length, out);
-          for (const b of keyBytes) out.push(b);
+          writeString(deviceKey, out);
 
           const sym =
             d &&
@@ -886,13 +888,39 @@
       writeVarUint(1, out);
       writeVarUint(superseded.length, out);
       for (const e of superseded) {
-        const idBytes = encoder.encode(e.id);
-        writeVarUint(idBytes.length, out);
-        for (const b of idBytes) out.push(b);
+        writeString(e.id, out);
+        writeString(e.supersedes, out);
+      }
+    }
 
-        const supBytes = encoder.encode(e.supersedes);
-        writeVarUint(supBytes.length, out);
-        for (const b of supBytes) out.push(b);
+    // optional extension: global action codes ("gc", v1) — the wallet-level 🌍
+    // codes (wallet.globalActionCodes), same record layout as "ac" v2 (via
+    // writeActionCodeEntry, key included: the export is a bearer credential).
+    // Written AFTER "se" and BEFORE "ck" so the integrity checksum still covers
+    // it. An OLD decoder that doesn't know "gc" stops here (blocks have no length
+    // prefix) — it simply skips the global codes, like any later unknown block.
+    const rawGlobalCodes =
+      wallet && Array.isArray(wallet.globalActionCodes)
+        ? wallet.globalActionCodes
+        : [];
+    let globalCodes = rawGlobalCodes;
+    try {
+      const api = window.dbWalletActionCodes || null;
+      if (api && typeof api.normalizeActionCodes === "function") {
+        globalCodes = api.normalizeActionCodes(rawGlobalCodes);
+      }
+    } catch (e) {
+      console.warn(
+        "db-wallet: encode-v2 normalizeActionCodes (global) failed",
+        e,
+      );
+    }
+    if (globalCodes.length) {
+      out.push(103, 99); // "gc"
+      writeVarUint(1, out);
+      writeVarUint(globalCodes.length, out);
+      for (const c of globalCodes) {
+        writeActionCodeEntry(c, out);
       }
     }
 
@@ -915,17 +943,27 @@
     return new Uint8Array(out);
   }
 
-  // Mirror the manual-create normalizeUserName so an imported userId can't carry
-  // arbitrary characters into a localStorage key / URL fragment. lowercase,
-  // whitespace -> '-', strip to [a-z0-9_-], length-capped, with a safe fallback.
+  // Delegate the sanitization chain (lowercase, whitespace -> '-', strip to
+  // [a-z0-9_-], length-cap 64) to the shared helper so an imported userId can't
+  // carry arbitrary characters into a localStorage key / URL fragment. Keep this
+  // module's "user-" + randomId() fallback for the empty result.
   function sanitizeImportedUserId(input) {
-    const n = String(input || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, "-")
-      .replace(/[^a-z0-9_-]/g, "")
-      .slice(0, 64);
-    return n || "user-" + randomId();
+    return normalizeUserId(input) || "user-" + randomId();
+  }
+
+  // A walletId is base64url of the 12 random bytes randomWalletId() produces, so
+  // the binary codec can round-trip it through base64UrlDecodeBytes. Reject
+  // anything that isn't base64url-shaped or decodes to an implausible byte length
+  // (which would throw inside encodeImportV2Bytes and brick export).
+  function isValidWalletId(id) {
+    if (typeof id !== "string" || !id) return false;
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) return false;
+    try {
+      const bytes = base64UrlDecodeBytes(id);
+      return bytes.length >= 4 && bytes.length <= 64;
+    } catch (e) {
+      return false;
+    }
   }
 
   function resolveUserIdForImport(remote) {
@@ -983,12 +1021,43 @@
     } catch (e) {
       console.warn("db-wallet: import action codes merge failed", e);
     }
+
+    // Global action codes: same key-rotation invariant as mergeActionCodes (an
+    // imported code updates label/amount/type but never rotates an existing
+    // local key). Only touch the field when either side actually has codes, so
+    // wallets that never used global codes don't grow an empty array.
+    try {
+      const remoteGlobal =
+        remote && Array.isArray(remote.globalActionCodes)
+          ? remote.globalActionCodes
+          : [];
+      const localGlobal = Array.isArray(local.globalActionCodes)
+        ? local.globalActionCodes
+        : [];
+      if (remoteGlobal.length || localGlobal.length) {
+        const api = window.dbWalletActionCodes || null;
+        if (api && typeof api.mergeActionCodes === "function") {
+          local.globalActionCodes = api.mergeActionCodes(
+            localGlobal,
+            remoteGlobal,
+          );
+        } else if (remoteGlobal.length) {
+          local.globalActionCodes = remoteGlobal;
+        }
+      }
+    } catch (e) {
+      console.warn("db-wallet: import global action codes merge failed", e);
+    }
+
+    // Validate the remote walletId before persisting it: encodeImportV2Bytes
+    // feeds walletId to base64UrlDecodeBytes, which throws on non-base64url
+    // input — a crafted '#import:' JSON would then permanently brick binary
+    // QR/link export for this wallet. On an invalid value, fall through to the
+    // fresh valid walletId loadWallet already generated (import still succeeds).
+    const validRemoteWalletId =
+      isValidWalletId(remote.walletId) ? remote.walletId : null;
     local.walletId =
-      (typeof remote.walletId === "string" && remote.walletId
-        ? remote.walletId
-        : null) ||
-      local.walletId ||
-      randomWalletId();
+      validRemoteWalletId || local.walletId || randomWalletId();
     local.v =
       typeof remote.v === "number" && Number.isFinite(remote.v) && remote.v > 0
         ? remote.v
@@ -1118,15 +1187,6 @@
         : "Getränkedaten importiert ✅",
     );
     return userId;
-  }
-
-  function newEvent(wallet, type, n) {
-    return {
-      id: nextEventId(wallet),
-      t: type, // 'd' = drink, 's' = Korrektur/Rückgängig, 'p' = bezahlt, 'g' = Guthaben
-      n: typeof n === "number" ? n : undefined,
-      ts: Date.now(),
-    };
   }
 
   // Decodes a wallet import hash into a typed payload object, or null if
@@ -1361,10 +1421,8 @@
     // separately.
     const type = normalizeType(match.type) || "g";
 
-    const beforeEvents = wallet.events.slice();
-    wallet.events.push(newEvent(wallet, type === "d" ? "d" : "g", amount));
-    if (!saveWallet(wallet)) {
-      wallet.events = beforeEvents;
+    const event = newEvent(wallet, type === "d" ? "d" : "g", amount);
+    if (!appendEvents(wallet, [event])) {
       alert(
         "Speichern fehlgeschlagen — Buchung verworfen (Speicher voll oder blockiert).",
       );
