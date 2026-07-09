@@ -22,8 +22,8 @@
       refs.rawToggle.style.display = mode === "raw" ? "block" : "none";
     }
 
-    // Log-Bearbeitungsgruppe nur im Historie-Modus sichtbar,
-    // Edit-Funktionen erst bei aktivierter Checkbox
+    // Log-editing tools are only visible in history mode,
+    // edit functions only once the checkbox is enabled
     if (refs.logTools) {
       if (mode === "log") {
         refs.logTools.style.display = "block";
@@ -37,7 +37,7 @@
       }
     }
 
-    // Beim Wechsel auf Diagramm oder Historie immer auf "diese:n Nutzer:in" für Raw zurücksetzen
+    // Switching to diagram or history always resets the raw scope to the current user
     if (mode !== "raw") {
       setRawScope("current");
     }

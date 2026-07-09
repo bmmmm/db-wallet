@@ -51,7 +51,7 @@ SW + clear caches, or serve on a fresh port.
 | `wallet-sync.js` | Wallet-Sync-Logik |
 | `wallet-history-ui.js` | Verlaufs-UI |
 | `wallet-device-ui.js` | Geräte-UI |
-| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
+| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
 | `hash-router.js` | Client-seitiges Routing via URL-Hash |
 | `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`) |
@@ -79,8 +79,17 @@ SW + clear caches, or serve on a fresh port.
   from payload position). The export QR/link carries the full event log, userId, and
   action-code keys with no encryption — anyone who captures it can replay it.
 - **Codec extension blocks are order-sensitive** — they have no length prefix, so an
-  old decoder stops at the first unknown block. New blocks (`se`, `ck`) are written
-  LAST and `ck` (integrity checksum) is absolutely last so it covers everything.
+  old decoder stops at the first unknown block. New blocks (`se`, `gc`, `ck`) are written
+  LAST and `ck` (integrity checksum) is absolutely last so it covers everything. `gc`
+  carries `globalActionCodes` (incl. keys — bearer credential, like `ac`).
+- **Events are constructed and persisted only via `dbWalletStorage`** —
+  `newEvent(wallet, type, n)` is the single event factory and
+  `appendEvents(wallet, events)` the atomic append+save (rolls back and returns
+  `false` on save failure); don't hand-roll event literals or snapshot/restore.
+  `saveWallet` reconciles with the persisted state: colliding same-id events from a
+  second tab are re-minted (no silent drop), and actionCodes/globalActionCodes/devices
+  are merged field-wise. `undoLastEvent` returns the tombstone, `null` (nothing to
+  undo), or `{status:"failed"}` (save failure).
 - **Action codes never expire; the key is the only secret** — revocation = edit (key
   rotation) or delete. An imported code can update label/amount/type but never the
   local key (key rotation is local-only). A global `acg:` apply asks for confirmation.

@@ -89,7 +89,7 @@
 
     root.innerHTML = "";
 
-    // gemeinsame Zeile für Symbol + Device-ID
+    // shared line for symbol + device id
     const line = document.createElement("span");
     line.style.display = "inline-flex";
     line.style.alignItems = "center";

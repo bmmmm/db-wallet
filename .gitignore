@@ -17,3 +17,4 @@ tmp/
 *.p12
 *.pfx
 id_*
+.claude/worktrees/
