@@ -1,0 +1,52 @@
+name: pages
+
+# Deploys an allowlisted copy of the app instead of the repo root. With the
+# legacy "deploy from branch /" source every tracked file was a public URL —
+# CLAUDE.md, TODO.md, scripts/ included. New app files must match the globs
+# below or they are not published.
+on:
+  # Deploy only after the service-worker VERSION guard went green on main: a
+  # changed app shell without a VERSION bump would keep active workers on the
+  # stale cache.
+  workflow_run:
+    workflows: [sw-version-guard]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - name: Assemble site from the allowlist
+        run: |
+          set -euo pipefail
+          mkdir _site
+          cp ./*.js ./*.html ./*.css manifest.json favicon.svg NOTICE LICENSE _site/
+          # The service worker's install fails as a whole when one app-shell
+          # entry is missing, so a file the allowlist dropped breaks offline use.
+          grep -oE '"\./[^"]+"' service-worker.js | tr -d '"' | while read -r p; do
+            test -e "_site/${p#./}" || { echo "app shell entry missing from _site: $p"; exit 1; }
+          done
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
