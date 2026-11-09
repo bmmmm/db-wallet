@@ -8,7 +8,9 @@ class FakeElement {
     this.parentNode = null;
     this.listeners = Object.create(null);
     this.attributes = Object.create(null);
-    this.style = {};
+    // Like CSSStyleDeclaration: an unset inline property reads as "" (the
+    // pages hide elements via style.css, not inline style).
+    this.style = { display: "" };
     this.dataset = {};
     this.value = "";
     this.type = "";
@@ -195,8 +197,6 @@ function makePageDocument(html) {
     const el = new FakeElement(tag);
     if (id) el.id = id[1];
     if (cls) el.className = cls[1];
-    const st = /\bstyle="display:\s*none"/.exec(attrs);
-    if (st) el.style.display = "none";
     doc.body.appendChild(el);
   }
   doc.getElementById = (id) => find(doc.body, (el) => el.id === id);

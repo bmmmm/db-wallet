@@ -168,6 +168,21 @@ pre {
     overflow: auto;
 }
 
+/* Hidden until the JS shows them (was inline style="display: none", which
+   the CSP without 'unsafe-inline' blocks). JS sets style.display explicitly. */
+#btn-migrate,
+#pay-options,
+#export-options,
+#export-url,
+#qr-box,
+#file-import {
+    display: none;
+}
+
+.muted-note {
+    color: var(--muted);
+}
+
 hr {
     border: none;
     height: 1px;

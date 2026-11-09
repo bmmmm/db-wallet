@@ -140,6 +140,11 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   still holds every event it was loaded with (two tabs opening a new wallet). A reset
   replaces the stored record (never removes it first); if that save fails, the tab
   and the store keep the old wallet and the user gets "Zurücksetzen fehlgeschlagen".
+- **CSP has no `'unsafe-inline'`** (index/wallet/preview) — no `style="…"`, no
+  `<style>`, no `setAttribute("style")`/`.cssText`/HTML strings with `style=`; single
+  `el.style.x = …` assignments are fine. Initially hidden elements get `display: none`
+  from an `#id` rule in `style.css`, so their inline `style.display` starts as `""` —
+  toggles must treat `""` as hidden (`tests/p3-3-csp.test.js` checks all of this).
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
 - **Bump `service-worker.js` VERSION when any APP_SHELL asset changes** — enforced by

@@ -523,6 +523,14 @@ verschieben, danach `'unsafe-inline'` aus der CSP der drei App-Seiten entfernen.
 `style.display === ""` an allen Stellen als „versteckt“ behandelt, sonst zeigt ein
 Umschalter ins Leere. Im Browser prüfen: keine CSP-Meldung in der Konsole.
 
+**Umgesetzt.** Die sechs `display: none` stehen als `#id`-Regel in `style.css`, die
+Farbe in `preview.html` als Klasse `.muted-note`. Per `grep` gegengeprüft: alle
+JS-Umschalter setzen `style.display` ausdrücklich, die zwei Toggles (`#pay-options`,
+`#export-options`) prüfen `"none"` und `""`. `tests/p3-3-csp.test.js` hält das fest
+(HTML, alle geladenen Skripte samt `qrcodegen.js`, `self-check.js`,
+`service-worker.js`). `tests/fake-dom.js` startet `style.display` jetzt mit `""` wie
+der Browser. Nicht im Browser geprüft: keine CSP-Meldung in der Konsole.
+
 ### P3.4 PWA: Icons und Service-Worker-Strategie
 
 - **Icons.** `manifest.json` hat ein einziges SVG mit `purpose: "any maskable"`, es
