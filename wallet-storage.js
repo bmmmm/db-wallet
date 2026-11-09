@@ -701,12 +701,22 @@
     return out;
   }
 
+  const WALLET_REPLACED_MESSAGE =
+    "Dieses Wallet wurde in einem anderen Tab zurückgesetzt oder ersetzt. Bitte Seite neu laden — diese Änderung wurde nicht gespeichert.";
+  let hasShownWalletReplacedError = false;
+
   // opts.quiet: skip the generic one-time alert on failure (the banner/body
   // flag is still set). For callers that report the failure themselves, e.g.
   // the import, which must not claim success after a failed save.
+  // opts.allowWalletIdChange: this save intentionally replaces the stored
+  // wallet with a different walletId (reset). Without it, a save whose
+  // walletId differs from the persisted one (both non-empty) is refused:
+  // the in-memory copy is a stale tab of a wallet that was reset/re-created
+  // elsewhere, and merging would resurrect the old events into the new wallet.
   function saveWallet(wallet, opts) {
     if (!wallet || !wallet.userId) return false;
     const quiet = !!(opts && opts.quiet);
+    const allowWalletIdChange = !!(opts && opts.allowWalletIdChange);
 
     const storageKey = STORAGE_PREFIX + wallet.userId;
     if (isReservedStorageKey(storageKey)) {
@@ -734,10 +744,26 @@
     // into the in-memory wallet before writing — the append-only + dedup-by-id
     // model makes this a safe merge with no conflict logic, and it prevents
     // last-write-wins from silently clobbering a concurrent tab's bookings.
+    const persistedRaw = safeLocalStorageGetItem(storageKey);
+    const persisted = persistedRaw ? safeParse(persistedRaw) : null;
+    const persistedWalletId =
+      persisted && typeof persisted === "object" && typeof persisted.walletId === "string"
+        ? persisted.walletId
+        : "";
+    const localWalletId = typeof wallet.walletId === "string" ? wallet.walletId : "";
+    const walletIdChanged =
+      !!persistedWalletId && !!localWalletId && persistedWalletId !== localWalletId;
+    if (walletIdChanged && !allowWalletIdChange) {
+      markStorageFailed(true, "⚠️ " + WALLET_REPLACED_MESSAGE);
+      if (!quiet && !hasShownWalletReplacedError) {
+        hasShownWalletReplacedError = true;
+        alert(WALLET_REPLACED_MESSAGE);
+      }
+      return false;
+    }
+
     try {
-      const persistedRaw = safeLocalStorageGetItem(storageKey);
-      if (persistedRaw) {
-        const persisted = safeParse(persistedRaw);
+      if (persisted && !walletIdChanged) {
         const mergeApi = window.dbWalletImportV2 || null;
         if (
           persisted &&

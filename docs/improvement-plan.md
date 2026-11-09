@@ -37,6 +37,7 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
 - [x] P1.6 Reset vergibt keine alten Event-IDs neu (bd22321)
 - [x] P1.7 Import meldet Speicherfehler (6b92f3f)
 - [x] P1.8 `syncPeers` gegen `__proto__` härten (50a09aa)
+- [ ] P1.9 Reset und veralteter zweiter Tab
 - [ ] P2.1 `replaceState` statt `location.hash` in Buchungs- und Importpfaden
 - [ ] P2.2 Sackgassen in `wallet.html` schließen
 - [ ] P2.3 Importfehler mit Fehlercode, Abbruch führt zurück ins offene Wallet
@@ -289,6 +290,34 @@ ablehnen.
 
 **Abnahme.** Nach dem Import mit Geräte-ID `__proto__` hat ein frisches `{}` keine der
 vier Eigenschaften.
+
+### P1.9 Reset und veralteter zweiter Tab
+
+**Befund (nachgestellt, `tests/p1-9-reset-stale-tab.test.js`).** `saveWallet`
+vereinigt beim Abgleich die Events des Speicherstands mit denen im Speicher, ohne die
+`walletId` zu vergleichen, und übernimmt die `walletId` des Speichers im Tab
+(Skalare: lokal gewinnt). Tab A setzt das Wallet zurück (neue `walletId`, keine
+Events), Tab B hält noch den alten Stand und bucht: danach stehen im Speicher wieder
+die alte `walletId` und alle alten Events plus die neue Buchung. Bucht Tab A danach,
+vereinigt es diese alten Events mit dem zurückgesetzten Wallet (im Test: 4 Events
+unter der neuen `walletId`). Derselbe Fall tritt auf, wenn ein Wallet auf
+`index.html` gelöscht und unter gleichem Namen neu angelegt wird. Im Browser lädt der
+`storage`-Listener in `wallet-ui.js` den Stand meist rechtzeitig neu; ein
+eingefrorener Hintergrund-Tab (Mobil) bekommt das Ereignis aber nicht zuverlässig.
+
+**Umsetzung.** Weichen die `walletId` im Speicher und im persistierten Stand
+voneinander ab (beide nicht leer), gibt `saveWallet` `false` zurück, ohne zu schreiben
+(`appendEvents` rollt damit zurück), und zeigt einmalig „Dieses Wallet wurde in einem
+anderen Tab zurückgesetzt oder ersetzt. Bitte Seite neu laden …“. `resetWallet`
+speichert mit `{ allowWalletIdChange: true }` und überschreibt ohne Abgleich. Import
+und Migration wechseln die `walletId` eines gespeicherten Wallets nie
+(`resolveUserIdForImport` weicht bei fremder `walletId` auf einen neuen Namen aus;
+`loadWallet` und `migration.js` vergeben nur eine fehlende `walletId`), brauchen die
+Option also nicht. Ein Altbestand ohne `walletId` bleibt speicherbar.
+
+**Abnahme.** Tab B kann nach dem Reset weder buchen noch speichern, der Speicher
+behält die neue `walletId` und 0 Events, Tab A bucht weiter; Zwei-Tab-Abgleich bei
+gleicher `walletId` und Altbestand ohne `walletId` bleiben grün.
 
 ---
 

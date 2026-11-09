@@ -218,7 +218,9 @@ Cache nicht vergiften.
   Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm);
   gelöschte Codes stehen in `deletedActionCodes` (Löschen nur über
   `removeActionCode`, Reconcile und Import-Merge filtern sie); Reset = neue
-  `walletId`, die `seq`-Zähler laufen weiter (keine Event-ID wird neu vergeben).
+  `walletId`, die `seq`-Zähler laufen weiter (keine Event-ID wird neu vergeben);
+  ein veralteter Tab mit der alten `walletId` speichert danach nicht mehr
+  (`saveWallet` lehnt abweichende `walletId` ab, nur der Reset darf sie wechseln).
 - **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes) und `ck`
   (Integritäts-Checksum) stehen als Letztes, `ck` ganz zuletzt. Bei jeder
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:

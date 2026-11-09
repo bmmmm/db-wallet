@@ -179,7 +179,9 @@
       actionCodes: [],
       globalActionCodes: [],
     };
-    saveWallet(next);
+    // The only intentional walletId switch: saveWallet refuses a walletId that
+    // differs from the persisted one unless told so (stale-tab guard, P1.9).
+    saveWallet(next, { allowWalletIdChange: true });
     ctx.setWallet(next);
     ctx.refreshActionCodesUi();
     ctx.clearExport();

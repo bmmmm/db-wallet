@@ -121,6 +121,11 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 - **Reset = a new wallet under the same name** — `resetWallet` assigns a fresh
   `walletId` (a pre-reset export imports as a separate wallet) and carries `seq`
   over after `ensureDeviceSeq`, so an event id is never re-issued. Don't reset `seq`.
+  `saveWallet` refuses (returns `false`, one-time "in einem anderen Tab
+  zurückgesetzt" alert) when the in-memory and persisted `walletId` differ (both
+  non-empty) — a stale tab must not merge old events into the reset wallet. Only a
+  save that intentionally switches the `walletId` (today: `resetWallet`) passes
+  `{ allowWalletIdChange: true }`, which overwrites without reconciling.
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
 - **Bump `service-worker.js` VERSION when any APP_SHELL asset changes** — enforced by
