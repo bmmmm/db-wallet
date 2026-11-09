@@ -1395,6 +1395,18 @@
               !uiApi || !uiUserId,
               `uid=${uiUserId || "(leer)"}`,
             );
+            // P2.2: the no-wallet state is no dead end.
+            const panel = document.getElementById("global-action-message");
+            const homeLink =
+              panel && typeof panel.querySelector === "function"
+                ? panel.querySelector('a[href="index.html"]')
+                : null;
+            addCheck(
+              result,
+              "no wallet state links to the start page",
+              !!homeLink,
+              homeLink ? "ok" : "missing",
+            );
           }
 
           if (route.kind === "user" && uiApi) {

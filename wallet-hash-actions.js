@@ -43,6 +43,58 @@
     if (api && typeof api.clearGlobal === "function") api.clearGlobal();
   }
 
+  // The no-wallet state is the only thing visible on the page (CSS hides
+  // everything but #global-action-message), so it must offer a way out: a link
+  // to the start page and the wallets stored on this device (E3: none is
+  // opened automatically).
+  function showNoWalletState(options) {
+    const opts = options || {};
+    setNoWalletState();
+    const api = window.dbWalletMessages;
+    if (!api || typeof api.ensureContainer !== "function") return null;
+    const el = api.ensureContainer(CONTAINER_OPTIONS);
+    if (!el) return null;
+    el.textContent = "";
+    el.dataset.mode = "no-wallet";
+
+    const text = document.createElement("div");
+    text.className = "global-action-headline";
+    text.textContent = String(
+      opts.message || "Bitte zuerst ein Wallet importieren oder öffnen.",
+    );
+    el.appendChild(text);
+
+    const userIds = Array.isArray(opts.userIds) ? opts.userIds : [];
+    if (userIds.length) {
+      const prompt = document.createElement("div");
+      prompt.className = "global-action-subtitle";
+      prompt.textContent = "Wallets auf diesem Gerät:";
+      el.appendChild(prompt);
+      const list = document.createElement("div");
+      list.className = "global-action-options";
+      userIds.forEach((userId) => {
+        const a = document.createElement("a");
+        a.className = "global-action-card";
+        a.href = "wallet.html#" + encodeURIComponent(userId);
+        const name = document.createElement("div");
+        name.className = "global-action-card-title";
+        name.textContent = userId;
+        a.appendChild(name);
+        list.appendChild(a);
+      });
+      el.appendChild(list);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "global-action-actions";
+    const home = document.createElement("a");
+    home.href = "index.html";
+    home.textContent = "Zur Startseite 🏠";
+    actions.appendChild(home);
+    el.appendChild(actions);
+    return el;
+  }
+
   function showGlobalActionSelection(options) {
     const api = window.dbWalletMessages;
     if (!api || typeof api.ensureContainer !== "function") return;
@@ -191,6 +243,7 @@
   window.dbWalletHashActions = {
     setNoWalletState,
     clearNoWalletState,
+    showNoWalletState,
     buildGlobalActionPreview,
     showGlobalActionSelection,
     awaitGlobalActionWalletSelection,

@@ -234,6 +234,29 @@
       }
     }
 
+    // No wallet open: show the way out (start page + wallet list) and react to
+    // a hash set afterwards (a list link, a pasted link, the address bar). The
+    // full hashchange router below is never registered on this path — the UI
+    // isn't wired — so a new non-empty hash reloads into the normal boot.
+    let noWalletHashListener = null;
+    function enterNoWalletState(message) {
+      const wallets = getAllWallets ? getAllWallets() : {};
+      const userIds = Object.keys(wallets).sort((a, b) => a.localeCompare(b));
+      if (hashActions && typeof hashActions.showNoWalletState === "function") {
+        hashActions.showNoWalletState({ message, userIds });
+      } else {
+        setNoWalletState();
+        showGlobalActionMessage(message);
+      }
+      if (!noWalletHashListener) {
+        noWalletHashListener = () => {
+          if (!window.location.hash.slice(1)) return;
+          window.location.reload();
+        };
+        window.addEventListener("hashchange", noWalletHashListener);
+      }
+    }
+
     function clearNoWalletState() {
       if (hashActions && typeof hashActions.clearNoWalletState === "function") {
         hashActions.clearNoWalletState();
@@ -287,8 +310,7 @@
       });
 
       if (userIds.length === 0) {
-        setNoWalletState();
-        showGlobalActionMessage(
+        enterNoWalletState(
           "Bitte zuerst ein Wallet importieren oder öffnen.",
         );
         return;
@@ -314,8 +336,7 @@
             initialWallet = wallets[fallback] || null;
             replaceHashSilently(fallback);
           } else {
-            setNoWalletState();
-            showGlobalActionMessage(
+            enterNoWalletState(
               "Bitte zuerst ein Wallet importieren oder öffnen.",
             );
             return;
@@ -328,8 +349,7 @@
     }
 
     if (initialKind === "none") {
-      setNoWalletState();
-      showGlobalActionMessage(
+      enterNoWalletState(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
       return;
@@ -359,11 +379,16 @@
     const historyUi = window.dbWalletHistoryUI || null;
 
     let userId = initialUserId || (await resolveInitialUserId());
-    if (redirectedToPreview || !userId) return;
+    if (redirectedToPreview) return;
+    if (!userId) {
+      // E.g. a broken import link or a declined action code on a cold start:
+      // the error was reported; don't leave the unwired wallet UI showing.
+      enterNoWalletState("Bitte zuerst ein Wallet importieren oder öffnen.");
+      return;
+    }
     let wallet = initialWallet || loadWallet(userId);
     if (!wallet) {
-      setNoWalletState();
-      showGlobalActionMessage(
+      enterNoWalletState(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
       return;
