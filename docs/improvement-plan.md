@@ -507,6 +507,11 @@ und folgt einem späteren Wechsel des Systems. Die Theme-Hinweise verlinken
 - `image-rendering: pixelated` für die QR-Canvas (wird per CSS auf nicht-ganzzahlige
   Größen skaliert).
 
+**Umgesetzt.** Zusätzlich `min-width: 44px` im Mobile-Breakpoint (die Gerätesymbole
+sind schmaler als hoch) und `.global-action-card:hover` ebenfalls hinter
+`(hover: hover)`. Belegt nur statisch (`tests/p3-2-css-basics.test.js`); Größen und
+Umbrüche sind nicht im Browser gemessen.
+
 ### P3.3 CSP ohne `'unsafe-inline'`
 
 Nur sieben `style="…"`-Attribute erzwingen `style-src 'unsafe-inline'`:

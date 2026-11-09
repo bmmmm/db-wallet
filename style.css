@@ -60,6 +60,14 @@ section,
     margin-top: 1rem;
 }
 
+/* Form controls use the page font (UA default: Arial 13.3px). */
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
 button {
     padding: 0.45rem 0.8rem;
     margin: 0.2rem;
@@ -79,10 +87,13 @@ button {
         border-color 120ms ease;
 }
 
-button:hover {
-    border-color: var(--accent);
-    box-shadow: 0 6px 18px var(--glow);
-    transform: translateY(-1px);
+/* Hover only where a pointer can hover (no sticky hover after a tap). */
+@media (hover: hover) {
+    button:hover {
+        border-color: var(--accent);
+        box-shadow: 0 6px 18px var(--glow);
+        transform: translateY(-1px);
+    }
 }
 
 button:active {
@@ -218,6 +229,12 @@ hr {
 .stat strong {
     font-size: 1.2rem;
     color: var(--accent-strong);
+    overflow-wrap: anywhere;
+}
+
+/* Long user ids must wrap instead of scrolling the page sideways. */
+#uid {
+    overflow-wrap: anywhere;
 }
 
 .action-codes-panel,
@@ -470,6 +487,7 @@ hr {
 }
 
 .action-code-canvas {
+    image-rendering: pixelated;
     width: 100%;
     height: auto;
     border-radius: 10px;
@@ -550,6 +568,7 @@ hr {
 }
 
 .qr-box canvas {
+    image-rendering: pixelated;
     width: 100%;
     max-width: 360px;
     height: auto;
@@ -627,6 +646,12 @@ hr {
     body {
         margin: 1.4rem auto 2rem;
         padding: 0 1rem 2rem;
+    }
+
+    /* Touch targets: at least 44 x 44 px. */
+    button {
+        min-height: 44px;
+        min-width: 44px;
     }
 
     h1 {
@@ -846,9 +871,11 @@ body[data-no-wallet="1"] > :not(#global-action-message) {
         box-shadow 120ms ease;
 }
 
-.global-action-card:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow);
+@media (hover: hover) {
+    .global-action-card:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow);
+    }
 }
 
 .global-action-card-title {
@@ -883,4 +910,21 @@ body[data-no-wallet="1"] > :not(#global-action-message) {
     background: transparent;
     border: 1px solid var(--border);
     font-size: 0.9rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+    }
+
+    button:hover,
+    button:active,
+    .global-action-card:hover {
+        transform: none !important;
+    }
 }
