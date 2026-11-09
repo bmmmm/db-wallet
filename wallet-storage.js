@@ -609,6 +609,20 @@
   // saving from a stale in-memory wallet doesn't clobber a concurrent tab's
   // persisted action codes / devices / sync peers. Scalars stay local-wins.
   function reconcilePersistedFields(wallet, persisted) {
+    const codesApi = window.dbWalletActionCodes || null;
+    // Deletions first: union both sides' deletedActionCodes so a code deleted
+    // here (or in another tab) is removed from the union below instead of being
+    // resurrected from the stale side.
+    if (
+      codesApi &&
+      typeof codesApi.mergeDeletedActionCodes === "function" &&
+      (wallet.deletedActionCodes || persisted.deletedActionCodes)
+    ) {
+      wallet.deletedActionCodes = codesApi.mergeDeletedActionCodes(
+        wallet.deletedActionCodes,
+        persisted.deletedActionCodes,
+      );
+    }
     if (Array.isArray(persisted.actionCodes)) {
       wallet.actionCodes = unionArrayByKey(
         wallet.actionCodes,
@@ -630,6 +644,15 @@
         "deviceKey",
       );
     }
+    if (codesApi && typeof codesApi.applyDeletedActionCodes === "function") {
+      codesApi.applyDeletedActionCodes(wallet);
+    }
+    // Re-apply the caps after the union (max 10 codes, max 6 devices) — a union
+    // of two capped lists can exceed them.
+    if (codesApi && typeof codesApi.ensureWalletActionCodes === "function") {
+      codesApi.ensureWalletActionCodes(wallet);
+    }
+    ensureWalletDevices(wallet);
     // syncPeers is a plain object map keyed by peer key — union keys, local wins.
     if (
       persisted.syncPeers &&

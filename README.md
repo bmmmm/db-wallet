@@ -53,6 +53,9 @@ Gut zu wissen:
   aber **nie den lokalen Key** überschreiben.
 - Codes **laufen nicht ab** — Widerruf = Bearbeiten (Key-Rotation) oder Löschen;
   der Key ist das einzige Geheimnis.
+- Löschen merkt sich die Code-ID lokal (`deletedActionCodes`, die 50 neuesten).
+  Ein anderer Tab oder ein Import eines älteren Exports holt den Code nicht zurück.
+  Die Liste wird nicht exportiert: ein anderes Gerät behält seine Kopie.
 - Max. 6 Codes pro Wallet empfohlen; ab 10 bleiben die 10 zuletzt **bearbeiteten**
   (nicht „benutzten").
 - Globale Codes validieren Typ (`d`/`g`) und Menge (`1`–`100`).
@@ -209,7 +212,9 @@ Cache nicht vergiften.
   Event-Schema `{id,t,n?,ts,ref?,supersedes?}` mit Tombstones `t:"x"` + `ref`
   (= Root-ID) und Edit-Replacements via `supersedes` (= Root-ID); append-only
   (Merge dedupt nach `id`); Order = `ts`, dann numerische base36-`seq`;
-  Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm).
+  Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm);
+  gelöschte Codes stehen in `deletedActionCodes` (Löschen nur über
+  `removeActionCode`, Reconcile und Import-Merge filtern sie).
 - **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes) und `ck`
   (Integritäts-Checksum) stehen als Letztes, `ck` ganz zuletzt. Bei jeder
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:

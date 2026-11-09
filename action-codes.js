@@ -241,10 +241,100 @@
     return trimmed;
   }
 
-  function mergeActionCodes(localList, remoteList) {
+  // --- Deletion model ---------------------------------------------------
+  // wallet.deletedActionCodes = { [codeId]: deletedAtMs }, the newest
+  // DELETED_LIMIT entries. Every save reconciles with the persisted copy and
+  // every import merges remote codes; both would otherwise resurrect a deleted
+  // code (and its still-printed QR keeps booking). Deleting, converting
+  // local <-> global, all record the old id here; reconcile and import skip
+  // listed ids. Local-only for now: the list does not travel in exports.
+  const DELETED_LIMIT = 50;
+
+  function normalizeDeletedActionCodes(input) {
+    const entries = [];
+    if (input && typeof input === "object" && !Array.isArray(input)) {
+      for (const id of Object.keys(input)) {
+        if (!id) continue;
+        const ts = input[id];
+        const at =
+          typeof ts === "number" && Number.isFinite(ts) && ts > 0
+            ? Math.floor(ts)
+            : 0;
+        entries.push([id, at]);
+      }
+    }
+    entries.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    // null-prototype: ids are bracket-assigned keys and may come from storage.
+    const out = Object.create(null);
+    for (const [id, at] of entries.slice(0, DELETED_LIMIT)) out[id] = at;
+    return out;
+  }
+
+  function mergeDeletedActionCodes(a, b) {
+    const merged = Object.create(null);
+    for (const src of [normalizeDeletedActionCodes(a), normalizeDeletedActionCodes(b)]) {
+      for (const id of Object.keys(src)) {
+        if (!(id in merged) || src[id] > merged[id]) merged[id] = src[id];
+      }
+    }
+    return normalizeDeletedActionCodes(merged);
+  }
+
+  function isDeletedActionCode(deleted, id) {
+    return (
+      !!deleted &&
+      typeof deleted === "object" &&
+      typeof id === "string" &&
+      Object.prototype.hasOwnProperty.call(deleted, id)
+    );
+  }
+
+  function recordDeletedActionCode(wallet, codeId, now = Date.now()) {
+    if (!wallet || typeof wallet !== "object") return;
+    const id = typeof codeId === "string" ? codeId.trim() : "";
+    if (!id) return;
+    const next = normalizeDeletedActionCodes(wallet.deletedActionCodes);
+    next[id] = Math.max(next[id] || 0, Math.floor(now) || 0);
+    wallet.deletedActionCodes = normalizeDeletedActionCodes(next);
+  }
+
+  // Drop every listed id from both code lists (in place on the wallet).
+  function applyDeletedActionCodes(wallet) {
+    if (!wallet || typeof wallet !== "object") return;
+    const deleted = wallet.deletedActionCodes;
+    if (!deleted || typeof deleted !== "object") return;
+    const keep = (c) => !(c && isDeletedActionCode(deleted, c.id));
+    if (Array.isArray(wallet.actionCodes)) {
+      wallet.actionCodes = wallet.actionCodes.filter(keep);
+    }
+    if (Array.isArray(wallet.globalActionCodes)) {
+      wallet.globalActionCodes = wallet.globalActionCodes.filter(keep);
+    }
+  }
+
+  // Delete a local or global code: remove it from the wallet and record the id
+  // so neither a stale save nor an import brings it back. Returns whether a
+  // code was actually removed (the id is recorded either way).
+  function removeActionCode(wallet, codeId, now = Date.now()) {
+    if (!wallet || typeof wallet !== "object") return false;
+    const has = (list) =>
+      Array.isArray(list) && list.some((c) => c && c.id === codeId);
+    const found = has(wallet.actionCodes) || has(wallet.globalActionCodes);
+    recordDeletedActionCode(wallet, codeId, now);
+    applyDeletedActionCodes(wallet);
+    return found;
+  }
+
+  // `deleted` (optional): a deletedActionCodes map; listed ids are skipped on
+  // both sides, so an import can't resurrect a code deleted here.
+  function mergeActionCodes(localList, remoteList, deleted) {
     const now = Date.now();
-    const local = normalizeActionCodes(localList, now);
-    const remote = normalizeActionCodes(remoteList, now);
+    const notDeleted = (list) =>
+      (Array.isArray(list) ? list : []).filter(
+        (c) => !(c && isDeletedActionCode(deleted, c.id)),
+      );
+    const local = normalizeActionCodes(notDeleted(localList), now);
+    const remote = normalizeActionCodes(notDeleted(remoteList), now);
 
     const byId = new Map();
     for (const c of local) byId.set(c.id, c);
@@ -722,12 +812,9 @@
         const scope = scopeToggle.getScope();
         if (scope === "global") {
           if (!isGlobal) {
-            const codesNow = Array.isArray(walletNow.actionCodes)
-              ? walletNow.actionCodes
-              : [];
-            walletNow.actionCodes = codesNow.filter(
-              (c) => c && c.id !== code.id,
-            );
+            // Conversion = delete the local code (recorded, so the stale
+            // persisted copy can't come back) + create a new global one.
+            removeActionCode(walletNow, code.id);
             const res = ensureWalletActionCodes(walletNow);
             if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
             ctx.persistWallet(walletNow);
@@ -749,6 +836,7 @@
           persistGlobalCodes(ctx, walletNow);
         } else {
           if (isGlobal) {
+            removeActionCode(walletNow, code.id);
             ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
             persistGlobalCodes(ctx, walletNow);
             const created = buildActionCode({
@@ -802,15 +890,11 @@
       const walletNow = ctx.getWallet();
       if (!walletNow) return;
       if (isGlobal) {
+        removeActionCode(walletNow, code.id);
         ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
         persistGlobalCodes(ctx, walletNow);
       } else {
-        const codesNow = Array.isArray(walletNow.actionCodes)
-          ? walletNow.actionCodes
-          : [];
-        walletNow.actionCodes = codesNow.filter(
-          (c) => c && c.id !== code.id,
-        );
+        removeActionCode(walletNow, code.id);
         const res = ensureWalletActionCodes(walletNow);
         if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
         ctx.persistWallet(walletNow);
@@ -1129,6 +1213,11 @@
 
   window.dbWalletActionCodes = {
     mergeActionCodes,
+    removeActionCode,
+    recordDeletedActionCode,
+    applyDeletedActionCodes,
+    mergeDeletedActionCodes,
+    normalizeDeletedActionCodes,
     normalizeActionCodes,
     buildActionCode,
     applyActionCodeEdits,

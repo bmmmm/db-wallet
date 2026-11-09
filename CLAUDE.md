@@ -111,6 +111,11 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 - **Action codes never expire; the key is the only secret** — revocation = edit (key
   rotation) or delete. An imported code can update label/amount/type but never the
   local key (key rotation is local-only). A global `acg:` apply asks for confirmation.
+  Deleting a code (local or global, also the old half of a local↔global conversion)
+  goes through `dbWalletActionCodes.removeActionCode`, which records `id → ts` in
+  `wallet.deletedActionCodes` (local-only, newest 50, not exported). `saveWallet`'s
+  reconcile and the import merge filter those ids, so a stale tab or an old export
+  can't resurrect a deleted code. Don't splice `actionCodes` by hand.
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
 - **Bump `service-worker.js` VERSION when any APP_SHELL asset changes** — enforced by

@@ -1047,6 +1047,7 @@
         local.actionCodes = api.mergeActionCodes(
           local.actionCodes,
           remote && remote.actionCodes,
+          local.deletedActionCodes,
         );
       } else if (remote && Array.isArray(remote.actionCodes)) {
         local.actionCodes = remote.actionCodes;
@@ -1073,6 +1074,7 @@
           local.globalActionCodes = api.mergeActionCodes(
             localGlobal,
             remoteGlobal,
+            local.deletedActionCodes,
           );
         } else if (remoteGlobal.length) {
           local.globalActionCodes = remoteGlobal;

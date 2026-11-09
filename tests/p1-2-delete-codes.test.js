@@ -4,9 +4,8 @@ const assert = require("node:assert/strict");
 const { makeEnv } = require("./harness");
 const { makeFakeDocument, button, card } = require("./fake-dom");
 
-const TODO = { todo: "P1.2" };
 
-test("A1: deleting a local action code sticks after reload", TODO, () => {
+test("A1: deleting a local action code sticks after reload", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const AC = w.dbWalletActionCodes;
@@ -22,7 +21,7 @@ test("A1: deleting a local action code sticks after reload", TODO, () => {
   assert.ok(!loaded.actionCodes.some((c) => c.id === del));
 });
 
-test("A1: deleting a global action code sticks after reload", TODO, () => {
+test("A1: deleting a global action code sticks after reload", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const AC = w.dbWalletActionCodes;
@@ -38,7 +37,7 @@ test("A1: deleting a global action code sticks after reload", TODO, () => {
   assert.equal(JSON.stringify(loaded.globalActionCodes.map((c) => c.id)), '["global:g2"]');
 });
 
-test("delete, then import an export that still has the code: stays deleted", TODO, () => {
+test("delete, then import an export that still has the code: stays deleted", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const AC = w.dbWalletActionCodes;
@@ -65,7 +64,7 @@ test("delete, then import an export that still has the code: stays deleted", TOD
   assert.equal((loaded.globalActionCodes || []).length, 0);
 });
 
-test("deletion list is capped at the 50 newest entries", TODO, () => {
+test("deletion list is capped at the 50 newest entries", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const AC = w.dbWalletActionCodes;
@@ -105,7 +104,7 @@ function mountPanel(w, userId) {
   };
 }
 
-test("UI: converting local -> global leaves exactly one code", TODO, () => {
+test("UI: converting local -> global leaves exactly one code", () => {
   const w = makeEnv({ deviceKey: "devA", document: makeFakeDocument() });
   const S = w.dbWalletStorage;
   const AC = w.dbWalletActionCodes;
@@ -126,7 +125,7 @@ test("UI: converting local -> global leaves exactly one code", TODO, () => {
   assert.equal(loaded.globalActionCodes[0].scope, "global");
 });
 
-test("UI: converting global -> local leaves exactly one code", TODO, () => {
+test("UI: converting global -> local leaves exactly one code", () => {
   const w = makeEnv({ deviceKey: "devA", document: makeFakeDocument() });
   const S = w.dbWalletStorage;
   const seed = S.loadWallet("anna");
@@ -146,7 +145,7 @@ test("UI: converting global -> local leaves exactly one code", TODO, () => {
   assert.equal(loaded.actionCodes.length, 1);
 });
 
-test("UI: deleting a local and a global code sticks after reload", TODO, () => {
+test("UI: deleting a local and a global code sticks after reload", () => {
   const w = makeEnv({ deviceKey: "devA", document: makeFakeDocument() });
   const S = w.dbWalletStorage;
   const AC = w.dbWalletActionCodes;
