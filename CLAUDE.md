@@ -78,7 +78,8 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
 | `hash-router.js` | Client-seitiges Routing via URL-Hash |
-| `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`) |
+| `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |
+| `self-check-loader.js` | Stub on `wallet.html`: `dbWalletSelfCheck.run()` loads `self-check.js` on first call |
 | `manifest.json` | PWA Manifest |
 | `themes.css` / `colors.css` | Theme-System |
 

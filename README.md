@@ -120,7 +120,8 @@ Die Tests laden die Originalmodule in einen `vm`-Kontext mit eigenem
 `localStorage` (`tests/harness.js`) und prüfen Datenschicht, Codec, Import und
 das Action-Code-Panel.
 
-**Self-Check** in der Browser-Konsole (z. B. auf `wallet.html`):
+**Self-Check** in der Browser-Konsole auf `wallet.html` (der erste Aufruf lädt
+`self-check.js` nach):
 
 ```js
 await dbWalletSelfCheck.run()   // → { ok, checks }
@@ -181,7 +182,7 @@ rückwärtskompatibel.
 | `theme.js` + `themes.css` | Theme-System (5 Paletten) |
 
 **PWA:** `manifest.json`, `service-worker.js`, `sw-register.js` &nbsp;·&nbsp;
-**Tools:** `self-check.js`, `colors.html` (Theme-Vorschau) &nbsp;·&nbsp;
+**Tools:** `self-check.js` (+ `self-check-loader.js`), `colors.html` (Theme-Vorschau, nicht im Precache) &nbsp;·&nbsp;
 **QR:** `qrcodegen.js` (Nayuki)
 
 **Ladereihenfolge ist load-bearing:** jedes Modul ist ein

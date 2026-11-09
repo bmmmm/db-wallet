@@ -572,6 +572,13 @@ aus `CLAUDE.md` bleibt gültig, die Datei bleibt in `APP_SHELL`. Achtung: Der Se
 vergleicht geladene Skripte mit dem Cache (`self-check.js:2031-2041`); das an den Stub
 anpassen.
 
+**Umgesetzt.** Stub `self-check-loader.js` (an der alten Stelle in `wallet.html`, in
+`APP_SHELL`); er lädt `self-check.js` einmal (auch bei gleichzeitigen Aufrufen), gibt
+Optionen und Ergebnis durch und lehnt bei Ladefehler mit klarer Meldung ab (ein
+späterer Aufruf versucht es erneut). Der Cache-Abgleich im Self-Check nimmt
+`self-check.js` ausdrücklich mit auf. Belegt mit `tests/p3-5-self-check-loader.test.js`;
+das Nachladen im echten Browser (auch offline aus dem Precache) ist nicht geprüft.
+
 ### P3.6 Export: Kopieren, Teilen, scharfer QR
 
 Der Hinweis im Export sagt „Link = Kopieren“, der Code markiert aber nur den Text; im

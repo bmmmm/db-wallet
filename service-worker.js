@@ -33,6 +33,7 @@ const APP_SHELL = [
   "./wallet-ui.js",
   "./index-ui.js",
   "./self-check.js",
+  "./self-check-loader.js",
   "./sw-register.js",
 ];
 

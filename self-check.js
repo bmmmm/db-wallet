@@ -2092,6 +2092,10 @@
         const scripts = Array.from(document.scripts || [])
           .map((s) => s.src)
           .filter((s) => s && s.startsWith(location.origin));
+        // self-check.js itself is injected on demand by self-check-loader.js
+        // (P3.5); it must be precached too, or run() fails offline.
+        const selfUrl = new URL("self-check.js", location.href).href;
+        if (!scripts.includes(selfUrl)) scripts.push(selfUrl);
         const missing = [];
         for (const url of scripts) {
           let hit = false;

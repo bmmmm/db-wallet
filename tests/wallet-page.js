@@ -1,13 +1,13 @@
 // Boots wallet.html's scripts (in page order) in the vm harness on a fake page
 // DOM with the fake location/history, then runs the DOMContentLoaded handler.
 // Skipped: theme.js / import-preview.js (dialog overlay; without it an import
-// persists directly), self-check.js and sw-register.js.
+// persists directly), self-check-loader.js and sw-register.js.
 const fs = require("fs");
 const path = require("path");
 const { makeEnv, REPO } = require("./harness");
 const { makePageDocument } = require("./fake-dom");
 
-const SKIP = new Set(["theme.js", "import-preview.js", "self-check.js", "sw-register.js"]);
+const SKIP = new Set(["theme.js", "import-preview.js", "self-check-loader.js", "sw-register.js"]);
 const HTML = fs.readFileSync(path.join(REPO, "wallet.html"), "utf8");
 const PAGE_FILES = Array.from(HTML.matchAll(/<script src="(?:\.\/)?([^"]+)"/g))
   .map((m) => m[1])
