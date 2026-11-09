@@ -1172,28 +1172,29 @@
 
     // sync status tracking (local-only)
     try {
-      if (
-        !local.syncPeers ||
-        typeof local.syncPeers !== "object" ||
-        Array.isArray(local.syncPeers)
-      ) {
-        // null-prototype: peerKey is derived from imported deviceId/walletId, so a
-        // "__proto__" key must land as an own property, not poison the chain.
-        local.syncPeers = Object.create(null);
-      }
+      // null-prototype map without prototype-chain keys: peerKey is derived
+      // from the imported deviceId/walletId (see storage.normalizeSyncPeers).
+      local.syncPeers = storage.normalizeSyncPeers(local.syncPeers);
 
       const peerKeyRaw =
         remote && typeof remote.deviceId === "string" && !("seq" in remote) // only V2 "sp" extension, not JSON export field
           ? remote.deviceId.trim()
           : "";
-      let peerKey = peerKeyRaw;
+      // A "__proto__"/"constructor"/"prototype" deviceId is never a peer key;
+      // fall back to the walletId-derived key like a missing deviceId.
+      let peerKey = storage.isForbiddenMapKey(peerKeyRaw) ? "" : peerKeyRaw;
       if (!peerKey) {
         const wid =
           remote && typeof remote.walletId === "string" ? remote.walletId : "";
         peerKey = wid ? "remote-" + wid.slice(0, 8) : "remote-unknown";
       }
 
-      const existing = local.syncPeers[peerKey];
+      const existing = Object.prototype.hasOwnProperty.call(
+        local.syncPeers,
+        peerKey,
+      )
+        ? local.syncPeers[peerKey]
+        : null;
       const peer =
         existing && typeof existing === "object" && !Array.isArray(existing)
           ? existing

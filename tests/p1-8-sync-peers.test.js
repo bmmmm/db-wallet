@@ -3,7 +3,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { makeEnv } = require("./harness");
 
-const TODO = { todo: "P1.8" };
 
 const PROPS = ["label", "updatedAt", "peerEventCount", "commonEventCount"];
 
@@ -22,7 +21,7 @@ function importFrom(w, deviceId) {
 }
 
 for (const evil of ["__proto__", "constructor", "prototype"]) {
-  test(`import with device id ${evil} after a normal import pollutes nothing`, TODO, () => {
+  test(`import with device id ${evil} after a normal import pollutes nothing`, () => {
     const w = makeEnv({ deviceKey: "devA" });
     importFrom(w, "devR"); // first import: syncPeers now persisted as plain JSON
     const built = importFrom(w, evil);
@@ -39,7 +38,7 @@ for (const evil of ["__proto__", "constructor", "prototype"]) {
   });
 }
 
-test("loadWallet returns syncPeers as a null-prototype map", TODO, () => {
+test("loadWallet returns syncPeers as a null-prototype map", () => {
   const w = makeEnv({ deviceKey: "devA" });
   importFrom(w, "devR");
   const peers = w.dbWalletStorage.loadWallet("pia").syncPeers;

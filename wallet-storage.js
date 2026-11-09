@@ -523,6 +523,7 @@
     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
     obj.userId = userId;
     obj.events = normalizeEvents(obj.events);
+    if (obj.syncPeers !== undefined) obj.syncPeers = normalizeSyncPeers(obj.syncPeers);
     const storedV =
       typeof obj.v === "number" && Number.isFinite(obj.v) ? obj.v : 1;
     const allCompact = obj.events.every((e) => {
@@ -664,29 +665,40 @@
       );
     }
     ensureWalletDevices(wallet);
-    // syncPeers is a plain object map keyed by peer key — union keys, local wins.
+    // syncPeers is a map keyed by peer key — union keys, local wins.
     if (
       persisted.syncPeers &&
       typeof persisted.syncPeers === "object" &&
       !Array.isArray(persisted.syncPeers)
     ) {
-      const merged = Object.create(null);
-      for (const k of Object.keys(persisted.syncPeers)) {
-        merged[k] = persisted.syncPeers[k];
-      }
-      const localPeers =
-        wallet.syncPeers &&
-        typeof wallet.syncPeers === "object" &&
-        !Array.isArray(wallet.syncPeers)
-          ? wallet.syncPeers
-          : null;
-      if (localPeers) {
-        for (const k of Object.keys(localPeers)) {
-          merged[k] = localPeers[k];
-        }
-      }
+      const merged = normalizeSyncPeers(persisted.syncPeers);
+      const localPeers = normalizeSyncPeers(wallet.syncPeers);
+      for (const k of Object.keys(localPeers)) merged[k] = localPeers[k];
       wallet.syncPeers = merged;
     }
+  }
+
+  // syncPeers is a map keyed by peer key, and peer keys come from imported data
+  // (remote deviceId / walletId). Keep it a null-prototype object with only
+  // object-valued entries and never a prototype-chain name as key, so a
+  // crafted "__proto__"/"constructor"/"prototype" peer can't reach
+  // Object.prototype through a plain {} parsed back from storage.
+  const FORBIDDEN_MAP_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+  function isForbiddenMapKey(key) {
+    return typeof key !== "string" || !key || FORBIDDEN_MAP_KEYS.has(key);
+  }
+
+  function normalizeSyncPeers(raw) {
+    const out = Object.create(null);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+    for (const k of Object.keys(raw)) {
+      if (isForbiddenMapKey(k)) continue;
+      const peer = raw[k];
+      if (!peer || typeof peer !== "object" || Array.isArray(peer)) continue;
+      out[k] = peer;
+    }
+    return out;
   }
 
   // opts.quiet: skip the generic one-time alert on failure (the banner/body
@@ -961,6 +973,8 @@
     newEvent,
     appendEvents,
     normalizeEvent,
+    normalizeSyncPeers,
+    isForbiddenMapKey,
     loadWallet,
     saveWallet,
     getAllWallets,
