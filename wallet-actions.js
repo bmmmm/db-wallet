@@ -8,7 +8,6 @@
     randomId,
     randomWalletId,
     safeLocalStorageRemoveItem,
-    STORAGE_PREFIX,
     MAX_EVENT_AMOUNT,
   } = helpers;
   const {
@@ -153,14 +152,6 @@
     ) {
       return;
     }
-    safeLocalStorageRemoveItem(STORAGE_PREFIX + wallet.userId);
-    if (
-      typeof wallet.userId === "string" &&
-      wallet.userId &&
-      !wallet.userId.includes(":")
-    ) {
-      safeLocalStorageRemoveItem(wallet.userId);
-    }
     // Reset = a new wallet under the same name (E2): a fresh walletId, so an
     // export taken before the reset no longer merges into it (it imports as a
     // separate wallet) and local action-code QRs bound to the old walletId stop
@@ -180,8 +171,24 @@
       globalActionCodes: [],
     };
     // The only intentional walletId switch: saveWallet refuses a walletId that
-    // differs from the persisted one unless told so (stale-tab guard, P1.9).
-    saveWallet(next, { allowWalletIdChange: true });
+    // differs from the persisted one unless told so (stale-tab guard, P1.9),
+    // and with the flag it overwrites without reconciling. The stored wallet
+    // is replaced, never removed first: if the write fails (storage full) the
+    // old wallet stays both on disk and in this tab.
+    if (!saveWallet(next, { allowWalletIdChange: true, quiet: true })) {
+      ctx.dialogAlert(
+        "Zurücksetzen fehlgeschlagen: Speichern nicht möglich (Speicher voll oder blockiert). Das Wallet ist unverändert.",
+      );
+      return;
+    }
+    // Drop the pre-v2 storage key of this wallet, if any (migration leftover).
+    if (
+      typeof wallet.userId === "string" &&
+      wallet.userId &&
+      !wallet.userId.includes(":")
+    ) {
+      safeLocalStorageRemoveItem(wallet.userId);
+    }
     ctx.setWallet(next);
     ctx.refreshActionCodesUi();
     ctx.clearExport();

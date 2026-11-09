@@ -223,7 +223,13 @@
     }
 
     if (!window.confirm(msg)) {
-      window.location.hash = "";
+      // Decision I1: drop the declined link. Replace it in place — assigning
+      // location.hash would leave the #i2:/#ac: entry in the session history.
+      if (
+        !(typeof helpers.replaceHashSilently === "function" && helpers.replaceHashSilently(""))
+      ) {
+        window.location.hash = "";
+      }
       return false;
     }
 

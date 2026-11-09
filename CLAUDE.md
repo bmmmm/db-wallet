@@ -37,8 +37,17 @@ node --test tests/
 ```
 
 `tests/harness.js` loads the original modules into a `vm` context with a fresh
-`localStorage` per `makeEnv()` (`quota` simulates full storage, `deviceKey` pins the
-device); `tests/fake-dom.js` is just enough DOM to click through the action-code panel.
+`localStorage` per `makeEnv()` (`quota` simulates full storage — also settable later via
+`storage.quota`; `deviceKey` pins the device; `storage` shares one store between two
+"tabs"; `files` picks the modules). Every env has a fake `location`/`history`
+(`w._nav`): assigning `location.hash` pushes an entry and queues a `hashchange`
+(delivered by `w._nav.flush()`), `history.replaceState` rewrites the current entry
+silently, navigations to another page land in `w._nav.pageLoads`.
+`tests/fake-dom.js` is a minimal DOM (createElement, a children tree, listeners,
+`click()`, no layout) for the action-code panel; its `makePageDocument(html)` creates one
+flat element per id/class of a real page. `tests/wallet-page.js` boots `wallet.html`'s
+scripts in page order on that DOM (`bootWalletPage`, `flushHashChanges`).
+`tests/actions-ctx.js` is a DOM-free ctx stub for `dbWalletActions`.
 vm objects have foreign prototypes — compare via `plain()`/JSON, not `deepStrictEqual`.
 `tests/` is not deployed (Pages copies an allowlist).
 
@@ -125,7 +134,12 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   zurückgesetzt" alert) when the in-memory and persisted `walletId` differ (both
   non-empty) — a stale tab must not merge old events into the reset wallet. Only a
   save that intentionally switches the `walletId` (today: `resetWallet`) passes
-  `{ allowWalletIdChange: true }`, which overwrites without reconciling.
+  `{ allowWalletIdChange: true }`, which overwrites without reconciling. Exception:
+  a `walletId` that `loadWallet` minted (nothing stored, or a legacy record without
+  one) and that was never saved adopts the persisted one, as long as the stored log
+  still holds every event it was loaded with (two tabs opening a new wallet). A reset
+  replaces the stored record (never removes it first); if that save fails, the tab
+  and the store keep the old wallet and the user gets "Zurücksetzen fehlgeschlagen".
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
 - **Bump `service-worker.js` VERSION when any APP_SHELL asset changes** — enforced by

@@ -43,6 +43,7 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
 - [x] P2.3 Importfehler mit Fehlercode, Abbruch führt zurück ins offene Wallet (801f321)
 - [x] P2.4 `legacyIdToV2Id` früh beenden (919cecf)
 - [x] P2.5 QR zu groß: kompakten Link anbieten (fcc1f74)
+- [ ] P2.6 Nachzügler: Reset bei Speicherfehler, Import-Prompt auf `index.html`, frische `walletId` in zwei Tabs
 - [ ] P3.1 Theme: Standard, Kontrast, Fokus, `theme-color`
 - [ ] P3.2 CSS-Grundlagen für Touch und Lesbarkeit
 - [ ] P3.3 CSP ohne `'unsafe-inline'`
@@ -413,6 +414,39 @@ kurzem Hinweis. Die eigentliche Skalierung steht in P5.5.
 
 **Abnahme.** Mit 700 Events liefert der Export einen funktionierenden `i2:`-Link statt
 nur einer Fehlermeldung.
+
+### P2.6 Nachzügler aus P1.6, P1.9 und P2.1
+
+**Befund (nachgestellt, `tests/p2-6-reset-save-fail.test.js`).**
+- `resetWallet` löschte den gespeicherten Datensatz und ignorierte danach den
+  Rückgabewert von `saveWallet`. Bei vollem Speicher war das Wallet damit vom Gerät
+  gelöscht, der Tab zeigte trotzdem den Reset, es gab höchstens die einmalige
+  allgemeine Speicher-Meldung.
+- `index-ui.js` setzte nach abgelehntem Import-Prompt `location.hash = ""` und legte
+  damit einen Verlaufseintrag an (der P2.1-Fall auf der Startseite).
+- Randfall von P1.9: Zwei Tabs laden ein Wallet ohne gespeicherte `walletId` (ganz neu
+  oder Altbestand), jeder vergibt in `loadWallet` eine eigene. Tab A speichert, Tab B
+  wird danach mit „… in einem anderen Tab zurückgesetzt …“ abgelehnt, obwohl nichts
+  zurückgesetzt wurde.
+
+**Umsetzung.** `resetWallet` ersetzt den Datensatz nur noch per `saveWallet(next,
+{ allowWalletIdChange: true, quiet: true })`; schlägt das fehl, bleiben Speicher und
+Tab beim alten Wallet und es kommt „Zurücksetzen fehlgeschlagen … Das Wallet ist
+unverändert.“ `allowWalletIdChange` überschreibt jetzt auch einen Altbestand ohne
+`walletId` ohne Abgleich (vorher erledigte das das vorherige Löschen).
+`index-ui.js` nutzt `replaceHashSilently` (`wallet-helpers.js` lädt dort als erstes
+Modul). `loadWallet` merkt sich eine selbst vergebene `walletId` außerhalb des Objekts
+(`WeakMap`, wird nicht gespeichert) samt den geladenen Event-IDs; ein solches Wallet
+übernimmt beim Speichern die persistierte `walletId` und läuft durch den normalen
+Abgleich, solange der Speicher noch alle geladenen Events enthält. Ein Reset oder
+Neuanlegen unter gleichem Namen entfernt Events, dort bleibt die P1.9-Sperre (auch
+für einen veralteten Tab mit Altbestand, eigener Test). Nach dem ersten erfolgreichen
+Speichern gilt die Ausnahme nicht mehr.
+
+**Abnahme.** Reset bei vollem Speicher: Datensatz und Tab unverändert, genau eine
+Meldung; zwei Tabs auf neuem bzw. altem Wallet ohne `walletId` buchen beide; der
+abgelehnte Import-Prompt auf `index.html` lässt `history.length` bei 1; die sechs
+P1.9-Fälle bleiben unverändert grün.
 
 ---
 

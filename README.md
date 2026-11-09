@@ -220,7 +220,8 @@ Cache nicht vergiften.
   `removeActionCode`, Reconcile und Import-Merge filtern sie); Reset = neue
   `walletId`, die `seq`-Zähler laufen weiter (keine Event-ID wird neu vergeben);
   ein veralteter Tab mit der alten `walletId` speichert danach nicht mehr
-  (`saveWallet` lehnt abweichende `walletId` ab, nur der Reset darf sie wechseln).
+  (`saveWallet` lehnt abweichende `walletId` ab, nur der Reset darf sie wechseln;
+  eine frisch vergebene, nie gespeicherte `walletId` übernimmt die gespeicherte).
 - **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes) und `ck`
   (Integritäts-Checksum) stehen als Letztes, `ck` ganz zuletzt. Bei jeder
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:

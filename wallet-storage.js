@@ -493,6 +493,16 @@
     return out;
   }
 
+  // Wallets whose walletId loadWallet just minted (nothing stored yet, or a
+  // legacy record without one) → the event ids they were loaded with. Kept
+  // off the object so it never persists. Two tabs loading such a wallet mint
+  // different walletIds; the first save wins and the other adopts it in
+  // saveWallet instead of tripping the stale-tab guard (P1.9) — but only
+  // while the stored log still holds every event it was loaded with
+  // (append-only: a normal save never drops events, a reset/re-create does).
+  // Cleared by the first successful save.
+  const unsavedWalletIds = new WeakMap();
+
   function loadWallet(userId, parsedOverride) {
     const rawUserId = typeof userId === "string" ? userId.trim() : "";
     if (!isValidUserId(rawUserId)) return null;
@@ -503,7 +513,7 @@
       ? null
       : safeLocalStorageGetItem(STORAGE_PREFIX + userId);
     if (!raw && !hasParsedOverride) {
-      return {
+      const fresh = {
         userId,
         walletId: randomWalletId(),
         deviceId: randomId(),
@@ -513,16 +523,25 @@
         actionCodes: [],
         devices: [],
       };
+      unsavedWalletIds.set(fresh, []);
+      return fresh;
     }
     const obj = hasParsedOverride ? parsedOverride : safeParse(raw) || {};
     if (!Array.isArray(obj.events)) obj.events = [];
     if (!Array.isArray(obj.actionCodes)) obj.actionCodes = [];
     if (!Array.isArray(obj.devices)) obj.devices = [];
     if (!obj.deviceId) obj.deviceId = randomId();
-    if (!obj.walletId) obj.walletId = randomWalletId();
+    const mintedWalletId = !obj.walletId;
+    if (mintedWalletId) obj.walletId = randomWalletId();
     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
     obj.userId = userId;
     obj.events = normalizeEvents(obj.events);
+    if (mintedWalletId) {
+      unsavedWalletIds.set(
+        obj,
+        obj.events.map((e) => e.id),
+      );
+    }
     if (obj.syncPeers !== undefined) obj.syncPeers = normalizeSyncPeers(obj.syncPeers);
     const storedV =
       typeof obj.v === "number" && Number.isFinite(obj.v) ? obj.v : 1;
@@ -751,8 +770,14 @@
         ? persisted.walletId
         : "";
     const localWalletId = typeof wallet.walletId === "string" ? wallet.walletId : "";
-    const walletIdChanged =
+    let walletIdChanged =
       !!persistedWalletId && !!localWalletId && persistedWalletId !== localWalletId;
+    if (walletIdChanged && !allowWalletIdChange && canAdoptPersistedWalletId(wallet, persisted)) {
+      // Our walletId was minted by loadWallet and never saved; another tab
+      // saved the same wallet first. Join it and reconcile normally.
+      wallet.walletId = persistedWalletId;
+      walletIdChanged = false;
+    }
     if (walletIdChanged && !allowWalletIdChange) {
       markStorageFailed(true, "⚠️ " + WALLET_REPLACED_MESSAGE);
       if (!quiet && !hasShownWalletReplacedError) {
@@ -763,7 +788,10 @@
     }
 
     try {
-      if (persisted && !walletIdChanged) {
+      // An intentional replacement (reset) overwrites without reconciling —
+      // also over a legacy record that has no walletId at all.
+      const replacing = allowWalletIdChange && persistedWalletId !== localWalletId;
+      if (persisted && !walletIdChanged && !replacing) {
         const mergeApi = window.dbWalletImportV2 || null;
         if (
           persisted &&
@@ -873,8 +901,21 @@
     };
     saveRegistry(reg);
 
+    unsavedWalletIds.delete(wallet);
     markStorageFailed(false);
     return true;
+  }
+
+  function canAdoptPersistedWalletId(wallet, persisted) {
+    const loadedIds = unsavedWalletIds.get(wallet);
+    if (!loadedIds) return false;
+    if (!loadedIds.length) return true;
+    if (!persisted || !Array.isArray(persisted.events)) return false;
+    const stored = new Set();
+    for (const e of normalizeEvents(persisted.events)) {
+      if (e && typeof e.id === "string") stored.add(e.id);
+    }
+    return loadedIds.every((id) => stored.has(id));
   }
 
   function getAllWallets() {
