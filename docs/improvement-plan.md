@@ -43,14 +43,14 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
 - [x] P2.3 Importfehler mit Fehlercode, Abbruch führt zurück ins offene Wallet (801f321)
 - [x] P2.4 `legacyIdToV2Id` früh beenden (919cecf)
 - [x] P2.5 QR zu groß: kompakten Link anbieten (fcc1f74)
-- [ ] P2.6 Nachzügler: Reset bei Speicherfehler, Import-Prompt auf `index.html`, frische `walletId` in zwei Tabs
-- [ ] P3.1 Theme: Standard, Kontrast, Fokus, `theme-color`
-- [ ] P3.2 CSS-Grundlagen für Touch und Lesbarkeit
-- [ ] P3.3 CSP ohne `'unsafe-inline'`
-- [ ] P3.4 PWA: Icons und Service-Worker-Strategie
-- [ ] P3.5 `self-check.js` bei Bedarf nachladen
-- [ ] P3.6 Export: Kopieren, Teilen, scharfer QR
-- [ ] P3.7 Englische Reststrings eindeutschen
+- [x] P2.6 Nachzügler: Reset bei Speicherfehler, Import-Prompt auf `index.html`, frische `walletId` in zwei Tabs (f962697)
+- [x] P3.1 Theme: Standard, Kontrast, Fokus, `theme-color` (6ef6567)
+- [x] P3.2 CSS-Grundlagen für Touch und Lesbarkeit (e3f6073)
+- [x] P3.3 CSP ohne `'unsafe-inline'` (24719d9)
+- [x] P3.4 PWA: Icons und Service-Worker-Strategie (9289d03)
+- [x] P3.5 `self-check.js` bei Bedarf nachladen (d145c23)
+- [x] P3.6 Export: Kopieren, Teilen, scharfer QR (e2f7fb3)
+- [x] P3.7 Englische Reststrings eindeutschen (e07eaa0)
 - [ ] P4 Bedienung (erst nach Freigabe, siehe dort)
 - [ ] P5 Struktur und Skalierung (einzeln nach Bedarf)
 
