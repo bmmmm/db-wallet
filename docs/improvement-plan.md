@@ -70,7 +70,8 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
    `service-worker.js` steigen. Der Guard vergleicht `base..HEAD`, ein Bump pro Branch
    reicht. Prüfen mit `bash scripts/check-sw-version.sh main`. Neue Dateien, die eine
    Seite lädt, gehören in `APP_SHELL`; `pages.yml` kopiert nur `./*.js ./*.html ./*.css
-   manifest.json favicon.svg NOTICE LICENSE`, alles andere braucht dort einen Eintrag.
+   manifest.json favicon.svg` (seit P3.4 plus die vier PNG-Icons) `NOTICE LICENSE`,
+   alles andere braucht dort einen Eintrag.
 5. **Invarianten aus `CLAUDE.md` gelten weiter:** Events sind append-only, Events
    entstehen nur über `dbWalletStorage.newEvent`/`appendEvents`, die Skript-Reihenfolge
    in `wallet.html` ist tragend, neue Codec-Blöcke stehen vor `ck` und nach allen
@@ -546,6 +547,20 @@ der Browser. Nicht im Browser geprüft: keine CSP-Meldung in der Konsole.
   mit Timeout (etwa 3 s), dann Cache. `caches.match(req, { ignoreSearch: true })`,
   damit `wallet.html?x=…` offline nicht auf `index.html` zurückfällt.
 - Im Browser prüfen: Offline-Start aus dem Cache, Update-Toast nach `VERSION`-Bump.
+
+**Umgesetzt.** Die Icons rastert `scripts/make-icons.js` nur mit `node:zlib` aus der
+Geometrie von `favicon.svg` (4 × 4 Supersampling, deterministisch, `--check`
+vergleicht): `icon-192.png`, `icon-512.png` (`any`, runde transparente Ecken),
+`icon-maskable-512.png` (randlos, Motiv auf 80 % skaliert, liegt im Safe-Zone-Kreis),
+`apple-touch-icon.png` (180, randlos, deckend). Manifest, Icon-Links der drei Seiten,
+`APP_SHELL` und `pages.yml` sind gemeinsam angepasst; `colors.html`/`colors.css` sind
+aus `APP_SHELL` raus (E6, bleiben im Repo und online). Navigationen: bei Timeout nur
+die passende Seite aus dem Cache (sonst weiter aufs Netz warten), `index.html` nur
+nach Netzfehler, als letzte Stufe eine 503-Antwort; vorher konnte ein leerer Cache
+offline in `respondWith(undefined)` enden. Weitergeleitete Antworten werden nicht
+mehr gecacht. `tests/p3-4-pwa.test.js` prüft die Strategie im `vm` mit Fakes. Nicht
+im Browser geprüft: echter Offline-Start, Installierbarkeit, Aussehen der Icons auf
+den Plattformen.
 
 ### P3.5 `self-check.js` bei Bedarf nachladen
 

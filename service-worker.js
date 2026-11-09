@@ -4,12 +4,14 @@ const APP_SHELL = [
   "./index.html",
   "./wallet.html",
   "./preview.html",
-  "./colors.html",
   "./style.css",
   "./themes.css",
-  "./colors.css",
   "./manifest.json",
   "./favicon.svg",
+  "./icon-192.png",
+  "./icon-512.png",
+  "./icon-maskable-512.png",
+  "./apple-touch-icon.png",
   "./theme.js",
   "./import-preview.js",
   "./qrcodegen.js",
@@ -34,9 +36,42 @@ const APP_SHELL = [
   "./sw-register.js",
 ];
 
+// A navigation waits this long for the network before it falls back to the
+// cached page (the network response still updates the cache when it arrives).
+const NAV_TIMEOUT_MS = 3000;
+
+function offlineResponse() {
+  return new Response("Offline", {
+    status: 503,
+    statusText: "Offline",
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+// Only cache a genuine same-origin 200 — never poison the app shell with a
+// 404, an opaque/redirected response, or a captive-portal login page.
+function cacheIfGood(event, req, res) {
+  if (!res || res.status !== 200 || res.type !== "basic" || res.redirected) return;
+  const copy = res.clone();
+  const put = caches
+    .open(VERSION)
+    .then((c) => c.put(req, copy))
+    .catch(() => {});
+  try {
+    event.waitUntil(put);
+  } catch (e) {
+    // waitUntil is only callable while the event is active; the put still runs
+  }
+}
+
 self.addEventListener("install", (event) => {
+  // cache: "reload" bypasses the browser HTTP cache, so a new VERSION never
+  // freezes a stale copy of a file that the HTTP cache still held.
   event.waitUntil(
-    caches.open(VERSION).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()),
+    caches
+      .open(VERSION)
+      .then((cache) => cache.addAll(APP_SHELL.map((url) => new Request(url, { cache: "reload" }))))
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -48,46 +83,75 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Network first with a timeout. Every path ends in a Response:
+//  - network answers in time → that response (cached if good);
+//  - network fails → cached page (ignoring ?query), else index.html, else 503;
+//  - network is slow → cached page if there is one, otherwise keep waiting for
+//    the network (and on failure the same fallbacks as above).
+function networkFirstPage(event, req) {
+  const cachedPage = () =>
+    caches.match(req, { ignoreSearch: true }).catch(() => undefined);
+  const fallback = () =>
+    cachedPage()
+      .then((hit) => hit || caches.match("./index.html"))
+      .catch(() => undefined)
+      .then((hit) => hit || offlineResponse());
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (res) => {
+      if (settled || !res) return;
+      settled = true;
+      resolve(res);
+    };
+    const timer = setTimeout(() => {
+      cachedPage().then(finish);
+    }, NAV_TIMEOUT_MS);
+    let network;
+    try {
+      network = fetch(req);
+    } catch (e) {
+      network = Promise.reject(e);
+    }
+    network.then(
+      (res) => {
+        clearTimeout(timer);
+        cacheIfGood(event, req, res);
+        finish(res);
+      },
+      () => {
+        clearTimeout(timer);
+        fallback().then(finish, () => finish(offlineResponse()));
+      },
+    );
+  });
+}
+
+// Cache first for the app shell assets, network fill on a miss.
+function cacheFirstAsset(event, req) {
+  return caches
+    .match(req)
+    .then((cached) => {
+      if (cached) return cached;
+      return fetch(req).then((res) => {
+        cacheIfGood(event, req, res);
+        return res;
+      });
+    })
+    .catch(() => offlineResponse());
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
-  const url = new URL(req.url);
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch (e) {
+    return;
+  }
   if (url.origin !== self.location.origin) return;
 
   const isHtml = req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html");
-
-  if (isHtml) {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          // Only cache a genuine same-origin 200 — never poison the app shell with
-          // a 404, an opaque/redirected response, or a captive-portal login page.
-          if (res && res.status === 200 && res.type === "basic") {
-            const copy = res.clone();
-            caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => {});
-          }
-          return res;
-        })
-        .catch(() => caches.match(req).then((cached) => cached || caches.match("./index.html"))),
-    );
-    return;
-  }
-
-  event.respondWith(
-    caches
-      .match(req)
-      .then((cached) => {
-        if (cached) return cached;
-        return fetch(req).then((res) => {
-          if (res && res.status === 200 && res.type === "basic") {
-            const copy = res.clone();
-            caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => {});
-          }
-          return res;
-        });
-      })
-      // Mirror the HTML path's defensive tail: a cache-miss while offline would
-      // otherwise reject the whole respondWith with a generic network error.
-      .catch(() => new Response("", { status: 503, statusText: "Offline" })),
-  );
+  event.respondWith(isHtml ? networkFirstPage(event, req) : cacheFirstAsset(event, req));
 });
