@@ -13,6 +13,10 @@ class FakeElement {
     this.value = "";
     this.type = "";
     this.className = "";
+    this.id = "";
+    this.hidden = false;
+    this.disabled = false;
+    this.title = "";
     this.open = false;
     this._text = "";
     const self = this;
@@ -52,6 +56,39 @@ class FakeElement {
   }
   get innerHTML() {
     return this.textContent;
+  }
+  get childNodes() {
+    return this.children;
+  }
+  get nextSibling() {
+    if (!this.parentNode) return null;
+    const sibs = this.parentNode.children;
+    return sibs[sibs.indexOf(this) + 1] || null;
+  }
+  insertBefore(child, ref) {
+    if (child.parentNode) child.parentNode.removeChild(child);
+    child.parentNode = this;
+    const i = ref ? this.children.indexOf(ref) : -1;
+    if (i < 0) this.children.push(child);
+    else this.children.splice(i, 0, child);
+    return child;
+  }
+  insertAdjacentElement(where, el) {
+    const parent = this.parentNode;
+    if (where === "afterend" && parent) return parent.insertBefore(el, this.nextSibling);
+    if (where === "beforebegin" && parent) return parent.insertBefore(el, this);
+    if (where === "afterbegin") return this.insertBefore(el, this.children[0] || null);
+    return this.appendChild(el);
+  }
+  remove() {
+    if (this.parentNode) this.parentNode.removeChild(this);
+  }
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+  querySelectorAll(sel) {
+    const m = matcher(sel);
+    return findAll(this, (el) => el !== this && m(el));
   }
   appendChild(child) {
     if (child.parentNode) child.parentNode.removeChild(child);
@@ -118,6 +155,56 @@ function makeFakeDocument() {
   return doc;
 }
 
+// Single simple selector only: "#id", ".class", "tag", "tag.class".
+function matcher(sel) {
+  const s = String(sel).trim();
+  if (s.startsWith("#")) return (el) => el.id === s.slice(1);
+  const [tag, cls] = s.split(".");
+  return (el) =>
+    (!tag || el.tagName === tag.toUpperCase()) &&
+    (!cls || el.classList.contains(cls));
+}
+
+// A document for booting wallet.html's scripts: every element of the real page
+// that carries an id or a class is created (flat under <body>, no nesting), so
+// getElementById/querySelector find what wallet-ui.js looks up. Listeners on
+// the document are kept; `doc._fire("DOMContentLoaded")` runs them and returns
+// their results (the boot handler's promise).
+function makePageDocument(html) {
+  const doc = makeFakeDocument();
+  const listeners = Object.create(null);
+  doc.addEventListener = (type, fn) => {
+    (listeners[type] = listeners[type] || []).push(fn);
+  };
+  doc.removeEventListener = (type, fn) => {
+    listeners[type] = (listeners[type] || []).filter((f) => f !== fn);
+  };
+  doc._fire = (type) =>
+    (listeners[type] || []).slice().map((fn) => fn({ type, target: doc }));
+  const bodyTag = html.indexOf("<body");
+  const re = /<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g;
+  re.lastIndex = bodyTag < 0 ? 0 : bodyTag;
+  let m;
+  while ((m = re.exec(html))) {
+    const tag = m[1].toLowerCase();
+    if (tag === "body" || tag === "script") continue;
+    const attrs = m[2];
+    const id = /\bid="([^"]*)"/.exec(attrs);
+    const cls = /\bclass="([^"]*)"/.exec(attrs);
+    if (!id && !cls && tag !== "h1") continue;
+    const el = new FakeElement(tag);
+    if (id) el.id = id[1];
+    if (cls) el.className = cls[1];
+    const st = /\bstyle="display:\s*none"/.exec(attrs);
+    if (st) el.style.display = "none";
+    doc.body.appendChild(el);
+  }
+  doc.getElementById = (id) => find(doc.body, (el) => el.id === id);
+  doc.querySelector = (sel) => doc.body.querySelector(sel);
+  doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
+  return doc;
+}
+
 function findAll(root, pred, out = []) {
   if (pred(root)) out.push(root);
   for (const c of root.children) findAll(c, pred, out);
@@ -148,4 +235,12 @@ function card(root, label) {
   );
 }
 
-module.exports = { FakeElement, makeFakeDocument, find, findAll, button, card };
+module.exports = {
+  FakeElement,
+  makeFakeDocument,
+  makePageDocument,
+  find,
+  findAll,
+  button,
+  card,
+};

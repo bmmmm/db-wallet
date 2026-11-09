@@ -340,6 +340,27 @@
   // integer; if omitted and `maxPx` is given, scale is derived to fit within
   // maxPx. `border` defaults to 4 modules. Throws if the QR library is missing
   // or encodeText fails — callers are expected to catch.
+  // Replace the URL fragment in place (history.replaceState): no new session
+  // history entry and no "hashchange". Assigning location.hash would push an
+  // entry (Back re-runs an #ac: booking) and fire a second hashchange that
+  // re-enters the router. An empty target drops the fragment. Returns false
+  // when replaceState is unavailable, so callers can fall back.
+  function replaceHashSilently(nextHash) {
+    const target = String(nextHash || "").trim().replace(/^#/, "");
+    const current = String(window.location.hash || "").slice(1);
+    if (current === target) return true;
+    if (window.history && typeof window.history.replaceState === "function") {
+      try {
+        const base = String(window.location.href || "").split("#")[0];
+        window.history.replaceState(null, "", target ? base + "#" + target : base);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  }
+
   function drawQrToCanvas(canvas, text, opts) {
     if (!canvas) return;
     if (!window.qrcodegen || !window.qrcodegen.QrCode) {
@@ -405,6 +426,7 @@
     formatDate,
     formatDateTime,
     normalizeUserId,
+    replaceHashSilently,
     drawQrToCanvas,
   };
 })();

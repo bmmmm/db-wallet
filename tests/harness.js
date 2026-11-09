@@ -54,7 +54,105 @@ function makeStorage(quota) {
   return store;
 }
 
+// Fake location + session history for navigation tests: assigning
+// location.hash pushes an entry and queues a "hashchange" (only when the
+// fragment changes, like the browser); history.replaceState rewrites the
+// current entry and fires nothing; location.href to another page is recorded
+// in `nav.pageLoads` (the vm page never actually unloads). `nav.flush()`
+// delivers queued hashchange events to the window listeners.
+function makeNav(startUrl, win) {
+  const entries = [new URL(startUrl).href];
+  let index = 0;
+  const queue = [];
+  const nav = {
+    entries,
+    pageLoads: [],
+    hashchanges: 0,
+    get index() {
+      return index;
+    },
+    get current() {
+      return entries[index];
+    },
+    flush() {
+      while (queue.length) {
+        const ev = queue.shift();
+        nav.hashchanges++;
+        win._dispatch("hashchange", ev);
+      }
+    },
+  };
+  const fragment = (href) => {
+    const i = href.indexOf("#");
+    return i < 0 ? "" : href.slice(i + 1);
+  };
+  const push = (href) => {
+    entries.splice(index + 1);
+    entries.push(href);
+    index = entries.length - 1;
+  };
+  nav.location = {
+    get href() {
+      return entries[index];
+    },
+    set href(v) {
+      const next = new URL(String(v), entries[index]).href;
+      const samePage = next.split("#")[0] === entries[index].split("#")[0];
+      const old = entries[index];
+      push(next);
+      if (samePage && next.includes("#")) {
+        if (fragment(old) !== fragment(next)) queue.push({ oldURL: old, newURL: next });
+      } else {
+        nav.pageLoads.push(next);
+      }
+    },
+    get hash() {
+      const f = fragment(entries[index]);
+      return f ? "#" + f : "";
+    },
+    set hash(v) {
+      const f = String(v).replace(/^#/, "");
+      const old = entries[index];
+      if (fragment(old) === f && old.includes("#")) return;
+      push(old.split("#")[0] + "#" + f);
+      queue.push({ oldURL: old, newURL: entries[index] });
+    },
+    get pathname() {
+      return new URL(entries[index]).pathname;
+    },
+    reload() {
+      nav.pageLoads.push(entries[index]);
+    },
+  };
+  nav.history = {
+    get length() {
+      return entries.length;
+    },
+    get state() {
+      return null;
+    },
+    replaceState(_state, _title, url) {
+      if (url === undefined || url === null) return;
+      entries[index] = new URL(String(url), entries[index]).href;
+    },
+    pushState(_state, _title, url) {
+      push(new URL(String(url), entries[index]).href);
+    },
+    back() {
+      if (index === 0) return;
+      const old = entries[index];
+      index--;
+      if (fragment(old) !== fragment(entries[index])) {
+        queue.push({ oldURL: old, newURL: entries[index] });
+      }
+    },
+  };
+  return nav;
+}
+
 // opts:
+//   url        — start URL of the fake location/history (win._nav),
+//                default https://example.invalid/wallet.html
 //   quota      — max length of one stored value (simulated full storage)
 //   deviceKey  — preset "db-wallet:device" (stable device identity)
 //   storage    — reuse an existing storage (two tabs / two loads of one browser)
@@ -62,6 +160,7 @@ function makeStorage(quota) {
 //   files      — module list, defaults to DEFAULT_FILES
 function makeEnv(opts = {}) {
   const alerts = [];
+  const listeners = Object.create(null);
   const localStorage = opts.storage || makeStorage(opts.quota);
   if (opts.deviceKey) localStorage.setItem("db-wallet:device", opts.deviceKey);
   const win = {
@@ -83,7 +182,6 @@ function makeEnv(opts = {}) {
     alert: (m) => alerts.push(String(m)),
     confirm: () => true,
     prompt: () => null,
-    location: { hash: "", href: "https://example.invalid/wallet.html" },
     document: opts.document || {
       body: { dataset: {} },
       addEventListener() {},
@@ -100,11 +198,24 @@ function makeEnv(opts = {}) {
         },
       },
     },
-    addEventListener() {},
-    history: { replaceState() {} },
+    addEventListener(type, fn) {
+      (listeners[type] = listeners[type] || []).push(fn);
+    },
+    removeEventListener(type, fn) {
+      listeners[type] = (listeners[type] || []).filter((f) => f !== fn);
+    },
   };
   win.window = win;
   win.globalThis = win;
+  win._dispatch = (type, ev) => {
+    const out = [];
+    for (const fn of (listeners[type] || []).slice()) out.push(fn(ev || { type }));
+    return out;
+  };
+  const nav = makeNav(opts.url || "https://example.invalid/wallet.html", win);
+  win.location = nav.location;
+  win.history = nav.history;
+  win._nav = nav;
   const ctx = vm.createContext(win);
   for (const f of opts.files || DEFAULT_FILES) {
     vm.runInContext(fs.readFileSync(path.join(REPO, f), "utf8"), ctx, {
@@ -123,4 +234,4 @@ function plain(v) {
   return v === undefined ? undefined : JSON.parse(JSON.stringify(v));
 }
 
-module.exports = { makeEnv, makeStorage, plain, REPO };
+module.exports = { makeEnv, makeStorage, makeNav, plain, REPO, DEFAULT_FILES };

@@ -1851,8 +1851,9 @@
         // 3.6 -> 4), and that a mismatched key is rejected (no booking). Relies on:
         //   bookActionCode(targetUserId, { api, codeId, key }) -> loads the wallet,
         //   matches codeId, key-checks, books newEvent via appendEvents.
-        // bookActionCode uses global alert() and sets window.location.hash, so both
-        // are overridden/saved and restored here.
+        // bookActionCode uses global alert() and replaces the hash via
+        // history.replaceState (P2.1: no new history entry, so Back can't
+        // re-book), so both are overridden/saved and restored here.
         try {
           if (
             typeof importV2.bookActionCode === "function" &&
@@ -1875,6 +1876,11 @@
             const origHash = window.location.hash;
             let bookedEv = null;
             let keyRejected = false;
+            const historyLenBefore =
+              window.history && typeof window.history.length === "number"
+                ? window.history.length
+                : -1;
+            let historyLenAfter = historyLenBefore;
             try {
               window.alert = function () {};
               importV2.bookActionCode(uid, {
@@ -1893,14 +1899,32 @@
               });
               const r2 = storage.loadWallet(uid);
               keyRejected = (r2.events || []).length === countGood;
+              historyLenAfter =
+                window.history && typeof window.history.length === "number"
+                  ? window.history.length
+                  : -1;
             } finally {
               window.alert = origAlert;
               try {
-                window.location.hash = origHash;
+                if (
+                  !(
+                    helpers &&
+                    typeof helpers.replaceHashSilently === "function" &&
+                    helpers.replaceHashSilently(origHash.slice(1))
+                  )
+                ) {
+                  window.location.hash = origHash;
+                }
               } catch (e) {
                 // ignore
               }
             }
+            addCheck(
+              result,
+              "bookActionCode adds no history entry (replaceState)",
+              historyLenAfter === historyLenBefore,
+              `before=${historyLenBefore} after=${historyLenAfter}`,
+            );
             addCheck(
               result,
               "bookActionCode books local code (type + amount clamp)",

@@ -28,6 +28,14 @@
     normalizeUserId,
   } = helpers;
 
+  // Point the URL at `userId` (or drop the fragment for "") without a history
+  // entry or a hashchange (P2.1): the caller routes exactly once itself.
+  function replaceHash(userId) {
+    const target = String(userId || "");
+    if (helpers.replaceHashSilently && helpers.replaceHashSilently(target)) return;
+    window.location.hash = target ? "#" + target : "";
+  }
+
   const {
     getDeviceKey,
     parseCompactEventId,
@@ -1244,7 +1252,7 @@
       return null;
     }
     applyImportedTheme(remote, options);
-    window.location.hash = "#" + userId;
+    replaceHash(userId);
     alert(
       remote && remote._extWarning
         ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Daten (Zusatzdaten oder Einträge ohne gültige ID) konnte nicht vollständig importiert und wurde übersprungen."
@@ -1381,7 +1389,7 @@
 
   function redirectAfterActionError(activeUserId) {
     if (activeUserId) {
-      window.location.hash = "#" + activeUserId;
+      replaceHash(activeUserId);
       return { userId: activeUserId, redirectedToPreview: false };
     }
     window.location.href = "index.html";
@@ -1400,7 +1408,7 @@
       );
       if (!shouldGoHome) {
         if (activeUserId) {
-          window.location.hash = "#" + activeUserId;
+          replaceHash(activeUserId);
           return {
             done: { userId: activeUserId, redirectedToPreview: false },
           };
@@ -1426,7 +1434,7 @@
         `Action Code gehört zu einem anderen Profil.\nZiel: ${targetUserId}\nAktuell: ${activeUserId}\nZu diesem Profil wechseln und buchen?`,
       );
       if (!shouldSwitch) {
-        window.location.hash = "#" + activeUserId;
+        replaceHash(activeUserId);
         return { done: { userId: activeUserId, redirectedToPreview: false } };
       }
     }
@@ -1456,7 +1464,7 @@
       alert(
         "Action Code ist unbekannt oder nicht mehr vorhanden.\nBuchung verweigert.",
       );
-      window.location.hash = "#" + targetUserId;
+      replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
     }
 
@@ -1465,7 +1473,7 @@
       alert(
         "Action Code wurde erneuert.\nBitte den neuen QR-Code nutzen.\nBuchung verweigert.",
       );
-      window.location.hash = "#" + targetUserId;
+      replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
     }
 
@@ -1490,10 +1498,10 @@
       alert(
         "Speichern fehlgeschlagen — Buchung verworfen (Speicher voll oder blockiert).",
       );
-      window.location.hash = "#" + targetUserId;
+      replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
     }
-    window.location.hash = "#" + targetUserId;
+    replaceHash(targetUserId);
     alert(
       type === "d"
         ? `${amount} Getränk(e) getrunken gebucht ✅`

@@ -76,17 +76,12 @@
   const GLOBAL_ACTION_DUP_WINDOW_MS = 750;
   const LAST_USER_KEY = "db-wallet:last-user";
 
+  // Shared with the codec (wallet-helpers.js): history.replaceState, no
+  // hashchange, no new history entry.
   function replaceHashSilently(nextHash) {
     const target = String(nextHash || "").trim();
     if (!target) return false;
-    const current = window.location.hash.slice(1);
-    if (current === target) return true;
-    if (window.history && typeof window.history.replaceState === "function") {
-      const base = String(window.location.href || "").split("#")[0];
-      window.history.replaceState(null, "", base + "#" + target);
-      return true;
-    }
-    return false;
+    return helpers.replaceHashSilently(target);
   }
 
   function isDuplicateGlobalActionHash(hash) {
@@ -806,7 +801,7 @@
       } catch (e) {
         // ignore
         if (userId && window.location.hash.slice(1) !== userId) {
-          window.location.hash = "#" + userId;
+          replaceHashSilently(userId);
         }
       } finally {
         handlingHash = false;
