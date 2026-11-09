@@ -1,10 +1,7 @@
 # TODO
 
-The current work list is [`docs/improvement-plan.md`](docs/improvement-plan.md)
-(2026-11-09). Tick packages off there.
+Phase 0 to 3 of [`docs/improvement-plan.md`](docs/improvement-plan.md) are done and
+published (2026-11-10).
 
-The two earlier sweep findings are verified and part of that plan:
-
-- Double `switchToUser` after link/QR import: confirmed, harmless (double load/save/render),
-  fixed together with the back-button rebooking in P2.1.
-- Theme label on fresh install: confirmed, P3.1.
+What is open now, in working order: [`docs/open-points.md`](docs/open-points.md).
+Start with O1 (check the published state in a browser). Tick items off there.

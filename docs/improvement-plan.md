@@ -54,6 +54,9 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
 - [ ] P4 Bedienung (erst nach Freigabe, siehe dort)
 - [ ] P5 Struktur und Skalierung (einzeln nach Bedarf)
 
+Was nach Phase 3 offen ist, samt Reihenfolge und Browser-Prüfliste, steht in
+[`open-points.md`](open-points.md).
+
 ## Arbeitsregeln
 
 1. **Reihenfolge.** P0 → P1 → P2 → P3 können ohne Rückfrage abgearbeitet werden; die
@@ -83,8 +86,10 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
    `CLAUDE.md` unter „Local Dev“. Auf garage ist Loopback für den Account gesperrt, ein
    lokaler `http.server` ist dort nicht erreichbar. Steht in der Sitzung kein Browser
    zur Verfügung, das in der Übergabe so sagen und nicht als geprüft ausgeben.
-7. **Nicht pushen, bevor Entscheidung E1 geklärt ist.** In diesem Checkout zeigt
-   `origin` auf GitHub, `CLAUDE.md` beschreibt `origin` als Forgejo.
+7. **Push nur auf Zuruf, dann nach GitHub und Forgejo** (E1, entschieden 2026-11-10).
+   In diesem Checkout zeigt `origin` noch auf GitHub, `CLAUDE.md` beschreibt `origin`
+   als Forgejo; siehe [`open-points.md`](open-points.md), O2. Keine privaten Hostnamen
+   in getrackte Dateien schreiben: der pre-push-Hook prüft jeden Commit einzeln.
 
 ## Belegstufen
 
@@ -711,13 +716,13 @@ Voreinstellungen gelten, solange der Nutzer nichts anderes sagt.
 
 | Nr. | Frage | Voreinstellung |
 |---|---|---|
-| E1 | In diesem Checkout ist `origin` = `https://github.com/bmmmm/db-wallet`, einen Remote `github` gibt es nicht. `CLAUDE.md` beschreibt `origin` als Forgejo. Das Forgejo-Repo existiert und steht auf demselben Commit. Wohin wird gepusht? | Nicht pushen, bis geklärt. |
+| E1 | In diesem Checkout ist `origin` = `https://github.com/bmmmm/db-wallet`, einen Remote `github` gibt es nicht. `CLAUDE.md` beschreibt `origin` als Forgejo. Das Forgejo-Repo existiert und steht auf demselben Commit. Wohin wird gepusht? | **Entschieden 2026-11-10:** GitHub und Forgejo. Remotes angleichen: `open-points.md`, O2. |
 | E2 | Was bedeutet Reset, wenn ein Zweitgerät den alten Stand hat? | Neue `walletId`: Reset ist ein neues Wallet. |
 | E3 | Soll `wallet.html` ohne gültigen Hash das zuletzt benutzte Wallet öffnen? (Offen seit Juni als „U2“.) | Nein, Wallet-Liste zeigen. |
 | E4 | Soll das Löschen eines Action Codes per Export auf andere Geräte wandern? | Ja, als neuer Codec-Block; kann nach P1.2 als eigenes Paket folgen. |
 | E5 | Obergrenzen im Mengenfeld? | Getränke höchstens 99, Guthaben höchstens 999, Rückfrage ab 20 Getränken. |
 | E6 | `colors.html` in der App behalten? | Aus `APP_SHELL` und den Theme-Hinweisen nehmen, im Repo behalten. |
-| E7 | Diese Datei nennt unbehobene Fehler, GitHub ist öffentlich. | Erst zusammen mit den Korrekturen aus Phase 1 veröffentlichen. |
+| E7 | Diese Datei nennt unbehobene Fehler, GitHub ist öffentlich. | Erst zusammen mit den Korrekturen aus Phase 1 veröffentlichen. **Erledigt 2026-11-10:** mit Phase 0 bis 3 veröffentlicht. |
 
 Unverändert bleibt die Entscheidung „I1“ vom Juni: Nach abgelehntem Import-Prompt auf
 `index.html` wird der Hash gelöscht.
