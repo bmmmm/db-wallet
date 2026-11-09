@@ -27,16 +27,16 @@ plus 31 ms. Die echte Skalierungsgrenze ist der QR-Export (etwa 590 Events).
 
 Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
 
-- [ ] P0.1 Node-Testlauf mit Harness
-- [ ] P0.2 Testlauf in der CI, Pages-Deploy hängt daran
-- [ ] P1.1 Event-Normalisierung an einer Stelle, Mengen-Obergrenze
-- [ ] P1.2 Löschmodell für Action Codes
-- [ ] P1.3 Globale Action Codes überleben den Import
-- [ ] P1.4 Action-Code-Panel liest globale Codes immer vom Wallet
-- [ ] P1.5 `supersedes` bei Migration und Import umhängen
-- [ ] P1.6 Reset vergibt keine alten Event-IDs neu
-- [ ] P1.7 Import meldet Speicherfehler
-- [ ] P1.8 `syncPeers` gegen `__proto__` härten
+- [x] P0.1 Node-Testlauf mit Harness (1791157)
+- [x] P0.2 Testlauf in der CI, Pages-Deploy hängt daran (2b48f24)
+- [x] P1.1 Event-Normalisierung an einer Stelle, Mengen-Obergrenze (d368d87)
+- [x] P1.2 Löschmodell für Action Codes (12e1290)
+- [x] P1.3 Globale Action Codes überleben den Import (132042b)
+- [x] P1.4 Action-Code-Panel liest globale Codes immer vom Wallet (e3f3572)
+- [x] P1.5 `supersedes` bei Migration und Import umhängen (cf87098)
+- [x] P1.6 Reset vergibt keine alten Event-IDs neu (bd22321)
+- [x] P1.7 Import meldet Speicherfehler (6b92f3f)
+- [x] P1.8 `syncPeers` gegen `__proto__` härten (50a09aa)
 - [ ] P2.1 `replaceState` statt `location.hash` in Buchungs- und Importpfaden
 - [ ] P2.2 Sackgassen in `wallet.html` schließen
 - [ ] P2.3 Importfehler mit Fehlercode, Abbruch führt zurück ins offene Wallet
