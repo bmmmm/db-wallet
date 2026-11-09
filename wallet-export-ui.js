@@ -300,6 +300,24 @@
     }
   }
 
+  // The data no longer fits a version-40 QR (roughly 590 events), but the
+  // compact i2: link is already built and works as a link — offer it instead
+  // of throwing it away (P2.5). Real QR scaling is P5.5.
+  function showCompactLinkInstead(url) {
+    if (!refs || !refs.elExportUrl) return;
+    refs.elExportUrl.value = url;
+    refs.elExportUrl.style.display = "block";
+    alert(
+      `Zu groß für einen QR-Code. Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
+    );
+    try {
+      refs.elExportUrl.focus();
+      refs.elExportUrl.select();
+    } catch (e) {
+      // ignore
+    }
+  }
+
   async function showQrExport() {
     clearQrUi();
     const cached = loadCachedQrUrl();
@@ -340,7 +358,11 @@
             if (!migrated) return;
             continue;
           }
-          alert("Zu groß für QR-Export. Nutze Export-Link oder JSON.");
+          if (url) {
+            showCompactLinkInstead(url);
+          } else {
+            alert("Zu groß für QR-Export. Nutze Export-Link oder JSON.");
+          }
           return;
         }
 
