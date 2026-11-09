@@ -9,6 +9,7 @@
     randomWalletId,
     safeLocalStorageRemoveItem,
     STORAGE_PREFIX,
+    MAX_EVENT_AMOUNT,
   } = helpers;
   const {
     saveWallet,
@@ -136,7 +137,7 @@
       return;
     }
     const ok = persistMutation(ctx, wallet, () => {
-      wallet.events.push(newEvent(wallet, "g", n));
+      wallet.events.push(newEvent(wallet, "g", Math.min(n, MAX_EVENT_AMOUNT)));
     });
     if (!ok) return;
     ctx.resetAmount();
@@ -414,7 +415,7 @@
         ctx.clearDeleteRange();
         return;
       }
-      newAmount = parsed;
+      newAmount = Math.min(parsed, MAX_EVENT_AMOUNT);
     }
 
     // Append-only, merge-safe edit: append a replacement carrying

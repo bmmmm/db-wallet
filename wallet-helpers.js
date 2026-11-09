@@ -5,6 +5,11 @@
   // INDEX in this list, so every module must share this one array — a divergent
   // copy would silently mis-encode device symbols across a sync.
   const DEVICE_SYMBOLS = ["L", "M", "D", "K", "T", "*"];
+  // Hard ceiling for any single event / action-code amount — far above any real
+  // drink count. The one definition shared by storage normalization, the codec
+  // and every input path; above it the codec's varint writer would throw and
+  // brick every export.
+  const MAX_EVENT_AMOUNT = 1000000000;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
@@ -373,6 +378,7 @@
     STORAGE_PREFIX,
     REGISTRY_KEY,
     DEVICE_SYMBOLS,
+    MAX_EVENT_AMOUNT,
     randomId,
     randomToken,
     randomWalletId,

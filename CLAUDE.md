@@ -102,8 +102,11 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   `appendEvents(wallet, events)` the atomic append+save (rolls back and returns
   `false` on save failure); don't hand-roll event literals or snapshot/restore.
   `saveWallet` reconciles with the persisted state: colliding same-id events from a
-  second tab are re-minted (no silent drop), and actionCodes/globalActionCodes/devices
-  are merged field-wise. `undoLastEvent` returns the tombstone, `null` (nothing to
+  second tab are re-minted (no silent drop) — only on this device's own `deviceKey`;
+  on a foreign id the persisted copy wins — and actionCodes/globalActionCodes/devices
+  are merged field-wise. Every event passes through `normalizeEvent` (loadWallet,
+  both sides of the saveWallet compare, import with a field whitelist); the amount
+  ceiling is `dbWalletHelpers.MAX_EVENT_AMOUNT` (1e9), enforced at every input. `undoLastEvent` returns the tombstone, `null` (nothing to
   undo), or `{status:"failed"}` (save failure).
 - **Action codes never expire; the key is the only secret** — revocation = edit (key
   rotation) or delete. An imported code can update label/amount/type but never the

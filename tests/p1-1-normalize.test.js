@@ -4,7 +4,6 @@ const assert = require("node:assert/strict");
 const { makeEnv } = require("./harness");
 const { makeActionsCtx } = require("./actions-ctx");
 
-const TODO = { todo: "P1.1" };
 
 // What wallet-ui.js does on every open.
 function reopen(S, userId, times) {
@@ -17,7 +16,7 @@ function reopen(S, userId, times) {
   return S.loadWallet(userId);
 }
 
-test("A2: an amount above 1e9 does not multiply on reopen", TODO, () => {
+test("A2: an amount above 1e9 does not multiply on reopen", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const wallet = S.loadWallet("bob");
@@ -27,7 +26,7 @@ test("A2: an amount above 1e9 does not multiply on reopen", TODO, () => {
   assert.equal(after.events[0].n, w.dbWalletHelpers.MAX_EVENT_AMOUNT);
 });
 
-test("A2b: a second booking in the same session after a clamped one", TODO, () => {
+test("A2b: a second booking in the same session after a clamped one", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const wallet = S.loadWallet("bob");
@@ -36,7 +35,7 @@ test("A2b: a second booking in the same session after a clamped one", TODO, () =
   assert.equal(reopen(S, "bob", 2).events.length, 2);
 });
 
-test("A3: imported non-normalized events stay at 3 across reopens", TODO, () => {
+test("A3: imported non-normalized events stay at 3 across reopens", () => {
   const w = makeEnv({ deviceKey: "devB" });
   const S = w.dbWalletStorage;
   const I = w.dbWalletImportV2;
@@ -61,7 +60,7 @@ test("A3: imported non-normalized events stay at 3 across reopens", TODO, () => 
   assert.equal("n" in evs.find((e) => e.id === "devA.3"), false);
 });
 
-test("import keeps only whitelisted event fields", TODO, () => {
+test("import keeps only whitelisted event fields", () => {
   const w = makeEnv({ deviceKey: "devB" });
   const I = w.dbWalletImportV2;
   const built = I.buildImportedWallet({
@@ -74,7 +73,7 @@ test("import keeps only whitelisted event fields", TODO, () => {
   assert.deepEqual(Object.keys(ev).sort(), ["id", "n", "t", "ts"]);
 });
 
-test("collision on a FOREIGN device id: persisted wins, no re-mint", TODO, () => {
+test("collision on a FOREIGN device id: persisted wins, no re-mint", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const H = w.dbWalletHelpers;
@@ -98,7 +97,7 @@ test("collision on a FOREIGN device id: persisted wins, no re-mint", TODO, () =>
   assert.equal(evs[0].n, 1);
 });
 
-test("normalizeAmount caps at MAX_EVENT_AMOUNT", TODO, () => {
+test("normalizeAmount caps at MAX_EVENT_AMOUNT", () => {
   const w = makeEnv();
   const AC = w.dbWalletActionCodes;
   const H = w.dbWalletHelpers;
@@ -107,7 +106,7 @@ test("normalizeAmount caps at MAX_EVENT_AMOUNT", TODO, () => {
   assert.equal(AC.normalizeAmount(1e20), H.MAX_EVENT_AMOUNT);
 });
 
-test("action code with amount 1e20: capped, export still works", TODO, () => {
+test("action code with amount 1e20: capped, export still works", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const AC = w.dbWalletActionCodes;
@@ -123,7 +122,7 @@ test("action code with amount 1e20: capped, export still works", TODO, () => {
   assert.equal(decoded.actionCodes[0].amount, w.dbWalletHelpers.MAX_EVENT_AMOUNT);
 });
 
-test("bookCredit and editEntry cap the amount", TODO, () => {
+test("bookCredit and editEntry cap the amount", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const MAX = w.dbWalletHelpers.MAX_EVENT_AMOUNT;

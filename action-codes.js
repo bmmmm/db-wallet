@@ -14,10 +14,15 @@
 
   const { base64UrlEncode, base64UrlDecode, safeParse, randomToken } = helpers;
 
+  const MAX_AMOUNT =
+    typeof helpers.MAX_EVENT_AMOUNT === "number" ? helpers.MAX_EVENT_AMOUNT : 1e9;
+
+  // 1..MAX_EVENT_AMOUNT. Without the upper bound the form stored 1e20 and every
+  // later QR export threw in the codec's varint writer.
   function normalizeAmount(value) {
     const n = typeof value === "number" ? value : parseInt(value, 10);
     if (!Number.isFinite(n)) return 1;
-    return Math.max(1, Math.round(n));
+    return Math.min(MAX_AMOUNT, Math.max(1, Math.round(n)));
   }
 
   function normalizeType(value) {

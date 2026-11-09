@@ -895,7 +895,8 @@
 
     function getAmount() {
       const n = parseInt(elAmount.value, 10);
-      return isNaN(n) || n <= 0 ? 1 : n;
+      if (isNaN(n) || n <= 0) return 1;
+      return Math.min(n, helpers.MAX_EVENT_AMOUNT);
     }
 
     // Resets the payment UI centrally

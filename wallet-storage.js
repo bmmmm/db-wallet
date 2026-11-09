@@ -431,11 +431,67 @@
     return false;
   }
 
-  // Sanity ceiling for a single event's amount — far above any real drink count.
-  // Mirrors wallet-import-v2's MAX_DECODED_AMOUNT; clamps poisoned/absurd values
+  // Sanity ceiling for a single event's amount (defined once in wallet-helpers,
+  // shared with the codec and the input paths); clamps poisoned/absurd values
   // (e.g. from a crafted legacy JSON import) at the storage boundary so they can't
   // corrupt the balance or, once re-encoded, overflow the varint writer.
-  const MAX_EVENT_AMOUNT = 1000000000;
+  const MAX_EVENT_AMOUNT = helpers.MAX_EVENT_AMOUNT;
+
+  // Pure: the canonical stored shape of one event, or null when it is unusable
+  // (no string id / type). Returns the input itself when it is already
+  // canonical, otherwise a normalized shallow copy — the input is never
+  // mutated. loadWallet, saveWallet (both sides of the cross-tab compare) and
+  // the import all go through this one function: if they disagreed, saveWallet
+  // would mistake the difference for a two-tab id collision and re-mint a
+  // duplicate on every open.
+  function normalizeEvent(ev) {
+    if (!ev || typeof ev !== "object") return null;
+    if (typeof ev.id !== "string" || !ev.id) return null;
+    if (typeof ev.t !== "string" || !ev.t) return null;
+
+    let out = ev;
+    const patch = (key, value) => {
+      if (out === ev) out = Object.assign({}, ev);
+      if (value === undefined) delete out[key];
+      else out[key] = value;
+    };
+
+    if (typeof ev.ts !== "number" || !Number.isFinite(ev.ts) || ev.ts < 0) {
+      const parsedTs =
+        typeof ev.ts === "string" && ev.ts.trim() !== "" ? Number(ev.ts) : NaN;
+      // Keep the event instead of dropping it on a corrupt ts — dropping
+      // silently loses a real drink/pay, and the loss is then persisted on the
+      // next save. ts=0 (epoch) sorts it first, matching the summary normalizer.
+      // A NEGATIVE ts is also clamped to 0: it is a finite number so it would
+      // otherwise slip through unnormalized and later make the export codec's
+      // unsigned varint writer throw (bricking every QR/link export).
+      patch("ts", Number.isFinite(parsedTs) && parsedTs >= 0 ? parsedTs : 0);
+    }
+
+    if (ev.t === "p") {
+      if (ev.n !== undefined) patch("n", undefined);
+    } else if (ev.t === "d" || ev.t === "s" || ev.t === "g") {
+      let rawN = 1;
+      if (typeof ev.n === "number" && Number.isFinite(ev.n)) {
+        rawN = Math.round(ev.n);
+      } else if (typeof ev.n === "string" && ev.n.trim() !== "") {
+        const parsedN = parseInt(ev.n, 10);
+        if (Number.isFinite(parsedN)) rawN = parsedN;
+      }
+      const n = rawN > 0 ? Math.min(rawN, MAX_EVENT_AMOUNT) : 1;
+      if (n !== ev.n) patch("n", n);
+    }
+    return out;
+  }
+
+  function normalizeEvents(list) {
+    const out = [];
+    for (const ev of Array.isArray(list) ? list : []) {
+      const norm = normalizeEvent(ev);
+      if (norm) out.push(norm);
+    }
+    return out;
+  }
 
   function loadWallet(userId, parsedOverride) {
     const rawUserId = typeof userId === "string" ? userId.trim() : "";
@@ -466,56 +522,7 @@
     if (!obj.walletId) obj.walletId = randomWalletId();
     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
     obj.userId = userId;
-    if (Array.isArray(obj.events)) {
-      const normalizedEvents = [];
-      for (const ev of obj.events) {
-        if (!ev || typeof ev !== "object") continue;
-        if (
-          typeof ev.id !== "string" ||
-          !ev.id ||
-          typeof ev.t !== "string" ||
-          !ev.t
-        ) {
-          continue;
-        }
-
-        if (
-          typeof ev.ts !== "number" ||
-          !Number.isFinite(ev.ts) ||
-          ev.ts < 0
-        ) {
-          const parsedTs =
-            typeof ev.ts === "string" && ev.ts.trim() !== ""
-              ? Number(ev.ts)
-              : NaN;
-          // Keep the event instead of dropping it on a corrupt ts — dropping
-          // silently loses a real drink/pay, and the loss is then persisted on the
-          // next save. ts=0 (epoch) sorts it first, matching the summary normalizer.
-          // A NEGATIVE ts is also clamped to 0: it is a finite number so it would
-          // otherwise slip through unnormalized and later make the export codec's
-          // unsigned varint writer throw (bricking every QR/link export).
-          ev.ts = Number.isFinite(parsedTs) && parsedTs >= 0 ? parsedTs : 0;
-        }
-
-        if (ev.t === "p") {
-          if ("n" in ev) delete ev.n;
-        } else if (ev.t === "d" || ev.t === "s" || ev.t === "g") {
-          let rawN = 1;
-          if (typeof ev.n === "number" && Number.isFinite(ev.n)) {
-            rawN = Math.round(ev.n);
-          } else if (typeof ev.n === "string" && ev.n.trim() !== "") {
-            const parsedN = parseInt(ev.n, 10);
-            if (typeof parsedN === "number" && Number.isFinite(parsedN)) {
-              rawN = parsedN;
-            }
-          }
-          ev.n = rawN > 0 ? Math.min(rawN, MAX_EVENT_AMOUNT) : 1;
-        }
-
-        normalizedEvents.push(ev);
-      }
-      obj.events = normalizedEvents;
-    }
+    obj.events = normalizeEvents(obj.events);
     const storedV =
       typeof obj.v === "number" && Number.isFinite(obj.v) ? obj.v : 1;
     const allCompact = obj.events.every((e) => {
@@ -666,6 +673,12 @@
       return false;
     }
 
+    // Persist only canonical events (same normalizer as loadWallet), so the
+    // stored log and every later in-memory copy agree field for field.
+    if (Array.isArray(wallet.events)) {
+      wallet.events = normalizeEvents(wallet.events);
+    }
+
     // Cross-tab reconciliation: another tab of the same wallet may have appended
     // events since we loaded. Re-read the persisted snapshot and union-merge it
     // into the in-memory wallet before writing — the append-only + dedup-by-id
@@ -692,8 +705,12 @@
           // max, rewriting any local references (tombstone ref / supersedes) to it.
           // The persisted event keeps the original id. Content-identical duplicates
           // fall through to normal dedup, so mergeEvents' import contract is intact.
+          // Compare canonical shapes on both sides: a raw persisted event that
+          // loadWallet would normalize (n > 1e9, string n, pay with n) must not
+          // look like a collision with its own normalized in-memory copy.
+          const persistedEvents = normalizeEvents(persisted.events);
           const persistedById = new Map();
-          for (const e of persisted.events) {
+          for (const e of persistedEvents) {
             if (e && typeof e.id === "string" && e.id) {
               persistedById.set(e.id, e);
             }
@@ -705,20 +722,29 @@
               next =
                 Math.max(
                   maxSeqForDevice(wallet, deviceKey),
-                  maxSeqForDevice({ events: persisted.events }, deviceKey),
+                  maxSeqForDevice({ events: persistedEvents }, deviceKey),
                 ) + 1;
             }
             nextSeqByDevice.set(deviceKey, next + 1);
             return `${deviceKey}.${next.toString(36)}`;
           };
+          // Only THIS device mints ids in its own seq space, so a real two-tab
+          // collision is always on the local deviceKey. A clash on a foreign (or
+          // legacy) id is not ours to re-mint — re-minting would allocate a seq
+          // in another device's space; the persisted copy wins instead.
+          const ownDeviceKey = getDeviceKey();
           const remap = new Map();
-          for (const e of wallet.events) {
+          for (let i = 0; i < wallet.events.length; i++) {
+            const e = wallet.events[i];
             if (!e || typeof e.id !== "string" || !e.id) continue;
             const clash = persistedById.get(e.id);
             if (clash && !sameEventContent(e, clash)) {
               const parsed = parseCompactEventId(e.id);
-              const deviceKey = parsed ? parsed.deviceKey : getDeviceKey();
-              const freshId = mintFreshId(deviceKey);
+              if (!parsed || parsed.deviceKey !== ownDeviceKey) {
+                wallet.events[i] = clash;
+                continue;
+              }
+              const freshId = mintFreshId(ownDeviceKey);
               remap.set(e.id, freshId);
               e.id = freshId;
             }
@@ -735,7 +761,7 @@
             }
           }
 
-          wallet.events = mergeApi.mergeEvents(wallet.events, persisted.events);
+          wallet.events = mergeApi.mergeEvents(wallet.events, persistedEvents);
           // Reconcile the local seq counter to the merged max so the next id
           // mint can't collide with an event just merged in from another tab.
           ensureDeviceSeq(wallet);
@@ -896,6 +922,7 @@
     nextEventId,
     newEvent,
     appendEvents,
+    normalizeEvent,
     loadWallet,
     saveWallet,
     getAllWallets,

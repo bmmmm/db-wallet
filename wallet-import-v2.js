@@ -203,7 +203,8 @@
 
   // Bound a decoded count so a corrupt/crafted payload can't produce absurd
   // values. Far above any real drink count, so legitimate data is untouched.
-  const MAX_DECODED_AMOUNT = 1000000000;
+  // One shared ceiling (wallet-helpers) for codec, storage and input paths.
+  const MAX_DECODED_AMOUNT = helpers.MAX_EVENT_AMOUNT;
 
   // Encodes one action-code record (v2 layout: id, label, amount, key,
   // createdAt, updatedAt, type). Shared by the "ac" (local) and "gc" (global)
@@ -1001,12 +1002,44 @@
     }
   }
 
+  // The only event fields an import may carry into the stored log. Anything
+  // else in a crafted JSON/link payload is dropped instead of being persisted
+  // (and re-exported) verbatim.
+  const IMPORT_EVENT_FIELDS = ["id", "t", "n", "ts", "ref", "supersedes", "oid"];
+
+  // Whitelist + canonicalize remote events through the storage normalizer, so
+  // the merged wallet is already in the shape loadWallet would produce (a raw
+  // shape would read as a two-tab collision on the next save and re-mint).
+  function sanitizeImportedEvents(list) {
+    const out = [];
+    for (const raw of Array.isArray(list) ? list : []) {
+      if (!raw || typeof raw !== "object") {
+        if (raw) out.push(raw); // let mergeEvents count it as dropped
+        continue;
+      }
+      const picked = {};
+      for (const k of IMPORT_EVENT_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(raw, k)) picked[k] = raw[k];
+      }
+      for (const k of ["ref", "supersedes", "oid"]) {
+        if (k in picked && typeof picked[k] !== "string") delete picked[k];
+      }
+      const norm =
+        typeof storage.normalizeEvent === "function"
+          ? storage.normalizeEvent(picked)
+          : picked;
+      // Keep id-less/typeless entries for mergeEvents' dropped-count warning.
+      out.push(norm || picked);
+    }
+    return out;
+  }
+
   function buildImportedWallet(remote) {
     const userId = resolveUserIdForImport(remote);
     const local = loadWallet(userId);
     const mergedEvents = mergeEvents(
       local.events,
-      Array.isArray(remote.events) ? remote.events : [],
+      sanitizeImportedEvents(remote && remote.events),
     );
     try {
       const api = window.dbWalletActionCodes || null;
