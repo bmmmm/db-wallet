@@ -37,12 +37,12 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
 - [x] P1.6 Reset vergibt keine alten Event-IDs neu (bd22321)
 - [x] P1.7 Import meldet Speicherfehler (6b92f3f)
 - [x] P1.8 `syncPeers` gegen `__proto__` härten (50a09aa)
-- [ ] P1.9 Reset und veralteter zweiter Tab
-- [ ] P2.1 `replaceState` statt `location.hash` in Buchungs- und Importpfaden
-- [ ] P2.2 Sackgassen in `wallet.html` schließen
-- [ ] P2.3 Importfehler mit Fehlercode, Abbruch führt zurück ins offene Wallet
-- [ ] P2.4 `legacyIdToV2Id` früh beenden
-- [ ] P2.5 QR zu groß: kompakten Link anbieten
+- [x] P1.9 Reset und veralteter zweiter Tab (fc67c6f)
+- [x] P2.1 `replaceState` statt `location.hash` in Buchungs- und Importpfaden (da7b689)
+- [x] P2.2 Sackgassen in `wallet.html` schließen (fb064c2)
+- [x] P2.3 Importfehler mit Fehlercode, Abbruch führt zurück ins offene Wallet (801f321)
+- [x] P2.4 `legacyIdToV2Id` früh beenden (919cecf)
+- [x] P2.5 QR zu groß: kompakten Link anbieten (fcc1f74)
 - [ ] P3.1 Theme: Standard, Kontrast, Fokus, `theme-color`
 - [ ] P3.2 CSS-Grundlagen für Touch und Lesbarkeit
 - [ ] P3.3 CSP ohne `'unsafe-inline'`
@@ -360,6 +360,13 @@ Wallet einen Link zur Startseite und die Liste der vorhandenen Wallets zeigen
 **Abnahme.** Im Browser: `wallet.html` ohne Hash zeigt die Wallet-Liste; ein kaputter
 `#i2:`-Link endet in demselben Zustand; ein danach gesetzter Hash öffnet das Wallet.
 
+**Umgesetzt (fb064c2), Abweichung.** Statt den vollen `hashchange`-Router vor die
+frühen Returns zu ziehen (er hängt an der erst danach verdrahteten Oberfläche),
+registriert der Zustand ohne Wallet einen eigenen Listener, der bei einem neuen,
+nicht leeren Hash neu lädt; der normale Start öffnet dann das Wallet. Geprüft im
+Node-Harness über `tests/wallet-page.js` (Fake-DOM, Fake-`location`/`history`);
+die Sichtbarkeit selbst (CSS) ist nicht im Browser geprüft.
+
 ### P2.3 Importfehler mit Fehlercode, Abbruch führt zurück
 
 **Befund (nachgestellt für die Prüfsumme, sonst gelesen).** Die Fehlerklassifikation
@@ -374,6 +381,11 @@ offenen Wallet.
 
 **Abnahme.** Ein Payload mit verfälschter Prüfsumme liefert die Prüfsummen-Meldung mit
 dem Hinweis auf einen frischen Export.
+
+**Umgesetzt (801f321).** Zusätzlich: Ein fehlgeschlagener Hash-Import (Decodierfehler
+oder Speicherfehler aus P1.7) ersetzt den `#i2:`-Link per `replaceState` durch den
+Hash des offenen Wallets bzw. entfernt ihn beim Kaltstart. Damit gilt die Aussage aus
+P1.7 „bleibt auf dem Import-Link“ nicht mehr; der P1.7-Test ist angepasst.
 
 ### P2.4 `legacyIdToV2Id` früh beenden
 
