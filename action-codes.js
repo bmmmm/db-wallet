@@ -784,8 +784,11 @@
             amount: amountInput.value,
             label: labelInput.value,
           });
-          ctx.globalCodes.push(created);
-          persistGlobalCodes(ctx, walletNow);
+          persistGlobalCodes(
+            ctx,
+            walletNow,
+            getGlobalCodes(walletNow).concat([created]),
+          );
         } else {
           persistIfChanged(ctx, walletNow);
           const currentCodes = Array.isArray(walletNow.actionCodes)
@@ -849,7 +852,9 @@
               amount: amountInput.value,
               label: labelInput.value,
             });
-            ctx.globalCodes.push(created);
+            walletNow.globalActionCodes = getGlobalCodes(walletNow).concat([
+              created,
+            ]);
           } else {
             code.type = normalizeType(typeToggle.getType());
             const amountRaw = clampGlobalAmount(amountInput.value);
@@ -863,7 +868,6 @@
         } else {
           if (isGlobal) {
             removeActionCode(walletNow, code.id);
-            ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
             persistGlobalCodes(ctx, walletNow);
             const created = buildActionCode({
               type: typeToggle.getType(),
@@ -917,7 +921,6 @@
       if (!walletNow) return;
       if (isGlobal) {
         removeActionCode(walletNow, code.id);
-        ctx.globalCodes = ctx.globalCodes.filter((c) => c.id !== code.id);
         persistGlobalCodes(ctx, walletNow);
       } else {
         removeActionCode(walletNow, code.id);
@@ -1095,7 +1098,7 @@
     const localCodes = Array.isArray(wallet.actionCodes)
       ? wallet.actionCodes
       : [];
-    const codes = localCodes.concat(ctx.globalCodes);
+    const codes = localCodes.concat(getGlobalCodes(wallet));
     if (localCodes.length < SOFT_LIMIT) ctx.showSoftLimitNotice = false;
     if (ctx.editingId && !codes.find((c) => c && c.id === ctx.editingId)) {
       ctx.editingId = "";
@@ -1183,18 +1186,25 @@
     ctx.container.appendChild(grid);
   }
 
-  // Global ('🌍') codes live on the wallet (wallet.globalActionCodes) so the
-  // existing saveWallet path carries them — otherwise the management list is
-  // session-only and vanishes on reload. Mirror ctx.globalCodes into the wallet
-  // and persist on every global-code mutation.
-  function persistGlobalCodes(ctx, wallet) {
+  // Global ('🌍') codes live on the wallet (wallet.globalActionCodes) and only
+  // there: the panel reads them from ctx.getWallet() on every render and
+  // writes them back to that same wallet. No panel-level copy — a copy seeded
+  // once on init leaked wallet A's codes into wallet B after a wallet switch.
+  function getGlobalCodes(wallet) {
+    return wallet && Array.isArray(wallet.globalActionCodes)
+      ? wallet.globalActionCodes
+      : [];
+  }
+
+  // Persist the wallet's global codes; `nextList` (optional) replaces them.
+  function persistGlobalCodes(ctx, wallet, nextList) {
     const w =
       wallet ||
       (ctx && typeof ctx.getWallet === "function" ? ctx.getWallet() : null);
     if (!ctx || !w) return;
-    w.globalActionCodes = Array.isArray(ctx.globalCodes)
-      ? ctx.globalCodes.slice()
-      : [];
+    w.globalActionCodes = (
+      Array.isArray(nextList) ? nextList : getGlobalCodes(w)
+    ).slice();
     if (typeof ctx.persistWallet === "function") ctx.persistWallet(w);
   }
 
@@ -1223,14 +1233,8 @@
       createOpen: false,
       editingId: "",
       pendingDeleteId: "",
-      globalCodes: [],
       refresh: null,
     };
-    // Rehydrate global codes persisted on the wallet (seeded once on init).
-    const seedWallet = ctx.getWallet();
-    if (seedWallet && Array.isArray(seedWallet.globalActionCodes)) {
-      ctx.globalCodes = seedWallet.globalActionCodes.slice();
-    }
     ctx.refresh = () => renderActionList(ctx);
 
     ctx.refresh();
