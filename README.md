@@ -104,6 +104,16 @@ Kein Build-Schritt — HTML/CSS/JS direkt bearbeiten und statisch servieren:
 python3 -m http.server 8080   # → http://localhost:8080
 ```
 
+**Tests in Node** (ohne npm, nur `node:test`; läuft auch in der CI):
+
+```bash
+node --test tests/
+```
+
+Die Tests laden die Originalmodule in einen `vm`-Kontext mit eigenem
+`localStorage` (`tests/harness.js`) und prüfen Datenschicht, Codec, Import und
+das Action-Code-Panel.
+
 **Self-Check** in der Browser-Konsole (z. B. auf `wallet.html`):
 
 ```js

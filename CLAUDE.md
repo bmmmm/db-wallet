@@ -30,7 +30,19 @@ python3 -m http.server 8080
 
 Kein Build-Schritt. Direkt die HTML-Dateien bearbeiten.
 
-Verify changes: open `wallet.html` and run `await dbWalletSelfCheck.run()` in the console
+Logic tests in Node (no npm, only `node:test`/`node:vm`; CI runs the same command):
+
+```bash
+node --test tests/
+```
+
+`tests/harness.js` loads the original modules into a `vm` context with a fresh
+`localStorage` per `makeEnv()` (`quota` simulates full storage, `deviceKey` pins the
+device); `tests/fake-dom.js` is just enough DOM to click through the action-code panel.
+vm objects have foreign prototypes — compare via `plain()`/JSON, not `deepStrictEqual`.
+`tests/` is not deployed (Pages copies an allowlist).
+
+Verify browser-only changes: open `wallet.html` and run `await dbWalletSelfCheck.run()` in the console
 (returns `{ok, checks}`). Caveat: the Service Worker caches the app shell cache-first and
 CSP blocks `eval`, so a normal reload serves stale scripts after an edit — unregister the
 SW + clear caches, or serve on a fresh port. That alone is NOT enough: the re-registering
