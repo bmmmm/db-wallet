@@ -3,7 +3,7 @@
     if (!wallet || typeof wallet !== "object") return {};
     const raw = wallet.syncPeers;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      wallet.syncPeers = {};
+      wallet.syncPeers = Object.create(null);
     }
     return wallet.syncPeers;
   }

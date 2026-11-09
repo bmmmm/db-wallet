@@ -30,14 +30,35 @@ python3 -m http.server 8080
 
 Kein Build-Schritt. Direkt die HTML-Dateien bearbeiten.
 
-Verify changes: open `wallet.html` and run `await dbWalletSelfCheck.run()` in the console
-(returns `{ok, checks}`). Caveat: the Service Worker caches the app shell cache-first and
-CSP blocks `eval`, so a normal reload serves stale scripts after an edit — unregister the
-SW + clear caches, or serve on a fresh port. That alone is NOT enough: the re-registering
-SW's `cache.addAll` fetches through the browser HTTP cache (python's http.server sends no
-cache headers → heuristic caching), so it re-caches the stale copy. After an edit, force
-the HTTP cache fresh first: `await fetch("<file>.js", {cache: "reload"})`, then unregister
-+ clear + reload. Also: automation tabs are usually hidden — `requestAnimationFrame` never
+Logic tests in Node (no npm, only `node:test`/`node:vm`; CI runs the same command):
+
+```bash
+node --test tests/
+```
+
+`tests/harness.js` loads the original modules into a `vm` context with a fresh
+`localStorage` per `makeEnv()` (`quota` simulates full storage — also settable later via
+`storage.quota`; `deviceKey` pins the device; `storage` shares one store between two
+"tabs"; `files` picks the modules). Every env has a fake `location`/`history`
+(`w._nav`): assigning `location.hash` pushes an entry and queues a `hashchange`
+(delivered by `w._nav.flush()`), `history.replaceState` rewrites the current entry
+silently, navigations to another page land in `w._nav.pageLoads`.
+`tests/fake-dom.js` is a minimal DOM (createElement, a children tree, listeners,
+`click()`, no layout) for the action-code panel; its `makePageDocument(html)` creates one
+flat element per id/class of a real page. `tests/wallet-page.js` boots `wallet.html`'s
+scripts in page order on that DOM (`bootWalletPage`, `flushHashChanges`).
+`tests/actions-ctx.js` is a DOM-free ctx stub for `dbWalletActions`.
+vm objects have foreign prototypes — compare via `plain()`/JSON, not `deepStrictEqual`.
+`tests/` is not deployed (Pages copies an allowlist).
+
+Verify browser-only changes: open `wallet.html` and run `await dbWalletSelfCheck.run()` in the console
+(returns `{ok, checks}`). Caveat: the Service Worker serves scripts/CSS cache-first (pages
+network-first with a 3 s timeout) and CSP blocks `eval`, so a normal reload serves stale
+scripts after an edit — unregister the SW + clear caches, or serve on a fresh port. The
+precache requests use `cache: "reload"` (since P3.4), so a re-registering SW no longer
+re-caches a stale HTTP-cache copy; the page's own `<script>` loads still go through the
+HTTP cache (python's http.server sends no cache headers → heuristic caching), so if in
+doubt `await fetch("<file>.js", {cache: "reload"})` first. Also: automation tabs are usually hidden — `requestAnimationFrame` never
 fires there, so rAF-deferred UI work looks broken under browser automation.
 
 ## Key files
@@ -54,10 +75,11 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-sync.js` | Wallet-Sync-Logik |
 | `wallet-history-ui.js` | Verlaufs-UI |
 | `wallet-device-ui.js` | Geräte-UI |
-| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
+| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`, `downloadBlob` = the one Blob-download path, revokes late); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
 | `hash-router.js` | Client-seitiges Routing via URL-Hash |
-| `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`) |
+| `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |
+| `self-check-loader.js` | Stub on `wallet.html`: `dbWalletSelfCheck.run()` loads `self-check.js` on first call |
 | `manifest.json` | PWA Manifest |
 | `themes.css` / `colors.css` | Theme-System |
 
@@ -84,19 +106,52 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 - **Codec extension blocks are order-sensitive** — they have no length prefix, so an
   old decoder stops at the first unknown block. New blocks (`se`, `gc`, `ck`) are written
   LAST and `ck` (integrity checksum) is absolutely last so it covers everything. `gc`
-  carries `globalActionCodes` (incl. keys — bearer credential, like `ac`).
+  carries `globalActionCodes` with an empty key field — global codes have no key
+  (`normalizeGlobalActionCodes`: scope "global", no key, amount 1..100); decode drops
+  the random key that pre-2026-11 exports wrote there, so old exports still import.
 - **Events are constructed and persisted only via `dbWalletStorage`** —
   `newEvent(wallet, type, n)` is the single event factory and
   `appendEvents(wallet, events)` the atomic append+save (rolls back and returns
   `false` on save failure); don't hand-roll event literals or snapshot/restore.
   `saveWallet` reconciles with the persisted state: colliding same-id events from a
-  second tab are re-minted (no silent drop), and actionCodes/globalActionCodes/devices
-  are merged field-wise. `undoLastEvent` returns the tombstone, `null` (nothing to
+  second tab are re-minted (no silent drop) — only on this device's own `deviceKey`;
+  on a foreign id the persisted copy wins — and actionCodes/globalActionCodes/devices
+  are merged field-wise. Every event passes through `normalizeEvent` (loadWallet,
+  both sides of the saveWallet compare, import with a field whitelist); the amount
+  ceiling is `dbWalletHelpers.MAX_EVENT_AMOUNT` (1e9), enforced at every input. `undoLastEvent` returns the tombstone, `null` (nothing to
   undo), or `{status:"failed"}` (save failure).
 - **Action codes never expire; the key is the only secret** — revocation = edit (key
   rotation) or delete. An imported code can update label/amount/type but never the
   local key (key rotation is local-only). A global `acg:` apply asks for confirmation.
+  Deleting a code (local or global, also the old half of a local↔global conversion)
+  goes through `dbWalletActionCodes.removeActionCode`, which records `id → ts` in
+  `wallet.deletedActionCodes` (local-only, newest 50, not exported). `saveWallet`'s
+  reconcile and the import merge filter those ids, so a stale tab or an old export
+  can't resurrect a deleted code. Don't splice `actionCodes` by hand.
+- **Reset = a new wallet under the same name** — `resetWallet` assigns a fresh
+  `walletId` (a pre-reset export imports as a separate wallet) and carries `seq`
+  over after `ensureDeviceSeq`, so an event id is never re-issued. Don't reset `seq`.
+  `saveWallet` refuses (returns `false`, one-time "in einem anderen Tab
+  zurückgesetzt" alert) when the in-memory and persisted `walletId` differ (both
+  non-empty) — a stale tab must not merge old events into the reset wallet. Only a
+  save that intentionally switches the `walletId` (today: `resetWallet`) passes
+  `{ allowWalletIdChange: true }`, which overwrites without reconciling. Exception:
+  a `walletId` that `loadWallet` minted (nothing stored, or a legacy record without
+  one) and that was never saved adopts the persisted one, as long as the stored log
+  still holds every event it was loaded with (two tabs opening a new wallet). A reset
+  replaces the stored record (never removes it first); if that save fails, the tab
+  and the store keep the old wallet and the user gets "Zurücksetzen fehlgeschlagen".
+- **CSP has no `'unsafe-inline'`** (index/wallet/preview) — no `style="…"`, no
+  `<style>`, no `setAttribute("style")`/`.cssText`/HTML strings with `style=`; single
+  `el.style.x = …` assignments are fine. Initially hidden elements get `display: none`
+  from an `#id` rule in `style.css`, so their inline `style.display` starts as `""` —
+  toggles must treat `""` as hidden (`tests/p3-3-csp.test.js` checks all of this).
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
+- **Deploy allowlist** — Pages copies only the files on the `cp` line of
+  `.github/workflows/pages.yml`. Every `APP_SHELL` entry, manifest icon and icon link
+  must exist and be on that line, or `cache.addAll` fails and the SW never installs
+  (`tests/p3-4-pwa.test.js`). The PNG icons are generated by `node scripts/make-icons.js`
+  (`--check` verifies them); keep it in sync with `favicon.svg`.
 - **Bump `service-worker.js` VERSION when any APP_SHELL asset changes** — enforced by
   `scripts/check-sw-version.sh` + the `sw-version` GitHub Action.

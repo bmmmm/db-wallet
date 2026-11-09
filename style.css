@@ -1,12 +1,15 @@
 :root {
-    --bg: #0d1118;
-    --panel: #111827;
-    --border: #1c2434;
-    --accent: #9ec5ff;
-    --accent-strong: #7fb8ff;
-    --text: #e8ecf4;
-    --muted: #b5becd;
-    --danger: #ef9a9a;
+    /* Fallback = Lilac Carbon (themes.css); theme.js always sets data-theme. */
+    --bg: #121322;
+    --panel: #181a2b;
+    --border: #242842;
+    --accent: #c7b6ff;
+    --accent-strong: #b59bff;
+    --text: #f0edff;
+    --muted: #c5c2d8;
+    --danger: #f7a3c0;
+    --glow: rgba(199, 182, 255, 0.25);
+    color-scheme: dark;
     --shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
     font-family:
         "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas,
@@ -57,6 +60,14 @@ section,
     margin-top: 1rem;
 }
 
+/* Form controls use the page font (UA default: Arial 13.3px). */
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
 button {
     padding: 0.45rem 0.8rem;
     margin: 0.2rem;
@@ -76,10 +87,13 @@ button {
         border-color 120ms ease;
 }
 
-button:hover {
-    border-color: var(--accent);
-    box-shadow: 0 6px 18px rgba(125, 211, 252, 0.25);
-    transform: translateY(-1px);
+/* Hover only where a pointer can hover (no sticky hover after a tap). */
+@media (hover: hover) {
+    button:hover {
+        border-color: var(--accent);
+        box-shadow: 0 6px 18px var(--glow);
+        transform: translateY(-1px);
+    }
 }
 
 button:active {
@@ -92,7 +106,13 @@ a {
 }
 
 a:hover {
-    color: var(--accent);
+    color: var(--text);
+}
+
+/* One visible focus ring for every focusable element (keyboard focus). */
+:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
 }
 
 input[type="text"],
@@ -115,9 +135,8 @@ input[type="text"]:focus,
 input[type="number"]:focus,
 #export-url:focus,
 #delete-range:focus {
-    outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2);
+    box-shadow: 0 0 0 3px var(--glow);
 }
 
 input[type="text"] {
@@ -149,6 +168,22 @@ pre {
     overflow: auto;
 }
 
+/* Hidden until the JS shows them (was inline style="display: none", which
+   the CSP without 'unsafe-inline' blocks). JS sets style.display explicitly. */
+#btn-migrate,
+#pay-options,
+#export-options,
+#export-url,
+#export-url-actions,
+#qr-box,
+#file-import {
+    display: none;
+}
+
+.muted-note {
+    color: var(--muted);
+}
+
 hr {
     border: none;
     height: 1px;
@@ -178,7 +213,7 @@ hr {
 .theme-btn.active {
     border-color: var(--accent);
     color: var(--accent-strong);
-    box-shadow: 0 6px 18px rgba(34, 211, 238, 0.25);
+    box-shadow: 0 6px 18px var(--glow);
 }
 
 .raw-toggle {
@@ -210,6 +245,12 @@ hr {
 .stat strong {
     font-size: 1.2rem;
     color: var(--accent-strong);
+    overflow-wrap: anywhere;
+}
+
+/* Long user ids must wrap instead of scrolling the page sideways. */
+#uid {
+    overflow-wrap: anywhere;
 }
 
 .action-codes-panel,
@@ -273,8 +314,6 @@ hr {
 .action-codes-summary:focus-visible,
 .wallet-actions-summary:focus-visible,
 .theme-summary:focus-visible {
-    outline: 2px solid rgba(34, 211, 238, 0.35);
-    outline-offset: 2px;
     border-radius: 10px;
 }
 
@@ -367,6 +406,11 @@ hr {
     justify-content: space-between;
     gap: 0.6rem;
     flex-wrap: wrap;
+}
+
+.action-code-meta {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .action-code-label {
@@ -464,6 +508,7 @@ hr {
 }
 
 .action-code-canvas {
+    image-rendering: pixelated;
     width: 100%;
     height: auto;
     border-radius: 10px;
@@ -544,12 +589,37 @@ hr {
 }
 
 .qr-box canvas {
+    image-rendering: pixelated;
+    /* JS sets the exact CSS width (backing store / devicePixelRatio). */
     width: 100%;
-    max-width: 360px;
+    max-width: min(360px, 100%);
     height: auto;
     border-radius: 10px;
     background: #ffffff;
     cursor: pointer;
+}
+
+/* Kopieren / Teilen under the export link and the QR link (P3.6). */
+.export-link-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.55rem;
+}
+
+.qr-box .export-link-actions {
+    justify-content: center;
+    margin-top: 0;
+}
+
+.export-link-actions button[hidden] {
+    display: none;
+}
+
+.export-link-status {
+    color: var(--muted);
+    font-size: 0.92rem;
 }
 
 #qr-url {
@@ -621,6 +691,12 @@ hr {
     body {
         margin: 1.4rem auto 2rem;
         padding: 0 1rem 2rem;
+    }
+
+    /* Touch targets: at least 44 x 44 px. */
+    button {
+        min-height: 44px;
+        min-width: 44px;
     }
 
     h1 {
@@ -840,14 +916,11 @@ body[data-no-wallet="1"] > :not(#global-action-message) {
         box-shadow 120ms ease;
 }
 
-.global-action-card:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow);
-}
-
-.global-action-card:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+@media (hover: hover) {
+    .global-action-card:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow);
+    }
 }
 
 .global-action-card-title {
@@ -882,4 +955,21 @@ body[data-no-wallet="1"] > :not(#global-action-message) {
     background: transparent;
     border: 1px solid var(--border);
     font-size: 0.9rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+    }
+
+    button:hover,
+    button:active,
+    .global-action-card:hover {
+        transform: none !important;
+    }
 }

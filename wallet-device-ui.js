@@ -120,7 +120,7 @@
     }
 
     const activeBtn = createSymbolButton(current, true);
-    activeBtn.title = deviceKey ? `Device ID: ${deviceKey}` : "";
+    activeBtn.title = deviceKey ? `Geräte-ID: ${deviceKey}` : "";
     activeBtn.setAttribute("aria-haspopup", "true");
     activeBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
     activeBtn.addEventListener("click", (e) => {

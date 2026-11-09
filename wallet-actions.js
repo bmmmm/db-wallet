@@ -8,7 +8,7 @@
     randomId,
     randomWalletId,
     safeLocalStorageRemoveItem,
-    STORAGE_PREFIX,
+    MAX_EVENT_AMOUNT,
   } = helpers;
   const {
     saveWallet,
@@ -136,7 +136,7 @@
       return;
     }
     const ok = persistMutation(ctx, wallet, () => {
-      wallet.events.push(newEvent(wallet, "g", n));
+      wallet.events.push(newEvent(wallet, "g", Math.min(n, MAX_EVENT_AMOUNT)));
     });
     if (!ok) return;
     ctx.resetAmount();
@@ -152,7 +152,36 @@
     ) {
       return;
     }
-    safeLocalStorageRemoveItem(STORAGE_PREFIX + wallet.userId);
+    // Reset = a new wallet under the same name (E2): a fresh walletId, so an
+    // export taken before the reset no longer merges into it (it imports as a
+    // separate wallet) and local action-code QRs bound to the old walletId stop
+    // working. The per-device seq counters carry over (bumped past every old
+    // event first), so no event id is ever re-issued — another device or an
+    // old export can't confuse a new booking with a deleted one.
+    storage.ensureDeviceSeq(wallet);
+    const seq = Object.assign({}, wallet.seq || {});
+    const next = {
+      userId: wallet.userId,
+      walletId: randomWalletId(),
+      deviceId: wallet.deviceId || randomId(),
+      v: 2,
+      seq,
+      events: [],
+      actionCodes: [],
+      globalActionCodes: [],
+    };
+    // The only intentional walletId switch: saveWallet refuses a walletId that
+    // differs from the persisted one unless told so (stale-tab guard, P1.9),
+    // and with the flag it overwrites without reconciling. The stored wallet
+    // is replaced, never removed first: if the write fails (storage full) the
+    // old wallet stays both on disk and in this tab.
+    if (!saveWallet(next, { allowWalletIdChange: true, quiet: true })) {
+      ctx.dialogAlert(
+        "Zurücksetzen fehlgeschlagen: Speichern nicht möglich (Speicher voll oder blockiert). Das Wallet ist unverändert.",
+      );
+      return;
+    }
+    // Drop the pre-v2 storage key of this wallet, if any (migration leftover).
     if (
       typeof wallet.userId === "string" &&
       wallet.userId &&
@@ -160,16 +189,6 @@
     ) {
       safeLocalStorageRemoveItem(wallet.userId);
     }
-    const next = {
-      userId: wallet.userId,
-      walletId: wallet.walletId || randomWalletId(),
-      deviceId: wallet.deviceId || randomId(),
-      v: 2,
-      seq: {},
-      events: [],
-      actionCodes: [],
-    };
-    saveWallet(next);
     ctx.setWallet(next);
     ctx.refreshActionCodesUi();
     ctx.clearExport();
@@ -414,7 +433,7 @@
         ctx.clearDeleteRange();
         return;
       }
-      newAmount = parsed;
+      newAmount = Math.min(parsed, MAX_EVENT_AMOUNT);
     }
 
     // Append-only, merge-safe edit: append a replacement carrying

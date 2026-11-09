@@ -76,17 +76,12 @@
   const GLOBAL_ACTION_DUP_WINDOW_MS = 750;
   const LAST_USER_KEY = "db-wallet:last-user";
 
+  // Shared with the codec (wallet-helpers.js): history.replaceState, no
+  // hashchange, no new history entry.
   function replaceHashSilently(nextHash) {
     const target = String(nextHash || "").trim();
     if (!target) return false;
-    const current = window.location.hash.slice(1);
-    if (current === target) return true;
-    if (window.history && typeof window.history.replaceState === "function") {
-      const base = String(window.location.href || "").split("#")[0];
-      window.history.replaceState(null, "", base + "#" + target);
-      return true;
-    }
-    return false;
+    return helpers.replaceHashSilently(target);
   }
 
   function isDuplicateGlobalActionHash(hash) {
@@ -168,6 +163,7 @@
     const qrHint = document.getElementById("qr-hint");
     const qrCanvas = document.getElementById("qr-canvas");
     const qrUrl = document.getElementById("qr-url");
+    const exportUrlActions = document.getElementById("export-url-actions");
     const topRow = document.querySelector(".top-row");
     let syncStatusLine = document.getElementById("sync-status-line");
     const actionCodesPanel = document.getElementById("action-codes-panel");
@@ -239,6 +235,29 @@
       }
     }
 
+    // No wallet open: show the way out (start page + wallet list) and react to
+    // a hash set afterwards (a list link, a pasted link, the address bar). The
+    // full hashchange router below is never registered on this path — the UI
+    // isn't wired — so a new non-empty hash reloads into the normal boot.
+    let noWalletHashListener = null;
+    function enterNoWalletState(message) {
+      const wallets = getAllWallets ? getAllWallets() : {};
+      const userIds = Object.keys(wallets).sort((a, b) => a.localeCompare(b));
+      if (hashActions && typeof hashActions.showNoWalletState === "function") {
+        hashActions.showNoWalletState({ message, userIds });
+      } else {
+        setNoWalletState();
+        showGlobalActionMessage(message);
+      }
+      if (!noWalletHashListener) {
+        noWalletHashListener = () => {
+          if (!window.location.hash.slice(1)) return;
+          window.location.reload();
+        };
+        window.addEventListener("hashchange", noWalletHashListener);
+      }
+    }
+
     function clearNoWalletState() {
       if (hashActions && typeof hashActions.clearNoWalletState === "function") {
         hashActions.clearNoWalletState();
@@ -292,8 +311,7 @@
       });
 
       if (userIds.length === 0) {
-        setNoWalletState();
-        showGlobalActionMessage(
+        enterNoWalletState(
           "Bitte zuerst ein Wallet importieren oder öffnen.",
         );
         return;
@@ -319,8 +337,7 @@
             initialWallet = wallets[fallback] || null;
             replaceHashSilently(fallback);
           } else {
-            setNoWalletState();
-            showGlobalActionMessage(
+            enterNoWalletState(
               "Bitte zuerst ein Wallet importieren oder öffnen.",
             );
             return;
@@ -333,8 +350,7 @@
     }
 
     if (initialKind === "none") {
-      setNoWalletState();
-      showGlobalActionMessage(
+      enterNoWalletState(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
       return;
@@ -364,11 +380,16 @@
     const historyUi = window.dbWalletHistoryUI || null;
 
     let userId = initialUserId || (await resolveInitialUserId());
-    if (redirectedToPreview || !userId) return;
+    if (redirectedToPreview) return;
+    if (!userId) {
+      // E.g. a broken import link or a declined action code on a cold start:
+      // the error was reported; don't leave the unwired wallet UI showing.
+      enterNoWalletState("Bitte zuerst ein Wallet importieren oder öffnen.");
+      return;
+    }
     let wallet = initialWallet || loadWallet(userId);
     if (!wallet) {
-      setNoWalletState();
-      showGlobalActionMessage(
+      enterNoWalletState(
         "Bitte zuerst ein Wallet importieren oder öffnen.",
       );
       return;
@@ -471,6 +492,13 @@
           qrHint,
           qrCanvas,
           qrUrl,
+          exportUrlActions,
+          btnCopyExportUrl: document.getElementById("btn-copy-export-url"),
+          btnShareExportUrl: document.getElementById("btn-share-export-url"),
+          exportUrlStatus: document.getElementById("export-url-status"),
+          btnCopyQrUrl: document.getElementById("btn-copy-qr-url"),
+          btnShareQrUrl: document.getElementById("btn-share-qr-url"),
+          qrUrlStatus: document.getElementById("qr-url-status"),
         },
         getWallet: () => wallet,
         saveWallet: (w) => saveWallet(w),
@@ -806,7 +834,7 @@
       } catch (e) {
         // ignore
         if (userId && window.location.hash.slice(1) !== userId) {
-          window.location.hash = "#" + userId;
+          replaceHashSilently(userId);
         }
       } finally {
         handlingHash = false;
@@ -820,13 +848,7 @@
       const blob = new Blob([JSON.stringify(data, null, 2)], {
         type: "application/json",
       });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      helpers.downloadBlob(blob, filename);
     }
 
     function downloadCurrentWalletBackup(tag) {
@@ -895,7 +917,8 @@
 
     function getAmount() {
       const n = parseInt(elAmount.value, 10);
-      return isNaN(n) || n <= 0 ? 1 : n;
+      if (isNaN(n) || n <= 0) return 1;
+      return Math.min(n, helpers.MAX_EVENT_AMOUNT);
     }
 
     // Resets the payment UI centrally

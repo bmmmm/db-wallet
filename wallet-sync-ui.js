@@ -17,6 +17,14 @@
     (window.dbWalletHelpers && window.dbWalletHelpers.DEVICE_SYMBOLS) ||
     ["L", "M", "D", "K", "T", "*"];
 
+  // German date/time like the rest of the UI (toLocaleString() follows the
+  // browser locale and gave English dates next to German labels).
+  function formatSeen(tsMs) {
+    const h = window.dbWalletHelpers;
+    if (h && typeof h.formatDateTime === "function") return h.formatDateTime(tsMs);
+    return new Date(tsMs).toLocaleString("de-DE");
+  }
+
   function ensureLine() {
     if (!opts || !opts.topRow) return null;
     if (syncStatusLine && syncStatusLine.isConnected) return syncStatusLine;
@@ -242,16 +250,16 @@
       } else {
         syncLineLegend.innerHTML = "";
         const labelEl = document.createElement("span");
-        labelEl.textContent = "Devices: ";
+        labelEl.textContent = "Geräte: ";
         syncLineLegend.appendChild(labelEl);
         ordered.forEach((d, idx) => {
           const span = document.createElement("span");
           span.textContent = d.symbol + (idx === ordered.length - 1 ? "" : " ");
           const ts =
             typeof d.lastSeenAt === "number" && Number.isFinite(d.lastSeenAt)
-              ? new Date(d.lastSeenAt).toLocaleString()
+              ? formatSeen(d.lastSeenAt)
               : "";
-          span.title = `Device ID: ${d.deviceKey}${ts ? `\nLast seen: ${ts}` : ""}`;
+          span.title = `Geräte-ID: ${d.deviceKey}${ts ? `\nZuletzt gesehen: ${ts}` : ""}`;
           syncLineLegend.appendChild(span);
         });
         syncLineLegend.style.display = "block";

@@ -431,11 +431,77 @@
     return false;
   }
 
-  // Sanity ceiling for a single event's amount — far above any real drink count.
-  // Mirrors wallet-import-v2's MAX_DECODED_AMOUNT; clamps poisoned/absurd values
+  // Sanity ceiling for a single event's amount (defined once in wallet-helpers,
+  // shared with the codec and the input paths); clamps poisoned/absurd values
   // (e.g. from a crafted legacy JSON import) at the storage boundary so they can't
   // corrupt the balance or, once re-encoded, overflow the varint writer.
-  const MAX_EVENT_AMOUNT = 1000000000;
+  const MAX_EVENT_AMOUNT = helpers.MAX_EVENT_AMOUNT;
+
+  // Pure: the canonical stored shape of one event, or null when it is unusable
+  // (no string id / type). Returns the input itself when it is already
+  // canonical, otherwise a normalized shallow copy — the input is never
+  // mutated. loadWallet, saveWallet (both sides of the cross-tab compare) and
+  // the import all go through this one function: if they disagreed, saveWallet
+  // would mistake the difference for a two-tab id collision and re-mint a
+  // duplicate on every open.
+  function normalizeEvent(ev) {
+    if (!ev || typeof ev !== "object") return null;
+    if (typeof ev.id !== "string" || !ev.id) return null;
+    if (typeof ev.t !== "string" || !ev.t) return null;
+
+    let out = ev;
+    const patch = (key, value) => {
+      if (out === ev) out = Object.assign({}, ev);
+      if (value === undefined) delete out[key];
+      else out[key] = value;
+    };
+
+    if (typeof ev.ts !== "number" || !Number.isFinite(ev.ts) || ev.ts < 0) {
+      const parsedTs =
+        typeof ev.ts === "string" && ev.ts.trim() !== "" ? Number(ev.ts) : NaN;
+      // Keep the event instead of dropping it on a corrupt ts — dropping
+      // silently loses a real drink/pay, and the loss is then persisted on the
+      // next save. ts=0 (epoch) sorts it first, matching the summary normalizer.
+      // A NEGATIVE ts is also clamped to 0: it is a finite number so it would
+      // otherwise slip through unnormalized and later make the export codec's
+      // unsigned varint writer throw (bricking every QR/link export).
+      patch("ts", Number.isFinite(parsedTs) && parsedTs >= 0 ? parsedTs : 0);
+    }
+
+    if (ev.t === "p") {
+      if (ev.n !== undefined) patch("n", undefined);
+    } else if (ev.t === "d" || ev.t === "s" || ev.t === "g") {
+      let rawN = 1;
+      if (typeof ev.n === "number" && Number.isFinite(ev.n)) {
+        rawN = Math.round(ev.n);
+      } else if (typeof ev.n === "string" && ev.n.trim() !== "") {
+        const parsedN = parseInt(ev.n, 10);
+        if (Number.isFinite(parsedN)) rawN = parsedN;
+      }
+      const n = rawN > 0 ? Math.min(rawN, MAX_EVENT_AMOUNT) : 1;
+      if (n !== ev.n) patch("n", n);
+    }
+    return out;
+  }
+
+  function normalizeEvents(list) {
+    const out = [];
+    for (const ev of Array.isArray(list) ? list : []) {
+      const norm = normalizeEvent(ev);
+      if (norm) out.push(norm);
+    }
+    return out;
+  }
+
+  // Wallets whose walletId loadWallet just minted (nothing stored yet, or a
+  // legacy record without one) → the event ids they were loaded with. Kept
+  // off the object so it never persists. Two tabs loading such a wallet mint
+  // different walletIds; the first save wins and the other adopts it in
+  // saveWallet instead of tripping the stale-tab guard (P1.9) — but only
+  // while the stored log still holds every event it was loaded with
+  // (append-only: a normal save never drops events, a reset/re-create does).
+  // Cleared by the first successful save.
+  const unsavedWalletIds = new WeakMap();
 
   function loadWallet(userId, parsedOverride) {
     const rawUserId = typeof userId === "string" ? userId.trim() : "";
@@ -447,7 +513,7 @@
       ? null
       : safeLocalStorageGetItem(STORAGE_PREFIX + userId);
     if (!raw && !hasParsedOverride) {
-      return {
+      const fresh = {
         userId,
         walletId: randomWalletId(),
         deviceId: randomId(),
@@ -457,65 +523,26 @@
         actionCodes: [],
         devices: [],
       };
+      unsavedWalletIds.set(fresh, []);
+      return fresh;
     }
     const obj = hasParsedOverride ? parsedOverride : safeParse(raw) || {};
     if (!Array.isArray(obj.events)) obj.events = [];
     if (!Array.isArray(obj.actionCodes)) obj.actionCodes = [];
     if (!Array.isArray(obj.devices)) obj.devices = [];
     if (!obj.deviceId) obj.deviceId = randomId();
-    if (!obj.walletId) obj.walletId = randomWalletId();
+    const mintedWalletId = !obj.walletId;
+    if (mintedWalletId) obj.walletId = randomWalletId();
     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
     obj.userId = userId;
-    if (Array.isArray(obj.events)) {
-      const normalizedEvents = [];
-      for (const ev of obj.events) {
-        if (!ev || typeof ev !== "object") continue;
-        if (
-          typeof ev.id !== "string" ||
-          !ev.id ||
-          typeof ev.t !== "string" ||
-          !ev.t
-        ) {
-          continue;
-        }
-
-        if (
-          typeof ev.ts !== "number" ||
-          !Number.isFinite(ev.ts) ||
-          ev.ts < 0
-        ) {
-          const parsedTs =
-            typeof ev.ts === "string" && ev.ts.trim() !== ""
-              ? Number(ev.ts)
-              : NaN;
-          // Keep the event instead of dropping it on a corrupt ts — dropping
-          // silently loses a real drink/pay, and the loss is then persisted on the
-          // next save. ts=0 (epoch) sorts it first, matching the summary normalizer.
-          // A NEGATIVE ts is also clamped to 0: it is a finite number so it would
-          // otherwise slip through unnormalized and later make the export codec's
-          // unsigned varint writer throw (bricking every QR/link export).
-          ev.ts = Number.isFinite(parsedTs) && parsedTs >= 0 ? parsedTs : 0;
-        }
-
-        if (ev.t === "p") {
-          if ("n" in ev) delete ev.n;
-        } else if (ev.t === "d" || ev.t === "s" || ev.t === "g") {
-          let rawN = 1;
-          if (typeof ev.n === "number" && Number.isFinite(ev.n)) {
-            rawN = Math.round(ev.n);
-          } else if (typeof ev.n === "string" && ev.n.trim() !== "") {
-            const parsedN = parseInt(ev.n, 10);
-            if (typeof parsedN === "number" && Number.isFinite(parsedN)) {
-              rawN = parsedN;
-            }
-          }
-          ev.n = rawN > 0 ? Math.min(rawN, MAX_EVENT_AMOUNT) : 1;
-        }
-
-        normalizedEvents.push(ev);
-      }
-      obj.events = normalizedEvents;
+    obj.events = normalizeEvents(obj.events);
+    if (mintedWalletId) {
+      unsavedWalletIds.set(
+        obj,
+        obj.events.map((e) => e.id),
+      );
     }
+    if (obj.syncPeers !== undefined) obj.syncPeers = normalizeSyncPeers(obj.syncPeers);
     const storedV =
       typeof obj.v === "number" && Number.isFinite(obj.v) ? obj.v : 1;
     const allCompact = obj.events.every((e) => {
@@ -602,6 +629,20 @@
   // saving from a stale in-memory wallet doesn't clobber a concurrent tab's
   // persisted action codes / devices / sync peers. Scalars stay local-wins.
   function reconcilePersistedFields(wallet, persisted) {
+    const codesApi = window.dbWalletActionCodes || null;
+    // Deletions first: union both sides' deletedActionCodes so a code deleted
+    // here (or in another tab) is removed from the union below instead of being
+    // resurrected from the stale side.
+    if (
+      codesApi &&
+      typeof codesApi.mergeDeletedActionCodes === "function" &&
+      (wallet.deletedActionCodes || persisted.deletedActionCodes)
+    ) {
+      wallet.deletedActionCodes = codesApi.mergeDeletedActionCodes(
+        wallet.deletedActionCodes,
+        persisted.deletedActionCodes,
+      );
+    }
     if (Array.isArray(persisted.actionCodes)) {
       wallet.actionCodes = unionArrayByKey(
         wallet.actionCodes,
@@ -623,33 +664,78 @@
         "deviceKey",
       );
     }
-    // syncPeers is a plain object map keyed by peer key — union keys, local wins.
+    if (codesApi && typeof codesApi.applyDeletedActionCodes === "function") {
+      codesApi.applyDeletedActionCodes(wallet);
+    }
+    // Re-apply the caps after the union (max 10 codes, max 6 devices) — a union
+    // of two capped lists can exceed them.
+    if (codesApi && typeof codesApi.ensureWalletActionCodes === "function") {
+      codesApi.ensureWalletActionCodes(wallet);
+    }
+    // Global codes: scope "global", no key. Also repairs codes stored by an
+    // import before P1.3 (invented key, scope dropped).
+    if (
+      Array.isArray(wallet.globalActionCodes) &&
+      codesApi &&
+      typeof codesApi.normalizeGlobalActionCodes === "function"
+    ) {
+      wallet.globalActionCodes = codesApi.normalizeGlobalActionCodes(
+        wallet.globalActionCodes,
+      );
+    }
+    ensureWalletDevices(wallet);
+    // syncPeers is a map keyed by peer key — union keys, local wins.
     if (
       persisted.syncPeers &&
       typeof persisted.syncPeers === "object" &&
       !Array.isArray(persisted.syncPeers)
     ) {
-      const merged = Object.create(null);
-      for (const k of Object.keys(persisted.syncPeers)) {
-        merged[k] = persisted.syncPeers[k];
-      }
-      const localPeers =
-        wallet.syncPeers &&
-        typeof wallet.syncPeers === "object" &&
-        !Array.isArray(wallet.syncPeers)
-          ? wallet.syncPeers
-          : null;
-      if (localPeers) {
-        for (const k of Object.keys(localPeers)) {
-          merged[k] = localPeers[k];
-        }
-      }
+      const merged = normalizeSyncPeers(persisted.syncPeers);
+      const localPeers = normalizeSyncPeers(wallet.syncPeers);
+      for (const k of Object.keys(localPeers)) merged[k] = localPeers[k];
       wallet.syncPeers = merged;
     }
   }
 
-  function saveWallet(wallet) {
+  // syncPeers is a map keyed by peer key, and peer keys come from imported data
+  // (remote deviceId / walletId). Keep it a null-prototype object with only
+  // object-valued entries and never a prototype-chain name as key, so a
+  // crafted "__proto__"/"constructor"/"prototype" peer can't reach
+  // Object.prototype through a plain {} parsed back from storage.
+  const FORBIDDEN_MAP_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+  function isForbiddenMapKey(key) {
+    return typeof key !== "string" || !key || FORBIDDEN_MAP_KEYS.has(key);
+  }
+
+  function normalizeSyncPeers(raw) {
+    const out = Object.create(null);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+    for (const k of Object.keys(raw)) {
+      if (isForbiddenMapKey(k)) continue;
+      const peer = raw[k];
+      if (!peer || typeof peer !== "object" || Array.isArray(peer)) continue;
+      out[k] = peer;
+    }
+    return out;
+  }
+
+  const WALLET_REPLACED_MESSAGE =
+    "Dieses Wallet wurde in einem anderen Tab zurückgesetzt oder ersetzt. Bitte Seite neu laden — diese Änderung wurde nicht gespeichert.";
+  let hasShownWalletReplacedError = false;
+
+  // opts.quiet: skip the generic one-time alert on failure (the banner/body
+  // flag is still set). For callers that report the failure themselves, e.g.
+  // the import, which must not claim success after a failed save.
+  // opts.allowWalletIdChange: this save intentionally replaces the stored
+  // wallet with a different walletId (reset). Without it, a save whose
+  // walletId differs from the persisted one (both non-empty) is refused:
+  // the in-memory copy is a stale tab of a wallet that was reset/re-created
+  // elsewhere, and merging would resurrect the old events into the new wallet.
+  function saveWallet(wallet, opts) {
     if (!wallet || !wallet.userId) return false;
+    const quiet = !!(opts && opts.quiet);
+    const allowWalletIdChange = !!(opts && opts.allowWalletIdChange);
 
     const storageKey = STORAGE_PREFIX + wallet.userId;
     if (isReservedStorageKey(storageKey)) {
@@ -657,7 +743,7 @@
         true,
         "⚠️ Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
       );
-      if (!hasShownStorageWriteError) {
+      if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
         alert(
           "Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
@@ -666,15 +752,46 @@
       return false;
     }
 
+    // Persist only canonical events (same normalizer as loadWallet), so the
+    // stored log and every later in-memory copy agree field for field.
+    if (Array.isArray(wallet.events)) {
+      wallet.events = normalizeEvents(wallet.events);
+    }
+
     // Cross-tab reconciliation: another tab of the same wallet may have appended
     // events since we loaded. Re-read the persisted snapshot and union-merge it
     // into the in-memory wallet before writing — the append-only + dedup-by-id
     // model makes this a safe merge with no conflict logic, and it prevents
     // last-write-wins from silently clobbering a concurrent tab's bookings.
+    const persistedRaw = safeLocalStorageGetItem(storageKey);
+    const persisted = persistedRaw ? safeParse(persistedRaw) : null;
+    const persistedWalletId =
+      persisted && typeof persisted === "object" && typeof persisted.walletId === "string"
+        ? persisted.walletId
+        : "";
+    const localWalletId = typeof wallet.walletId === "string" ? wallet.walletId : "";
+    let walletIdChanged =
+      !!persistedWalletId && !!localWalletId && persistedWalletId !== localWalletId;
+    if (walletIdChanged && !allowWalletIdChange && canAdoptPersistedWalletId(wallet, persisted)) {
+      // Our walletId was minted by loadWallet and never saved; another tab
+      // saved the same wallet first. Join it and reconcile normally.
+      wallet.walletId = persistedWalletId;
+      walletIdChanged = false;
+    }
+    if (walletIdChanged && !allowWalletIdChange) {
+      markStorageFailed(true, "⚠️ " + WALLET_REPLACED_MESSAGE);
+      if (!quiet && !hasShownWalletReplacedError) {
+        hasShownWalletReplacedError = true;
+        alert(WALLET_REPLACED_MESSAGE);
+      }
+      return false;
+    }
+
     try {
-      const persistedRaw = safeLocalStorageGetItem(storageKey);
-      if (persistedRaw) {
-        const persisted = safeParse(persistedRaw);
+      // An intentional replacement (reset) overwrites without reconciling —
+      // also over a legacy record that has no walletId at all.
+      const replacing = allowWalletIdChange && persistedWalletId !== localWalletId;
+      if (persisted && !walletIdChanged && !replacing) {
         const mergeApi = window.dbWalletImportV2 || null;
         if (
           persisted &&
@@ -692,8 +809,12 @@
           // max, rewriting any local references (tombstone ref / supersedes) to it.
           // The persisted event keeps the original id. Content-identical duplicates
           // fall through to normal dedup, so mergeEvents' import contract is intact.
+          // Compare canonical shapes on both sides: a raw persisted event that
+          // loadWallet would normalize (n > 1e9, string n, pay with n) must not
+          // look like a collision with its own normalized in-memory copy.
+          const persistedEvents = normalizeEvents(persisted.events);
           const persistedById = new Map();
-          for (const e of persisted.events) {
+          for (const e of persistedEvents) {
             if (e && typeof e.id === "string" && e.id) {
               persistedById.set(e.id, e);
             }
@@ -705,20 +826,29 @@
               next =
                 Math.max(
                   maxSeqForDevice(wallet, deviceKey),
-                  maxSeqForDevice({ events: persisted.events }, deviceKey),
+                  maxSeqForDevice({ events: persistedEvents }, deviceKey),
                 ) + 1;
             }
             nextSeqByDevice.set(deviceKey, next + 1);
             return `${deviceKey}.${next.toString(36)}`;
           };
+          // Only THIS device mints ids in its own seq space, so a real two-tab
+          // collision is always on the local deviceKey. A clash on a foreign (or
+          // legacy) id is not ours to re-mint — re-minting would allocate a seq
+          // in another device's space; the persisted copy wins instead.
+          const ownDeviceKey = getDeviceKey();
           const remap = new Map();
-          for (const e of wallet.events) {
+          for (let i = 0; i < wallet.events.length; i++) {
+            const e = wallet.events[i];
             if (!e || typeof e.id !== "string" || !e.id) continue;
             const clash = persistedById.get(e.id);
             if (clash && !sameEventContent(e, clash)) {
               const parsed = parseCompactEventId(e.id);
-              const deviceKey = parsed ? parsed.deviceKey : getDeviceKey();
-              const freshId = mintFreshId(deviceKey);
+              if (!parsed || parsed.deviceKey !== ownDeviceKey) {
+                wallet.events[i] = clash;
+                continue;
+              }
+              const freshId = mintFreshId(ownDeviceKey);
               remap.set(e.id, freshId);
               e.id = freshId;
             }
@@ -735,7 +865,7 @@
             }
           }
 
-          wallet.events = mergeApi.mergeEvents(wallet.events, persisted.events);
+          wallet.events = mergeApi.mergeEvents(wallet.events, persistedEvents);
           // Reconcile the local seq counter to the merged max so the next id
           // mint can't collide with an event just merged in from another tab.
           ensureDeviceSeq(wallet);
@@ -753,7 +883,7 @@
     // Hauptspeicherort
     if (!safeLocalStorageSetItem(storageKey, json)) {
       markStorageFailed(true);
-      if (!hasShownStorageWriteError) {
+      if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
         alert(
           "Konnte nicht speichern (Storage voll oder blockiert). Änderungen sind nicht gesichert.",
@@ -771,8 +901,21 @@
     };
     saveRegistry(reg);
 
+    unsavedWalletIds.delete(wallet);
     markStorageFailed(false);
     return true;
+  }
+
+  function canAdoptPersistedWalletId(wallet, persisted) {
+    const loadedIds = unsavedWalletIds.get(wallet);
+    if (!loadedIds) return false;
+    if (!loadedIds.length) return true;
+    if (!persisted || !Array.isArray(persisted.events)) return false;
+    const stored = new Set();
+    for (const e of normalizeEvents(persisted.events)) {
+      if (e && typeof e.id === "string") stored.add(e.id);
+    }
+    return loadedIds.every((id) => stored.has(id));
   }
 
   function getAllWallets() {
@@ -896,6 +1039,9 @@
     nextEventId,
     newEvent,
     appendEvents,
+    normalizeEvent,
+    normalizeSyncPeers,
+    isForbiddenMapKey,
     loadWallet,
     saveWallet,
     getAllWallets,

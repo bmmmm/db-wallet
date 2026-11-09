@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir _site
-          cp ./*.js ./*.html ./*.css manifest.json favicon.svg NOTICE LICENSE _site/
+          cp ./*.js ./*.html ./*.css manifest.json favicon.svg icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png NOTICE LICENSE _site/
           # The service worker's install fails as a whole when one app-shell
           # entry is missing, so a file the allowlist dropped breaks offline use.
           grep -oE '"\./[^"]+"' service-worker.js | tr -d '"' | while read -r p; do

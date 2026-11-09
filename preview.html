@@ -7,17 +7,19 @@
             name="description"
             content="db-wallet — Read-Only-Vorschau eines Import-Payloads. Rein lokal, wird nicht gespeichert."
         />
-        <meta name="theme-color" content="#14121c" />
+        <meta name="theme-color" content="#121322" />
         <meta name="color-scheme" content="dark light" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="db-wallet" />
         <meta
             http-equiv="Content-Security-Policy"
-            content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
+            content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
         />
         <title>db-wallet – Vorschau (Read-Only)</title>
         <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+        <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+        <link rel="apple-touch-icon" href="apple-touch-icon.png" />
         <link rel="stylesheet" href="style.css" />
         <link rel="stylesheet" href="themes.css" />
         <script src="theme.js"></script>
@@ -29,7 +31,7 @@
             <div>
                 <span id="wallet-version">v–</span> Nutzer:in:
                 <strong id="uid">–</strong>
-                <small style="color: var(--muted)">(nicht gespeichert)</small>
+                <small class="muted-note">(nicht gespeichert)</small>
             </div>
             <button id="btn-exit" aria-label="Vorschau beenden">Beenden</button>
         </div>

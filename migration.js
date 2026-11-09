@@ -75,15 +75,18 @@
       e.id = newId;
     }
 
-    // Second pass: re-point tombstone refs from the deleted event's old id to its
-    // new compact id. Without this, applyTombstones can no longer match the
-    // tombstone to its target and previously-deleted events resurface.
+    // Second pass: re-point tombstone refs and edit `supersedes` links from the
+    // target's old id to its new compact id. Without this, applyTombstones can
+    // no longer match the tombstone/replacement to its root: deleted events
+    // resurface and an edited entry counts twice (original + replacement).
     for (const e of wallet.events) {
-      if (!e || typeof e !== "object" || e.t !== "x") continue;
-      const ref = typeof e.ref === "string" ? e.ref : "";
-      if (ref && idMap.has(ref)) {
-        e.ref = idMap.get(ref);
+      if (!e || typeof e !== "object") continue;
+      if (e.t === "x") {
+        const ref = typeof e.ref === "string" ? e.ref : "";
+        if (ref && idMap.has(ref)) e.ref = idMap.get(ref);
       }
+      const sup = typeof e.supersedes === "string" ? e.supersedes : "";
+      if (sup && idMap.has(sup)) e.supersedes = idMap.get(sup);
     }
 
     const currentV = typeof wallet.v === "number" ? wallet.v : 1;

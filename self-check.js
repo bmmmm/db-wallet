@@ -418,6 +418,25 @@
             verErr,
           );
 
+          // P2.3: a falsified checksum is reported by error code, which maps
+          // to the checksum message (not the generic "Import fehlgeschlagen").
+          let ckCode = "";
+          try {
+            const ckBytes = importV2.encodeImportV2Bytes(wallet, "");
+            ckBytes[ckBytes.length - 1] ^= 0xff;
+            importV2.decodeImportV2Bytes(ckBytes);
+          } catch (e) {
+            ckCode = (e && e.code) || "no-code";
+          }
+          addCheck(
+            result,
+            "v2 checksum mismatch has error code",
+            ckCode === "checksum" &&
+              typeof importV2.IMPORT_ERROR_MESSAGES === "object" &&
+              /Prüfsumme/.test(importV2.IMPORT_ERROR_MESSAGES.checksum),
+            ckCode,
+          );
+
           // IV2: an unknown extension version stops parsing cleanly (no desync,
           // no false warning) instead of misreading the rest of the payload.
           const baseW = {
@@ -1395,6 +1414,18 @@
               !uiApi || !uiUserId,
               `uid=${uiUserId || "(leer)"}`,
             );
+            // P2.2: the no-wallet state is no dead end.
+            const panel = document.getElementById("global-action-message");
+            const homeLink =
+              panel && typeof panel.querySelector === "function"
+                ? panel.querySelector('a[href="index.html"]')
+                : null;
+            addCheck(
+              result,
+              "no wallet state links to the start page",
+              !!homeLink,
+              homeLink ? "ok" : "missing",
+            );
           }
 
           if (route.kind === "user" && uiApi) {
@@ -1646,9 +1677,9 @@
           );
         }
 
-        // NB3: "gc" (globalActionCodes) codec block round-trips with the key intact
-        // (bearer credential). Relies on encode/decodeImportV2Bytes gc block
-        // (writeActionCodeEntry, key written verbatim; readActionCodeEntry hasType).
+        // NB3: "gc" (globalActionCodes) codec block round-trips a global code as
+        // global: scope "global", no key (a stored key is not exported — the gc
+        // key field is written empty), type/amount intact.
         try {
           const gcWallet = {
             userId: "selfcheck-gc",
@@ -1679,26 +1710,28 @@
           const gcCode = gcCodes.find((c) => c && c.id === "global:sc1");
           addCheck(
             result,
-            "gc block round-trips global code with key",
+            "gc block round-trips global code without key",
             !!gcCode &&
-              gcCode.key === "gckeysecret123" &&
+              !gcCode.key &&
+              gcCode.scope === "global" &&
               gcCode.type === "d" &&
               gcCode.amount === 2,
-            gcCode ? `key=${gcCode.key} type=${gcCode.type}` : "missing",
+            gcCode
+              ? `key=${gcCode.key} scope=${gcCode.scope} type=${gcCode.type}`
+              : "missing",
           );
         } catch (e) {
           addCheck(
             result,
-            "gc block round-trips global code with key",
+            "gc block round-trips global code without key",
             false,
             "threw=" + (e && e.message),
           );
         }
 
-        // NB3b: an import updates an existing local global code's label/amount/type
-        // but NEVER rotates its key (key rotation is local-only). Relies on
-        // buildImportedWallet's mergeActionCodes, which deliberately does not copy
-        // c.key. The remote wins on recency (newer updatedAt) yet the key is kept.
+        // NB3b: an import updates an existing global code's label/amount/type
+        // (remote wins on recency) but never adopts a key: global codes carry
+        // none (mergeGlobalActionCodes strips any stored or remote key).
         try {
           const uid = storage.ensureNonReservedUserId(
             "selfcheck-gckey-" + randomId(),
@@ -1755,15 +1788,19 @@
           const kept = codes.find((c) => c && c.id === "global:keep");
           addCheck(
             result,
-            "import never rotates existing global code key",
-            !!kept && kept.key === "LOCALKEYKEEP",
+            "import updates global code, never adopts a key",
+            !!kept &&
+              !kept.key &&
+              kept.scope === "global" &&
+              kept.label === "Remote" &&
+              kept.amount === 5,
             kept ? `key=${kept.key} amount=${kept.amount}` : "missing",
           );
           cleanupUid(uid);
         } catch (e) {
           addCheck(
             result,
-            "import never rotates existing global code key",
+            "import updates global code, never adopts a key",
             false,
             "threw=" + (e && e.message),
           );
@@ -1845,8 +1882,9 @@
         // 3.6 -> 4), and that a mismatched key is rejected (no booking). Relies on:
         //   bookActionCode(targetUserId, { api, codeId, key }) -> loads the wallet,
         //   matches codeId, key-checks, books newEvent via appendEvents.
-        // bookActionCode uses global alert() and sets window.location.hash, so both
-        // are overridden/saved and restored here.
+        // bookActionCode uses global alert() and replaces the hash via
+        // history.replaceState (P2.1: no new history entry, so Back can't
+        // re-book), so both are overridden/saved and restored here.
         try {
           if (
             typeof importV2.bookActionCode === "function" &&
@@ -1869,6 +1907,11 @@
             const origHash = window.location.hash;
             let bookedEv = null;
             let keyRejected = false;
+            const historyLenBefore =
+              window.history && typeof window.history.length === "number"
+                ? window.history.length
+                : -1;
+            let historyLenAfter = historyLenBefore;
             try {
               window.alert = function () {};
               importV2.bookActionCode(uid, {
@@ -1887,14 +1930,32 @@
               });
               const r2 = storage.loadWallet(uid);
               keyRejected = (r2.events || []).length === countGood;
+              historyLenAfter =
+                window.history && typeof window.history.length === "number"
+                  ? window.history.length
+                  : -1;
             } finally {
               window.alert = origAlert;
               try {
-                window.location.hash = origHash;
+                if (
+                  !(
+                    helpers &&
+                    typeof helpers.replaceHashSilently === "function" &&
+                    helpers.replaceHashSilently(origHash.slice(1))
+                  )
+                ) {
+                  window.location.hash = origHash;
+                }
               } catch (e) {
                 // ignore
               }
             }
+            addCheck(
+              result,
+              "bookActionCode adds no history entry (replaceState)",
+              historyLenAfter === historyLenBefore,
+              `before=${historyLenBefore} after=${historyLenAfter}`,
+            );
             addCheck(
               result,
               "bookActionCode books local code (type + amount clamp)",
@@ -2031,6 +2092,10 @@
         const scripts = Array.from(document.scripts || [])
           .map((s) => s.src)
           .filter((s) => s && s.startsWith(location.origin));
+        // self-check.js itself is injected on demand by self-check-loader.js
+        // (P3.5); it must be precached too, or run() fails offline.
+        const selfUrl = new URL("self-check.js", location.href).href;
+        if (!scripts.includes(selfUrl)) scripts.push(selfUrl);
         const missing = [];
         for (const url of scripts) {
           let hit = false;

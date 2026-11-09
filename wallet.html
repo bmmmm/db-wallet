@@ -7,17 +7,19 @@
             name="description"
             content="db-wallet — dein lokales Getränke-Wallet. Drinks buchen, Guthaben verwalten, Export/Import per Link, QR oder JSON."
         />
-        <meta name="theme-color" content="#14121c" />
+        <meta name="theme-color" content="#121322" />
         <meta name="color-scheme" content="dark light" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="db-wallet" />
         <meta
             http-equiv="Content-Security-Policy"
-            content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
+            content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
         />
         <title>db-wallet – Getränke</title>
         <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+        <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+        <link rel="apple-touch-icon" href="apple-touch-icon.png" />
         <link rel="manifest" href="manifest.json" />
         <link rel="stylesheet" href="style.css" />
         <link rel="stylesheet" href="themes.css" />
@@ -32,7 +34,7 @@
                 <span id="wallet-version">v1</span> Nutzer:in:
                 <strong id="uid"></strong>
             </div>
-            <button id="btn-migrate" style="display: none">
+            <button id="btn-migrate">
                 Auf v2 migrieren
             </button>
             <button id="btn-home" aria-label="Zur Startseite">Zur Startseite 🏠</button>
@@ -73,7 +75,7 @@
                     </button>
                     <button id="btn-pay" aria-label="Bezahlen">Bezahlen 💸</button>
                 </div>
-                <div id="pay-options" class="pay-options" style="display: none">
+                <div id="pay-options" class="pay-options">
                     <button id="btn-pay-today" aria-label="Heute bezahlen">heute bezahlen 💰</button>
                     <button id="btn-credit" aria-label="Guthaben aufladen">Guthaben aufladen 💰</button>
                     <button id="btn-pay-cancel">Bezahlen abbrechen</button>
@@ -144,7 +146,7 @@
         <div class="wallet-export">
             <!-- Export-Bereich -->
             <button id="btn-export">Export</button>
-            <span id="export-options" style="display: none">
+            <span id="export-options">
                 <button id="btn-export-link" aria-label="Export-Link (klassisch)">Export-Link (klassisch) 🔗</button>
                 <button id="btn-export-link-qr" aria-label="QR-Code anzeigen">
                     QR-Code (kurz) anzeigen 📱
@@ -155,10 +157,15 @@
                 id="export-url"
                 readonly
                 placeholder="Hier erscheint dein Export-Link"
-                style="display: none"
+               
                 aria-label="Export-Link"
             />
-            <div id="qr-box" class="qr-box" style="display: none">
+            <div id="export-url-actions" class="export-link-actions">
+                <button id="btn-copy-export-url" type="button">Kopieren 📋</button>
+                <button id="btn-share-export-url" type="button" hidden>Teilen 📤</button>
+                <span id="export-url-status" class="export-link-status" role="status" aria-live="polite"></span>
+            </div>
+            <div id="qr-box" class="qr-box">
                 <div class="qr-hint" id="qr-hint"></div>
                 <canvas id="qr-canvas" aria-label="QR-Code"></canvas>
                 <input
@@ -168,6 +175,11 @@
                     inputmode="none"
                     aria-label="QR-Code Link"
                 />
+                <div class="export-link-actions">
+                    <button id="btn-copy-qr-url" type="button">Kopieren 📋</button>
+                    <button id="btn-share-qr-url" type="button" hidden>Teilen 📤</button>
+                    <span id="qr-url-status" class="export-link-status" role="status" aria-live="polite"></span>
+                </div>
             </div>
         </div>
 
@@ -182,8 +194,8 @@
                 <p class="theme-note">
                     Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name:
                     Lilac Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach
-                    Cloud. Vorschau:
-                    <a href="colors.html">colors.html</a>
+                    Cloud. Ohne Auswahl folgt es dem System (dunkel: Lilac
+                    Carbon, hell: Paper Mint).
                 </p>
                 <div class="theme-buttons" id="theme-buttons"></div>
             </section>
@@ -206,7 +218,7 @@
         <script src="wallet-hash-actions.js" defer></script>
         <script src="wallet-actions.js" defer></script>
         <script src="wallet-ui.js" defer></script>
-        <script src="self-check.js" defer></script>
+        <script src="self-check-loader.js" defer></script>
         <script src="sw-register.js" defer></script>
     </body>
 </html>

@@ -7,17 +7,19 @@
             name="description"
             content="db-wallet — browser-only Getränke-Wallet. Kein Backend, kein Server, alles lokal. Export/Import per Link, QR oder JSON."
         />
-        <meta name="theme-color" content="#14121c" />
+        <meta name="theme-color" content="#121322" />
         <meta name="color-scheme" content="dark light" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="db-wallet" />
         <meta
             http-equiv="Content-Security-Policy"
-            content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
+            content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'none';"
         />
         <title>db-wallet – Start</title>
         <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+        <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+        <link rel="apple-touch-icon" href="apple-touch-icon.png" />
         <link rel="manifest" href="manifest.json" />
         <link rel="stylesheet" href="style.css" />
         <link rel="stylesheet" href="themes.css" />
@@ -33,12 +35,11 @@
                 Nutzer:in-Namen eingeben oder leer lassen, um einen zufälligen
                 Namen zu erhalten.
             </p>
-            <label for="username" class="sr-only">Nutzer:in-Name</label>
+            <label for="username">Nutzer:in-Name</label>
             <input
                 id="username"
                 type="text"
                 placeholder="z. B. peter, kueche, clubraum …"
-                aria-label="Nutzer:in-Name"
                 autocomplete="off"
                 autocapitalize="off"
                 spellcheck="false"
@@ -66,7 +67,7 @@
                 id="file-import"
                 type="file"
                 accept="application/json"
-                style="display: none"
+               
                 aria-hidden="true"
             />
             <button id="btn-raw-all">Alle Raw-Daten anzeigen 🧾</button>
@@ -83,8 +84,8 @@
             <p class="theme-note">
                 Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name: Lilac
                 Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach Cloud.
-                Vorschau:
-                <a href="colors.html">colors.html</a>
+                Ohne Auswahl folgt es dem System (dunkel: Lilac Carbon, hell:
+                Paper Mint).
             </p>
             <div class="theme-buttons" id="theme-buttons"></div>
         </section>

@@ -27,7 +27,9 @@ ohne Cloud.
 - **Bezahlen & Guthaben** — offene Drinks ausgleichen, Guthaben wie Vorrat
   auf- und abbauen.
 - **Verwaltung** — Einträge bearbeiten/löschen, Nutzer:innen einzeln oder
-  gesammelt entfernen.
+  gesammelt entfernen. Zurücksetzen macht daraus ein neues Wallet mit gleichem
+  Namen (neue Wallet-ID): ein vorher gemachter Export landet beim Import als
+  eigenes Wallet, lokale Action-Code-QRs des alten Wallets gelten nicht mehr.
 - **Import/Export** — Link (auto-merge), kompakter QR-Code oder JSON; inklusive
   Theme und Wallet-ID gegen Namens-Kollisionen.
 - **Offline-fähig** — als PWA installierbar, läuft ohne Netz.
@@ -42,7 +44,8 @@ Vorgefertigte QR-Codes, die beim Scannen **sofort** buchen — Typ *Trinken* ode
   auf das gerade geöffnete Wallet. Beim Anwenden fragt die App **immer nach**
   (Betrag/Typ werden genannt); bei mehreren Wallets wird zuerst das Ziel gewählt,
   ist keins offen, kommt ein Hinweis. Die Verwaltungsliste globaler Codes wird auf
-  dem Wallet gespeichert.
+  dem Wallet gespeichert und reist im Export mit (ohne Key — globale Codes haben
+  keinen; Scope bleibt beim Import erhalten).
 
 Gut zu wissen:
 
@@ -53,6 +56,9 @@ Gut zu wissen:
   aber **nie den lokalen Key** überschreiben.
 - Codes **laufen nicht ab** — Widerruf = Bearbeiten (Key-Rotation) oder Löschen;
   der Key ist das einzige Geheimnis.
+- Löschen merkt sich die Code-ID lokal (`deletedActionCodes`, die 50 neuesten).
+  Ein anderer Tab oder ein Import eines älteren Exports holt den Code nicht zurück.
+  Die Liste wird nicht exportiert: ein anderes Gerät behält seine Kopie.
 - Max. 6 Codes pro Wallet empfohlen; ab 10 bleiben die 10 zuletzt **bearbeiteten**
   (nicht „benutzten").
 - Globale Codes validieren Typ (`d`/`g`) und Menge (`1`–`100`).
@@ -104,7 +110,18 @@ Kein Build-Schritt — HTML/CSS/JS direkt bearbeiten und statisch servieren:
 python3 -m http.server 8080   # → http://localhost:8080
 ```
 
-**Self-Check** in der Browser-Konsole (z. B. auf `wallet.html`):
+**Tests in Node** (ohne npm, nur `node:test`; läuft auch in der CI):
+
+```bash
+node --test tests/
+```
+
+Die Tests laden die Originalmodule in einen `vm`-Kontext mit eigenem
+`localStorage` (`tests/harness.js`) und prüfen Datenschicht, Codec, Import und
+das Action-Code-Panel.
+
+**Self-Check** in der Browser-Konsole auf `wallet.html` (der erste Aufruf lädt
+`self-check.js` nach):
 
 ```js
 await dbWalletSelfCheck.run()   // → { ok, checks }
@@ -165,7 +182,7 @@ rückwärtskompatibel.
 | `theme.js` + `themes.css` | Theme-System (5 Paletten) |
 
 **PWA:** `manifest.json`, `service-worker.js`, `sw-register.js` &nbsp;·&nbsp;
-**Tools:** `self-check.js`, `colors.html` (Theme-Vorschau) &nbsp;·&nbsp;
+**Tools:** `self-check.js` (+ `self-check-loader.js`), `colors.html` (Theme-Vorschau, nicht im Precache) &nbsp;·&nbsp;
 **QR:** `qrcodegen.js` (Nayuki)
 
 **Ladereihenfolge ist load-bearing:** jedes Modul ist ein
@@ -199,7 +216,13 @@ Cache nicht vergiften.
   Event-Schema `{id,t,n?,ts,ref?,supersedes?}` mit Tombstones `t:"x"` + `ref`
   (= Root-ID) und Edit-Replacements via `supersedes` (= Root-ID); append-only
   (Merge dedupt nach `id`); Order = `ts`, dann numerische base36-`seq`;
-  Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm).
+  Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm);
+  gelöschte Codes stehen in `deletedActionCodes` (Löschen nur über
+  `removeActionCode`, Reconcile und Import-Merge filtern sie); Reset = neue
+  `walletId`, die `seq`-Zähler laufen weiter (keine Event-ID wird neu vergeben);
+  ein veralteter Tab mit der alten `walletId` speichert danach nicht mehr
+  (`saveWallet` lehnt abweichende `walletId` ab, nur der Reset darf sie wechseln;
+  eine frisch vergebene, nie gespeicherte `walletId` übernimmt die gespeicherte).
 - **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes) und `ck`
   (Integritäts-Checksum) stehen als Letztes, `ck` ganz zuletzt. Bei jeder
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:

@@ -5,6 +5,11 @@
   // INDEX in this list, so every module must share this one array — a divergent
   // copy would silently mis-encode device symbols across a sync.
   const DEVICE_SYMBOLS = ["L", "M", "D", "K", "T", "*"];
+  // Hard ceiling for any single event / action-code amount — far above any real
+  // drink count. The one definition shared by storage normalization, the codec
+  // and every input path; above it the codec's varint writer would throw and
+  // brick every export.
+  const MAX_EVENT_AMOUNT = 1000000000;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
@@ -335,6 +340,27 @@
   // integer; if omitted and `maxPx` is given, scale is derived to fit within
   // maxPx. `border` defaults to 4 modules. Throws if the QR library is missing
   // or encodeText fails — callers are expected to catch.
+  // Replace the URL fragment in place (history.replaceState): no new session
+  // history entry and no "hashchange". Assigning location.hash would push an
+  // entry (Back re-runs an #ac: booking) and fire a second hashchange that
+  // re-enters the router. An empty target drops the fragment. Returns false
+  // when replaceState is unavailable, so callers can fall back.
+  function replaceHashSilently(nextHash) {
+    const target = String(nextHash || "").trim().replace(/^#/, "");
+    const current = String(window.location.hash || "").slice(1);
+    if (current === target) return true;
+    if (window.history && typeof window.history.replaceState === "function") {
+      try {
+        const base = String(window.location.href || "").split("#")[0];
+        window.history.replaceState(null, "", target ? base + "#" + target : base);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  }
+
   function drawQrToCanvas(canvas, text, opts) {
     if (!canvas) return;
     if (!window.qrcodegen || !window.qrcodegen.QrCode) {
@@ -369,10 +395,37 @@
     }
   }
 
+  // Object URLs of a download stay valid this long. Revoking right after
+  // click() can cancel the download in Safari (the click only schedules it);
+  // FileSaver.js waits 40 s for the same reason.
+  const BLOB_URL_REVOKE_MS = 40000;
+
+  // Saves `blob` as `filename` via a temporary <a download>. The single path
+  // for every Blob download (JSON backup, export QR PNG, action-code QR PNG).
+  function downloadBlob(blob, filename) {
+    if (!blob || typeof URL === "undefined" || !URL.createObjectURL) return false;
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => {
+      try {
+        URL.revokeObjectURL(href);
+      } catch (e) {
+        // ignore
+      }
+    }, BLOB_URL_REVOKE_MS);
+    return true;
+  }
+
   window.dbWalletHelpers = {
     STORAGE_PREFIX,
     REGISTRY_KEY,
     DEVICE_SYMBOLS,
+    MAX_EVENT_AMOUNT,
     randomId,
     randomToken,
     randomWalletId,
@@ -399,6 +452,9 @@
     formatDate,
     formatDateTime,
     normalizeUserId,
+    replaceHashSilently,
     drawQrToCanvas,
+    BLOB_URL_REVOKE_MS,
+    downloadBlob,
   };
 })();

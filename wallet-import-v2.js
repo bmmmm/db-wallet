@@ -28,6 +28,58 @@
     normalizeUserId,
   } = helpers;
 
+  // Point the URL at `userId` (or drop the fragment for "") without a history
+  // entry or a hashchange (P2.1): the caller routes exactly once itself.
+  // Import failures carry a machine-readable `code` (P2.3); tryImportFromHash
+  // maps it through IMPORT_ERROR_MESSAGES instead of matching message text.
+  function importError(code, message) {
+    const e = new Error(message);
+    e.code = code;
+    return e;
+  }
+
+  const IMPORT_ERROR_MESSAGES = {
+    checksum:
+      "Import beschädigt ❌ — die Prüfsumme stimmt nicht (Link unvollständig oder verändert).\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.",
+    truncated:
+      "Import fehlgeschlagen ❌ — die Daten sind unvollständig (Link abgeschnitten?).\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.",
+    corrupt:
+      "Import fehlgeschlagen ❌ — die Daten sind beschädigt.\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.",
+    "too-large":
+      "Import abgebrochen: Die Daten sind zu groß.\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.",
+    "unsupported-version":
+      "Import fehlgeschlagen ❌ — die Daten stammen aus einer neueren App-Version.\nBitte diese App aktualisieren.",
+    "unsupported-browser":
+      "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON.",
+    unknown: "Import fehlgeschlagen ❌",
+  };
+
+  function importErrorCode(e) {
+    const code = e && typeof e.code === "string" ? e.code : "";
+    return Object.prototype.hasOwnProperty.call(IMPORT_ERROR_MESSAGES, code)
+      ? code
+      : "unknown";
+  }
+
+  // Re-throw anything a decode step raised without a code as corrupt data
+  // (atob, DecompressionStream, TextDecoder errors on garbage input).
+  function asImportError(e, fallbackCode) {
+    if (e && typeof e.code === "string" && e.code) return e;
+    return importError(fallbackCode, String((e && e.message) || e || ""));
+  }
+
+  function returnUserIdOf(options) {
+    return options && typeof options.returnToUserId === "string"
+      ? options.returnToUserId
+      : "";
+  }
+
+  function replaceHash(userId) {
+    const target = String(userId || "");
+    if (helpers.replaceHashSilently && helpers.replaceHashSilently(target)) return;
+    window.location.hash = target ? "#" + target : "";
+  }
+
   const {
     getDeviceKey,
     parseCompactEventId,
@@ -60,6 +112,10 @@
   function legacyIdToV2Id(legacyId) {
     if (!legacyId || typeof legacyId !== "string") return null;
     if (!legacyId.includes("-")) return null;
+    // A compact v2 id is never legacy, even when its base64url device key
+    // contains "-" (~12 % of keys): no alias, and no BigInt hash per event on
+    // every saveWallet merge (P2.4).
+    if (parseCompactEventId(legacyId)) return null;
     const device = extractLegacyDeviceKey(legacyId);
     const seq = hash53(legacyId);
     return `${device}.${seq.toString(36)}`;
@@ -146,17 +202,17 @@
     let multiplier = 1;
     while (true) {
       if (offset >= bytes.length) {
-        throw new Error("Truncated varint");
+        throw importError("truncated", "Truncated varint");
       }
       const b = bytes[offset++];
       result += (b & 0x7f) * multiplier;
       if (result > Number.MAX_SAFE_INTEGER) {
-        throw new Error("Varint too large");
+        throw importError("corrupt", "Varint too large");
       }
       if ((b & 0x80) === 0) break;
       multiplier *= 0x80;
       if (multiplier > Number.MAX_SAFE_INTEGER) {
-        throw new Error("Varint too large");
+        throw importError("corrupt", "Varint too large");
       }
     }
     return [result, offset];
@@ -167,7 +223,7 @@
   // silently-corrupted strings/ids).
   function sliceChecked(bytes, offset, len) {
     if (typeof len !== "number" || len < 0 || offset + len > bytes.length) {
-      throw new Error("Truncated payload");
+      throw importError("truncated", "Truncated payload");
     }
     return bytes.slice(offset, offset + len);
   }
@@ -203,7 +259,8 @@
 
   // Bound a decoded count so a corrupt/crafted payload can't produce absurd
   // values. Far above any real drink count, so legitimate data is untouched.
-  const MAX_DECODED_AMOUNT = 1000000000;
+  // One shared ceiling (wallet-helpers) for codec, storage and input paths.
+  const MAX_DECODED_AMOUNT = helpers.MAX_EVENT_AMOUNT;
 
   // Encodes one action-code record (v2 layout: id, label, amount, key,
   // createdAt, updatedAt, type). Shared by the "ac" (local) and "gc" (global)
@@ -363,7 +420,7 @@
         // Reject an out-of-range device index instead of silently mis-attributing
         // the event to a bogus "dev" device.
         if (deviceIndex >= deviceKeys.length) {
-          throw new Error("Invalid device index");
+          throw importError("corrupt", "Invalid device index");
         }
         const deviceKey = deviceKeys[deviceIndex];
         id = `${deviceKey}.${seq.toString(36)}`;
@@ -380,7 +437,7 @@
 
       const ts = tsMin * 60000 + withinMinute;
       if (ts > Number.MAX_SAFE_INTEGER) {
-        throw new Error("Timestamp out of range");
+        throw importError("corrupt", "Timestamp out of range");
       }
       const ev = {
         id,
@@ -438,6 +495,11 @@
           for (let i = 0; i < count; i++) {
             let code;
             [code, offset] = readActionCodeEntry(bytes, offset, true);
+            // Global codes carry no key. Exports written before P1.3 contain an
+            // invented random key here (and lost the scope); drop it and
+            // restore the scope so old exports import as proper global codes.
+            delete code.key;
+            code.scope = "global";
             globalActionCodes.push(code);
           }
           decoded.globalActionCodes = globalActionCodes;
@@ -588,11 +650,14 @@
       bytes[1] !== 98 || // b
       bytes[2] !== 119 // w
     ) {
-      throw new Error("Invalid v2 payload");
+      throw importError("corrupt", "Invalid v2 payload");
     }
     if (bytes[3] !== 2) {
       // Magic matches but the codec version is newer than this build understands.
-      throw new Error("Unsupported codec version " + bytes[3]);
+      throw importError(
+        "unsupported-version",
+        "Unsupported codec version " + bytes[3],
+      );
     }
 
     // Verify the integrity checksum INDEPENDENTLY of the extension-block cursor:
@@ -620,7 +685,7 @@
           helpers.fnv1a64(bytes.subarray(0, tlen - 7)) & 0xffffffffn,
         );
         if (stored !== actual) {
-          throw new Error("Import beschädigt (Prüfsumme stimmt nicht)");
+          throw importError("checksum", "Import checksum mismatch");
         }
       }
     }
@@ -895,7 +960,9 @@
 
     // optional extension: global action codes ("gc", v1) — the wallet-level 🌍
     // codes (wallet.globalActionCodes), same record layout as "ac" v2 (via
-    // writeActionCodeEntry, key included: the export is a bearer credential).
+    // writeActionCodeEntry). Global codes have no key: the key field is written
+    // as an empty string (same byte layout, so older decoders still parse it),
+    // which also keeps the export deterministic.
     // Written AFTER "se" and BEFORE "ck" so the integrity checksum still covers
     // it. An OLD decoder that doesn't know "gc" stops here (blocks have no length
     // prefix) — it simply skips the global codes, like any later unknown block.
@@ -906,12 +973,12 @@
     let globalCodes = rawGlobalCodes;
     try {
       const api = window.dbWalletActionCodes || null;
-      if (api && typeof api.normalizeActionCodes === "function") {
-        globalCodes = api.normalizeActionCodes(rawGlobalCodes);
+      if (api && typeof api.normalizeGlobalActionCodes === "function") {
+        globalCodes = api.normalizeGlobalActionCodes(rawGlobalCodes);
       }
     } catch (e) {
       console.warn(
-        "db-wallet: encode-v2 normalizeActionCodes (global) failed",
+        "db-wallet: encode-v2 normalizeGlobalActionCodes failed",
         e,
       );
     }
@@ -1001,12 +1068,44 @@
     }
   }
 
+  // The only event fields an import may carry into the stored log. Anything
+  // else in a crafted JSON/link payload is dropped instead of being persisted
+  // (and re-exported) verbatim.
+  const IMPORT_EVENT_FIELDS = ["id", "t", "n", "ts", "ref", "supersedes", "oid"];
+
+  // Whitelist + canonicalize remote events through the storage normalizer, so
+  // the merged wallet is already in the shape loadWallet would produce (a raw
+  // shape would read as a two-tab collision on the next save and re-mint).
+  function sanitizeImportedEvents(list) {
+    const out = [];
+    for (const raw of Array.isArray(list) ? list : []) {
+      if (!raw || typeof raw !== "object") {
+        if (raw) out.push(raw); // let mergeEvents count it as dropped
+        continue;
+      }
+      const picked = {};
+      for (const k of IMPORT_EVENT_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(raw, k)) picked[k] = raw[k];
+      }
+      for (const k of ["ref", "supersedes", "oid"]) {
+        if (k in picked && typeof picked[k] !== "string") delete picked[k];
+      }
+      const norm =
+        typeof storage.normalizeEvent === "function"
+          ? storage.normalizeEvent(picked)
+          : picked;
+      // Keep id-less/typeless entries for mergeEvents' dropped-count warning.
+      out.push(norm || picked);
+    }
+    return out;
+  }
+
   function buildImportedWallet(remote) {
     const userId = resolveUserIdForImport(remote);
     const local = loadWallet(userId);
     const mergedEvents = mergeEvents(
       local.events,
-      Array.isArray(remote.events) ? remote.events : [],
+      sanitizeImportedEvents(remote && remote.events),
     );
     try {
       const api = window.dbWalletActionCodes || null;
@@ -1014,6 +1113,7 @@
         local.actionCodes = api.mergeActionCodes(
           local.actionCodes,
           remote && remote.actionCodes,
+          local.deletedActionCodes,
         );
       } else if (remote && Array.isArray(remote.actionCodes)) {
         local.actionCodes = remote.actionCodes;
@@ -1036,10 +1136,11 @@
         : [];
       if (remoteGlobal.length || localGlobal.length) {
         const api = window.dbWalletActionCodes || null;
-        if (api && typeof api.mergeActionCodes === "function") {
-          local.globalActionCodes = api.mergeActionCodes(
+        if (api && typeof api.mergeGlobalActionCodes === "function") {
+          local.globalActionCodes = api.mergeGlobalActionCodes(
             localGlobal,
             remoteGlobal,
+            local.deletedActionCodes,
           );
         } else if (remoteGlobal.length) {
           local.globalActionCodes = remoteGlobal;
@@ -1086,25 +1187,37 @@
       }
     }
 
-    // Belt-and-suspenders: re-point any remaining legacy-form tombstone ref to
-    // its v2 id. Migration only remaps refs whose target it migrated; a ref to an
-    // already-compact target would otherwise stay legacy-form and resurface the
-    // deleted event.
+    // Belt-and-suspenders: re-point any remaining legacy-form tombstone ref or
+    // edit `supersedes` link to its v2 id. Migration only remaps links whose
+    // target it migrated in the same pass; a link to an already-compact target
+    // (e.g. migrated earlier on this device) would otherwise stay legacy-form —
+    // the deleted event resurfaces, or the edited entry counts twice. Resolve
+    // via the target's recorded `oid` first, then the deterministic alias.
     try {
       const v2IdSet = new Set();
+      const byOid = new Map();
       for (const e of local.events) {
-        if (e && typeof e.id === "string" && e.id) v2IdSet.add(e.id);
-      }
-      for (const e of local.events) {
-        if (
-          e &&
-          e.t === "x" &&
-          typeof e.ref === "string" &&
-          e.ref.includes("-")
-        ) {
-          const v2Ref = legacyIdToV2Id(e.ref);
-          if (v2Ref && v2IdSet.has(v2Ref)) e.ref = v2Ref;
+        if (e && typeof e.id === "string" && e.id) {
+          v2IdSet.add(e.id);
+          if (typeof e.oid === "string" && e.oid && !byOid.has(e.oid)) {
+            byOid.set(e.oid, e.id);
+          }
         }
+      }
+      const resolve = (legacy) => {
+        if (typeof legacy !== "string" || !legacy.includes("-")) return null;
+        if (byOid.has(legacy)) return byOid.get(legacy);
+        const v2 = legacyIdToV2Id(legacy);
+        return v2 && v2IdSet.has(v2) ? v2 : null;
+      };
+      for (const e of local.events) {
+        if (!e) continue;
+        if (e.t === "x") {
+          const v2Ref = resolve(e.ref);
+          if (v2Ref) e.ref = v2Ref;
+        }
+        const v2Sup = resolve(e.supersedes);
+        if (v2Sup) e.supersedes = v2Sup;
       }
     } catch (e) {
       console.warn("db-wallet: import legacy-ref remap failed", e);
@@ -1118,28 +1231,29 @@
 
     // sync status tracking (local-only)
     try {
-      if (
-        !local.syncPeers ||
-        typeof local.syncPeers !== "object" ||
-        Array.isArray(local.syncPeers)
-      ) {
-        // null-prototype: peerKey is derived from imported deviceId/walletId, so a
-        // "__proto__" key must land as an own property, not poison the chain.
-        local.syncPeers = Object.create(null);
-      }
+      // null-prototype map without prototype-chain keys: peerKey is derived
+      // from the imported deviceId/walletId (see storage.normalizeSyncPeers).
+      local.syncPeers = storage.normalizeSyncPeers(local.syncPeers);
 
       const peerKeyRaw =
         remote && typeof remote.deviceId === "string" && !("seq" in remote) // only V2 "sp" extension, not JSON export field
           ? remote.deviceId.trim()
           : "";
-      let peerKey = peerKeyRaw;
+      // A "__proto__"/"constructor"/"prototype" deviceId is never a peer key;
+      // fall back to the walletId-derived key like a missing deviceId.
+      let peerKey = storage.isForbiddenMapKey(peerKeyRaw) ? "" : peerKeyRaw;
       if (!peerKey) {
         const wid =
           remote && typeof remote.walletId === "string" ? remote.walletId : "";
         peerKey = wid ? "remote-" + wid.slice(0, 8) : "remote-unknown";
       }
 
-      const existing = local.syncPeers[peerKey];
+      const existing = Object.prototype.hasOwnProperty.call(
+        local.syncPeers,
+        peerKey,
+      )
+        ? local.syncPeers[peerKey]
+        : null;
       const peer =
         existing && typeof existing === "object" && !Array.isArray(existing)
           ? existing
@@ -1175,12 +1289,23 @@
     return { userId, wallet: local };
   }
 
+  const IMPORT_SAVE_FAILED_MESSAGE =
+    "Import fehlgeschlagen: Die Daten konnten nicht gespeichert werden (Speicher voll oder blockiert). Nichts wurde importiert.";
+
   function importRemoteWallet(remote, options) {
     const { userId, wallet } = buildImportedWallet(remote);
     ensureDeviceSeq(wallet);
-    saveWallet(wallet);
+    // A failed save (storage full/blocked) must not end in "importiert ✅" and a
+    // redirect to a wallet that holds none of the imported data: report it once.
+    // The import link is dropped from the address bar (back to the wallet that
+    // was open, if any) — a reload must not replay the failing import.
+    if (!saveWallet(wallet, { quiet: true })) {
+      alert(IMPORT_SAVE_FAILED_MESSAGE);
+      replaceHash(returnUserIdOf(options));
+      return null;
+    }
     applyImportedTheme(remote, options);
-    window.location.hash = "#" + userId;
+    replaceHash(userId);
     alert(
       remote && remote._extWarning
         ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Daten (Zusatzdaten oder Einträge ohne gültige ID) konnte nicht vollständig importiert und wurde übersprungen."
@@ -1192,25 +1317,50 @@
   // Decodes a wallet import hash into a typed payload object, or null if
   // the hash is not a recognized import format. Async because "i2:" requires
   // gzip decompression.
+  function decodeTokenBytes(token) {
+    try {
+      return base64UrlDecodeBytes(token);
+    } catch (e) {
+      throw asImportError(e, "corrupt");
+    }
+  }
+
+  function decodePayloadBytes(raw) {
+    try {
+      return decodeImportV2Bytes(raw);
+    } catch (e) {
+      throw asImportError(e, "corrupt");
+    }
+  }
+
   async function parseImportHashPayload(hash) {
     if (hash.startsWith("i2u:")) {
-      const raw = base64UrlDecodeBytes(hash.slice(4));
+      const raw = decodeTokenBytes(hash.slice(4));
       // i2u carries the payload uncompressed, so guard on the raw byte length.
       // Use the same ceiling as i2:'s post-decompress bound (2 MB) — i2: and
       // import: both already cap; this closes the last unguarded path.
       if (raw.length > 2 * 1024 * 1024) {
-        throw new Error("Import payload too large");
+        throw importError("too-large", "Import payload too large");
       }
-      const remote = decodeImportV2Bytes(raw);
+      const remote = decodePayloadBytes(raw);
       return { kind: "i2u", remote, label: "QR-Import (kurz)" };
     }
     if (hash.startsWith("i2:")) {
-      const compressed = base64UrlDecodeBytes(hash.slice(3));
+      const compressed = decodeTokenBytes(hash.slice(3));
       if (compressed.length > 512 * 1024) {
-        throw new Error("Import payload too large");
+        throw importError("too-large", "Import payload too large");
       }
-      const raw = await gzipDecompress(compressed, 2 * 1024 * 1024);
-      const remote = decodeImportV2Bytes(raw);
+      if (typeof DecompressionStream === "undefined") {
+        throw importError("unsupported-browser", "DecompressionStream not available");
+      }
+      let raw;
+      try {
+        raw = await gzipDecompress(compressed, 2 * 1024 * 1024);
+      } catch (e) {
+        const tooLarge = String((e && e.message) || "").includes("too large");
+        throw asImportError(e, tooLarge ? "too-large" : "corrupt");
+      }
+      const remote = decodePayloadBytes(raw);
       return { kind: "i2", remote, label: "QR-Import (kurz)" };
     }
     if (hash.startsWith("import:")) {
@@ -1218,12 +1368,17 @@
       // The legacy JSON path had no size guard (unlike i2:), so a multi-MB link
       // could freeze the tab in base64-decode + JSON.parse + merge. Cap it.
       if (b64.length > 3 * 1024 * 1024) {
-        throw new Error("Import payload too large");
+        throw importError("too-large", "Import payload too large");
       }
-      const payload = base64UrlDecode(b64);
+      let payload;
+      try {
+        payload = base64UrlDecode(b64);
+      } catch (e) {
+        throw asImportError(e, "corrupt");
+      }
       const remote = safeParse(payload);
       if (!remote || typeof remote !== "object") {
-        throw new Error("Invalid import payload");
+        throw importError("corrupt", "Invalid import payload");
       }
       return { kind: "import", remote, label: "Import-Link erkannt" };
     }
@@ -1247,6 +1402,19 @@
     };
   }
 
+  // A cancelled import goes back to the wallet that was open (the import link
+  // is replaced by its hash, the wallet stays loaded); without one, to the
+  // start page as before.
+  function leaveCancelledImport(options) {
+    const back = returnUserIdOf(options);
+    if (back) {
+      replaceHash(back);
+      return { userId: null, redirectedToPreview: false };
+    }
+    window.location.href = "index.html";
+    return { userId: null, redirectedToPreview: true };
+  }
+
   // Dispatches a parsed import payload between the preview overlay and the
   // persist-and-route path. Returns the standard tryImportFromHash shape.
   async function handleImportChoice(remote, label, options, hooks) {
@@ -1255,10 +1423,7 @@
     let mode = "persist";
     if (chooseMode) {
       mode = await chooseMode({ header: label || "Import erkannt" });
-      if (!mode) {
-        window.location.href = "index.html";
-        return { userId: null, redirectedToPreview: true };
-      }
+      if (!mode) return leaveCancelledImport(options);
     }
 
     if (mode === "preview" && openPreview) {
@@ -1271,8 +1436,7 @@
         theme,
       });
       if (ok) return { userId: null, redirectedToPreview: true };
-      window.location.href = "index.html";
-      return { userId: null, redirectedToPreview: true };
+      return leaveCancelledImport(options);
     }
 
     return {
@@ -1295,7 +1459,7 @@
         ? api.decodeActionHash(hash)
         : safeParse(base64UrlDecode(hash.slice(3)));
     if (!payload || typeof payload !== "object") {
-      throw new Error("Invalid action payload");
+      throw importError("corrupt", "Invalid action payload");
     }
 
     const payloadWalletId =
@@ -1317,7 +1481,7 @@
 
   function redirectAfterActionError(activeUserId) {
     if (activeUserId) {
-      window.location.hash = "#" + activeUserId;
+      replaceHash(activeUserId);
       return { userId: activeUserId, redirectedToPreview: false };
     }
     window.location.href = "index.html";
@@ -1336,7 +1500,7 @@
       );
       if (!shouldGoHome) {
         if (activeUserId) {
-          window.location.hash = "#" + activeUserId;
+          replaceHash(activeUserId);
           return {
             done: { userId: activeUserId, redirectedToPreview: false },
           };
@@ -1362,7 +1526,7 @@
         `Action Code gehört zu einem anderen Profil.\nZiel: ${targetUserId}\nAktuell: ${activeUserId}\nZu diesem Profil wechseln und buchen?`,
       );
       if (!shouldSwitch) {
-        window.location.hash = "#" + activeUserId;
+        replaceHash(activeUserId);
         return { done: { userId: activeUserId, redirectedToPreview: false } };
       }
     }
@@ -1392,7 +1556,7 @@
       alert(
         "Action Code ist unbekannt oder nicht mehr vorhanden.\nBuchung verweigert.",
       );
-      window.location.hash = "#" + targetUserId;
+      replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
     }
 
@@ -1401,7 +1565,7 @@
       alert(
         "Action Code wurde erneuert.\nBitte den neuen QR-Code nutzen.\nBuchung verweigert.",
       );
-      window.location.hash = "#" + targetUserId;
+      replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
     }
 
@@ -1426,10 +1590,10 @@
       alert(
         "Speichern fehlgeschlagen — Buchung verworfen (Speicher voll oder blockiert).",
       );
-      window.location.hash = "#" + targetUserId;
+      replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
     }
-    window.location.hash = "#" + targetUserId;
+    replaceHash(targetUserId);
     alert(
       type === "d"
         ? `${amount} Getränk(e) getrunken gebucht ✅`
@@ -1465,31 +1629,11 @@
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
-      const em = String((e && e.message) || "");
-      let msg;
-      if (hash.startsWith("i2:") && typeof DecompressionStream === "undefined") {
-        msg =
-          "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON.";
-      } else if (em.indexOf("too large") !== -1) {
-        msg =
-          "Import abgebrochen: Die Daten sind zu groß.\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.";
-      } else if (em.indexOf("Unsupported codec version") !== -1) {
-        msg =
-          "Import fehlgeschlagen ❌ — die Daten stammen aus einer neueren App-Version.\nBitte diese App aktualisieren.";
-      } else if (
-        em.indexOf("Truncated") !== -1 ||
-        em.indexOf("Invalid") !== -1 ||
-        em.indexOf("varint") !== -1 ||
-        em.indexOf("device index") !== -1 ||
-        em.indexOf("range") !== -1
-      ) {
-        msg =
-          "Import fehlgeschlagen ❌ — die Daten sind beschädigt oder unvollständig.\nBitte einen frischen Export-Link/QR nutzen.";
-      } else {
-        msg = "Import fehlgeschlagen ❌";
-      }
-      alert(msg);
-      window.location.hash = "";
+      alert(IMPORT_ERROR_MESSAGES[importErrorCode(e)]);
+      // Drop the failed link from the address bar without a history entry:
+      // back to the open wallet's hash, or no hash on a cold start (wallet-ui
+      // then shows the no-wallet state).
+      replaceHash(returnUserIdOf(options));
       return { userId: null, redirectedToPreview: false };
     }
   }
@@ -1512,6 +1656,9 @@
     applyImportedTheme,
     buildImportedWallet,
     importRemoteWallet,
+    IMPORT_SAVE_FAILED_MESSAGE,
+    IMPORT_ERROR_MESSAGES,
+    importErrorCode,
     parseImportHashPayload,
     handleImportChoice,
     parseActionCodeHash,
