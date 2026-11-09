@@ -603,6 +603,13 @@ Widerruf, wie FileSaver.js. Test: `tests/p3-6-export-share.test.js`.
 seen“ (`wallet-sync-ui.js:245`, `:254`). Die Klasse `action-code-meta`
 (`action-codes.js:903`) hat keine CSS-Regel.
 
+Umgesetzt: „Neuer Action Code“ (auch im Leer-Hinweis), „Geräte:“, „Geräte-ID“ (auch
+am Gerätesymbol in `wallet-device-ui.js`), „Zuletzt gesehen“ mit deutschem Datum über
+`formatDateTime` statt `toLocaleString()`. `.action-code-meta` bekommt `min-width: 0`
+und `overflow-wrap: anywhere`, damit lange Namen die Buttons nicht aus der Karte
+drücken. Begriffe wie „Action Code“, „Total“, „Read-Only“ bleiben (sie stehen so im
+Rest der App). Test: `tests/p3-7-german-strings.test.js`.
+
 ---
 
 ## Phase 4: Bedienung (erst nach Freigabe)

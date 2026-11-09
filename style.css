@@ -408,6 +408,11 @@ hr {
     flex-wrap: wrap;
 }
 
+.action-code-meta {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .action-code-label {
     font-weight: 700;
 }

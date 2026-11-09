@@ -1112,7 +1112,7 @@
 
     const btnAdd = document.createElement("button");
     btnAdd.type = "button";
-    btnAdd.textContent = "New action code";
+    btnAdd.textContent = "Neuer Action Code";
     btnAdd.addEventListener("click", () => {
       const walletNow = ctx.getWallet();
       if (!walletNow) return;
@@ -1148,7 +1148,7 @@
       const empty = document.createElement("div");
       empty.className = "action-codes-empty";
       empty.textContent =
-        "Noch keine Action Codes – klicke auf “New action code”.";
+        "Noch keine Action Codes – klicke auf „Neuer Action Code“.";
       ctx.container.appendChild(toolbar);
       ctx.container.appendChild(hint);
       if (ctx.showSoftLimitNotice) {

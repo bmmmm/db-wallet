@@ -46,7 +46,7 @@ test("after a wallet switch the panel shows the new wallet's global codes", () =
 test("wallet A with global code, switch to B, create code in B: B has only the new code", () => {
   const t = setup();
   t.switchTo("berta");
-  button(t.container, "New action code").click();
+  button(t.container, "Neuer Action Code").click();
   button(t.container, "🌍 Global").click();
   button(t.container, "Speichern").click();
 
