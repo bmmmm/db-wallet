@@ -1646,9 +1646,9 @@
           );
         }
 
-        // NB3: "gc" (globalActionCodes) codec block round-trips with the key intact
-        // (bearer credential). Relies on encode/decodeImportV2Bytes gc block
-        // (writeActionCodeEntry, key written verbatim; readActionCodeEntry hasType).
+        // NB3: "gc" (globalActionCodes) codec block round-trips a global code as
+        // global: scope "global", no key (a stored key is not exported — the gc
+        // key field is written empty), type/amount intact.
         try {
           const gcWallet = {
             userId: "selfcheck-gc",
@@ -1679,26 +1679,28 @@
           const gcCode = gcCodes.find((c) => c && c.id === "global:sc1");
           addCheck(
             result,
-            "gc block round-trips global code with key",
+            "gc block round-trips global code without key",
             !!gcCode &&
-              gcCode.key === "gckeysecret123" &&
+              !gcCode.key &&
+              gcCode.scope === "global" &&
               gcCode.type === "d" &&
               gcCode.amount === 2,
-            gcCode ? `key=${gcCode.key} type=${gcCode.type}` : "missing",
+            gcCode
+              ? `key=${gcCode.key} scope=${gcCode.scope} type=${gcCode.type}`
+              : "missing",
           );
         } catch (e) {
           addCheck(
             result,
-            "gc block round-trips global code with key",
+            "gc block round-trips global code without key",
             false,
             "threw=" + (e && e.message),
           );
         }
 
-        // NB3b: an import updates an existing local global code's label/amount/type
-        // but NEVER rotates its key (key rotation is local-only). Relies on
-        // buildImportedWallet's mergeActionCodes, which deliberately does not copy
-        // c.key. The remote wins on recency (newer updatedAt) yet the key is kept.
+        // NB3b: an import updates an existing global code's label/amount/type
+        // (remote wins on recency) but never adopts a key: global codes carry
+        // none (mergeGlobalActionCodes strips any stored or remote key).
         try {
           const uid = storage.ensureNonReservedUserId(
             "selfcheck-gckey-" + randomId(),
@@ -1755,15 +1757,19 @@
           const kept = codes.find((c) => c && c.id === "global:keep");
           addCheck(
             result,
-            "import never rotates existing global code key",
-            !!kept && kept.key === "LOCALKEYKEEP",
+            "import updates global code, never adopts a key",
+            !!kept &&
+              !kept.key &&
+              kept.scope === "global" &&
+              kept.label === "Remote" &&
+              kept.amount === 5,
             kept ? `key=${kept.key} amount=${kept.amount}` : "missing",
           );
           cleanupUid(uid);
         } catch (e) {
           addCheck(
             result,
-            "import never rotates existing global code key",
+            "import updates global code, never adopts a key",
             false,
             "threw=" + (e && e.message),
           );

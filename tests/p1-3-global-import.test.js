@@ -3,7 +3,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { makeEnv } = require("./harness");
 
-const TODO = { todo: "P1.3" };
 
 // Export written by the encoder at ff68cd5/2bd98b0: the "gc" block carries an
 // invented key "OLDGLOBALKEY" for global:g1; "ac" carries local code loc1.
@@ -19,7 +18,7 @@ function seedGlobal(S) {
   return wallet;
 }
 
-test("A4: scope survives export -> import on a second device and back", TODO, () => {
+test("A4: scope survives export -> import on a second device and back", () => {
   const a = makeEnv({ deviceKey: "devA" });
   const b = makeEnv({ deviceKey: "devB" });
   const wallet = seedGlobal(a.dbWalletStorage);
@@ -41,7 +40,7 @@ test("A4: scope survives export -> import on a second device and back", TODO, ()
   assert.equal(builtA.wallet.globalActionCodes[0].id, "global:x1");
 });
 
-test("A4: two exports of the same wallet are byte-identical", TODO, () => {
+test("A4: two exports of the same wallet are byte-identical", () => {
   const a = makeEnv({ deviceKey: "devA" });
   const wallet = seedGlobal(a.dbWalletStorage);
   const I = a.dbWalletImportV2;
@@ -50,7 +49,7 @@ test("A4: two exports of the same wallet are byte-identical", TODO, () => {
   assert.equal(x, y);
 });
 
-test("global codes carry no key after decode", TODO, () => {
+test("global codes carry no key after decode", () => {
   const a = makeEnv({ deviceKey: "devA" });
   const wallet = seedGlobal(a.dbWalletStorage);
   const I = a.dbWalletImportV2;
@@ -60,7 +59,7 @@ test("global codes carry no key after decode", TODO, () => {
   assert.ok(!g.key, "no key on a global code");
 });
 
-test("an old export (gc with invented key) still decodes; key dropped", TODO, () => {
+test("an old export (gc with invented key) still decodes; key dropped", () => {
   const w = makeEnv({ deviceKey: "devZ" });
   const I = w.dbWalletImportV2;
   const decoded = I.decodeImportV2Bytes(new Uint8Array(Buffer.from(OLD_EXPORT_B64, "base64url")));

@@ -96,7 +96,9 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 - **Codec extension blocks are order-sensitive** — they have no length prefix, so an
   old decoder stops at the first unknown block. New blocks (`se`, `gc`, `ck`) are written
   LAST and `ck` (integrity checksum) is absolutely last so it covers everything. `gc`
-  carries `globalActionCodes` (incl. keys — bearer credential, like `ac`).
+  carries `globalActionCodes` with an empty key field — global codes have no key
+  (`normalizeGlobalActionCodes`: scope "global", no key, amount 1..100); decode drops
+  the random key that pre-2026-11 exports wrote there, so old exports still import.
 - **Events are constructed and persisted only via `dbWalletStorage`** —
   `newEvent(wallet, type, n)` is the single event factory and
   `appendEvents(wallet, events)` the atomic append+save (rolls back and returns

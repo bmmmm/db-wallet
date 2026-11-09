@@ -439,6 +439,11 @@
           for (let i = 0; i < count; i++) {
             let code;
             [code, offset] = readActionCodeEntry(bytes, offset, true);
+            // Global codes carry no key. Exports written before P1.3 contain an
+            // invented random key here (and lost the scope); drop it and
+            // restore the scope so old exports import as proper global codes.
+            delete code.key;
+            code.scope = "global";
             globalActionCodes.push(code);
           }
           decoded.globalActionCodes = globalActionCodes;
@@ -896,7 +901,9 @@
 
     // optional extension: global action codes ("gc", v1) — the wallet-level 🌍
     // codes (wallet.globalActionCodes), same record layout as "ac" v2 (via
-    // writeActionCodeEntry, key included: the export is a bearer credential).
+    // writeActionCodeEntry). Global codes have no key: the key field is written
+    // as an empty string (same byte layout, so older decoders still parse it),
+    // which also keeps the export deterministic.
     // Written AFTER "se" and BEFORE "ck" so the integrity checksum still covers
     // it. An OLD decoder that doesn't know "gc" stops here (blocks have no length
     // prefix) — it simply skips the global codes, like any later unknown block.
@@ -907,12 +914,12 @@
     let globalCodes = rawGlobalCodes;
     try {
       const api = window.dbWalletActionCodes || null;
-      if (api && typeof api.normalizeActionCodes === "function") {
-        globalCodes = api.normalizeActionCodes(rawGlobalCodes);
+      if (api && typeof api.normalizeGlobalActionCodes === "function") {
+        globalCodes = api.normalizeGlobalActionCodes(rawGlobalCodes);
       }
     } catch (e) {
       console.warn(
-        "db-wallet: encode-v2 normalizeActionCodes (global) failed",
+        "db-wallet: encode-v2 normalizeGlobalActionCodes failed",
         e,
       );
     }
@@ -1070,8 +1077,8 @@
         : [];
       if (remoteGlobal.length || localGlobal.length) {
         const api = window.dbWalletActionCodes || null;
-        if (api && typeof api.mergeActionCodes === "function") {
-          local.globalActionCodes = api.mergeActionCodes(
+        if (api && typeof api.mergeGlobalActionCodes === "function") {
+          local.globalActionCodes = api.mergeGlobalActionCodes(
             localGlobal,
             remoteGlobal,
             local.deletedActionCodes,

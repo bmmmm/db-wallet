@@ -42,7 +42,8 @@ Vorgefertigte QR-Codes, die beim Scannen **sofort** buchen — Typ *Trinken* ode
   auf das gerade geöffnete Wallet. Beim Anwenden fragt die App **immer nach**
   (Betrag/Typ werden genannt); bei mehreren Wallets wird zuerst das Ziel gewählt,
   ist keins offen, kommt ein Hinweis. Die Verwaltungsliste globaler Codes wird auf
-  dem Wallet gespeichert.
+  dem Wallet gespeichert und reist im Export mit (ohne Key — globale Codes haben
+  keinen; Scope bleibt beim Import erhalten).
 
 Gut zu wissen:
 

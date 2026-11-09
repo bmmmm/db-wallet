@@ -241,6 +241,32 @@
     return trimmed;
   }
 
+  // Global ('🌍') codes have no key — they are applied by id via `#acg:` with a
+  // confirm, not booked against a device secret. normalizeActionCodes is the
+  // local-code normalizer (invents a key, drops scope); this wrapper restores
+  // the global shape: scope "global", no key, amount 1..100. Used by the codec
+  // (encode and decode), the import merge and the save reconcile, so a global
+  // code keeps its scope across export -> import and two exports are identical.
+  function normalizeGlobalActionCodes(list, now = Date.now()) {
+    const normalized = normalizeActionCodes(list, now);
+    const out = normalized.map((c) => {
+      delete c.key;
+      c.scope = "global";
+      const amount = clampGlobalAmount(c.amount);
+      c.amount = amount === null ? 1 : amount;
+      return c;
+    });
+    if (typeof normalized._dbwTrimmed === "number") {
+      out._dbwTrimmed = normalized._dbwTrimmed;
+    }
+    return out;
+  }
+
+  function mergeGlobalActionCodes(localList, remoteList, deleted) {
+    const merged = mergeActionCodes(localList, remoteList, deleted);
+    return normalizeGlobalActionCodes(merged);
+  }
+
   // --- Deletion model ---------------------------------------------------
   // wallet.deletedActionCodes = { [codeId]: deletedAtMs }, the newest
   // DELETED_LIMIT entries. Every save reconciles with the persisted copy and
@@ -1213,6 +1239,8 @@
 
   window.dbWalletActionCodes = {
     mergeActionCodes,
+    mergeGlobalActionCodes,
+    normalizeGlobalActionCodes,
     removeActionCode,
     recordDeletedActionCode,
     applyDeletedActionCodes,

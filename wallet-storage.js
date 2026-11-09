@@ -652,6 +652,17 @@
     if (codesApi && typeof codesApi.ensureWalletActionCodes === "function") {
       codesApi.ensureWalletActionCodes(wallet);
     }
+    // Global codes: scope "global", no key. Also repairs codes stored by an
+    // import before P1.3 (invented key, scope dropped).
+    if (
+      Array.isArray(wallet.globalActionCodes) &&
+      codesApi &&
+      typeof codesApi.normalizeGlobalActionCodes === "function"
+    ) {
+      wallet.globalActionCodes = codesApi.normalizeGlobalActionCodes(
+        wallet.globalActionCodes,
+      );
+    }
     ensureWalletDevices(wallet);
     // syncPeers is a plain object map keyed by peer key — union keys, local wins.
     if (
