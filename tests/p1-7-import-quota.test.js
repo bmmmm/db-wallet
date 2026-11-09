@@ -19,7 +19,7 @@ test("import into full storage ends with exactly one error message", () => {
   const res = I.importRemoteWallet(remoteWithEvents(200), {});
   assert.equal(w._alerts.length, 1, JSON.stringify(w._alerts));
   assert.ok(!w._alerts[0].includes("importiert ✅"), w._alerts[0]);
-  assert.equal(w.location.hash, "#i2:something", "no routing to the wallet");
+  assert.equal(w.location.hash, "", "no routing to the wallet, import link dropped (P2.3)");
   assert.equal(res, null);
   assert.equal(w.localStorage.getItem("db-wallet:rita"), null);
 });

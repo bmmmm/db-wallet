@@ -418,6 +418,25 @@
             verErr,
           );
 
+          // P2.3: a falsified checksum is reported by error code, which maps
+          // to the checksum message (not the generic "Import fehlgeschlagen").
+          let ckCode = "";
+          try {
+            const ckBytes = importV2.encodeImportV2Bytes(wallet, "");
+            ckBytes[ckBytes.length - 1] ^= 0xff;
+            importV2.decodeImportV2Bytes(ckBytes);
+          } catch (e) {
+            ckCode = (e && e.code) || "no-code";
+          }
+          addCheck(
+            result,
+            "v2 checksum mismatch has error code",
+            ckCode === "checksum" &&
+              typeof importV2.IMPORT_ERROR_MESSAGES === "object" &&
+              /Prüfsumme/.test(importV2.IMPORT_ERROR_MESSAGES.checksum),
+            ckCode,
+          );
+
           // IV2: an unknown extension version stops parsing cleanly (no desync,
           // no false warning) instead of misreading the rest of the payload.
           const baseW = {

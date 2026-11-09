@@ -30,6 +30,50 @@
 
   // Point the URL at `userId` (or drop the fragment for "") without a history
   // entry or a hashchange (P2.1): the caller routes exactly once itself.
+  // Import failures carry a machine-readable `code` (P2.3); tryImportFromHash
+  // maps it through IMPORT_ERROR_MESSAGES instead of matching message text.
+  function importError(code, message) {
+    const e = new Error(message);
+    e.code = code;
+    return e;
+  }
+
+  const IMPORT_ERROR_MESSAGES = {
+    checksum:
+      "Import beschädigt ❌ — die Prüfsumme stimmt nicht (Link unvollständig oder verändert).\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.",
+    truncated:
+      "Import fehlgeschlagen ❌ — die Daten sind unvollständig (Link abgeschnitten?).\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.",
+    corrupt:
+      "Import fehlgeschlagen ❌ — die Daten sind beschädigt.\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.",
+    "too-large":
+      "Import abgebrochen: Die Daten sind zu groß.\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.",
+    "unsupported-version":
+      "Import fehlgeschlagen ❌ — die Daten stammen aus einer neueren App-Version.\nBitte diese App aktualisieren.",
+    "unsupported-browser":
+      "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON.",
+    unknown: "Import fehlgeschlagen ❌",
+  };
+
+  function importErrorCode(e) {
+    const code = e && typeof e.code === "string" ? e.code : "";
+    return Object.prototype.hasOwnProperty.call(IMPORT_ERROR_MESSAGES, code)
+      ? code
+      : "unknown";
+  }
+
+  // Re-throw anything a decode step raised without a code as corrupt data
+  // (atob, DecompressionStream, TextDecoder errors on garbage input).
+  function asImportError(e, fallbackCode) {
+    if (e && typeof e.code === "string" && e.code) return e;
+    return importError(fallbackCode, String((e && e.message) || e || ""));
+  }
+
+  function returnUserIdOf(options) {
+    return options && typeof options.returnToUserId === "string"
+      ? options.returnToUserId
+      : "";
+  }
+
   function replaceHash(userId) {
     const target = String(userId || "");
     if (helpers.replaceHashSilently && helpers.replaceHashSilently(target)) return;
@@ -154,17 +198,17 @@
     let multiplier = 1;
     while (true) {
       if (offset >= bytes.length) {
-        throw new Error("Truncated varint");
+        throw importError("truncated", "Truncated varint");
       }
       const b = bytes[offset++];
       result += (b & 0x7f) * multiplier;
       if (result > Number.MAX_SAFE_INTEGER) {
-        throw new Error("Varint too large");
+        throw importError("corrupt", "Varint too large");
       }
       if ((b & 0x80) === 0) break;
       multiplier *= 0x80;
       if (multiplier > Number.MAX_SAFE_INTEGER) {
-        throw new Error("Varint too large");
+        throw importError("corrupt", "Varint too large");
       }
     }
     return [result, offset];
@@ -175,7 +219,7 @@
   // silently-corrupted strings/ids).
   function sliceChecked(bytes, offset, len) {
     if (typeof len !== "number" || len < 0 || offset + len > bytes.length) {
-      throw new Error("Truncated payload");
+      throw importError("truncated", "Truncated payload");
     }
     return bytes.slice(offset, offset + len);
   }
@@ -372,7 +416,7 @@
         // Reject an out-of-range device index instead of silently mis-attributing
         // the event to a bogus "dev" device.
         if (deviceIndex >= deviceKeys.length) {
-          throw new Error("Invalid device index");
+          throw importError("corrupt", "Invalid device index");
         }
         const deviceKey = deviceKeys[deviceIndex];
         id = `${deviceKey}.${seq.toString(36)}`;
@@ -389,7 +433,7 @@
 
       const ts = tsMin * 60000 + withinMinute;
       if (ts > Number.MAX_SAFE_INTEGER) {
-        throw new Error("Timestamp out of range");
+        throw importError("corrupt", "Timestamp out of range");
       }
       const ev = {
         id,
@@ -602,11 +646,14 @@
       bytes[1] !== 98 || // b
       bytes[2] !== 119 // w
     ) {
-      throw new Error("Invalid v2 payload");
+      throw importError("corrupt", "Invalid v2 payload");
     }
     if (bytes[3] !== 2) {
       // Magic matches but the codec version is newer than this build understands.
-      throw new Error("Unsupported codec version " + bytes[3]);
+      throw importError(
+        "unsupported-version",
+        "Unsupported codec version " + bytes[3],
+      );
     }
 
     // Verify the integrity checksum INDEPENDENTLY of the extension-block cursor:
@@ -634,7 +681,7 @@
           helpers.fnv1a64(bytes.subarray(0, tlen - 7)) & 0xffffffffn,
         );
         if (stored !== actual) {
-          throw new Error("Import beschädigt (Prüfsumme stimmt nicht)");
+          throw importError("checksum", "Import checksum mismatch");
         }
       }
     }
@@ -1245,10 +1292,12 @@
     const { userId, wallet } = buildImportedWallet(remote);
     ensureDeviceSeq(wallet);
     // A failed save (storage full/blocked) must not end in "importiert ✅" and a
-    // redirect to a wallet that holds none of the imported data: report it once
-    // and stay on the import link so it can be retried after freeing space.
+    // redirect to a wallet that holds none of the imported data: report it once.
+    // The import link is dropped from the address bar (back to the wallet that
+    // was open, if any) — a reload must not replay the failing import.
     if (!saveWallet(wallet, { quiet: true })) {
       alert(IMPORT_SAVE_FAILED_MESSAGE);
+      replaceHash(returnUserIdOf(options));
       return null;
     }
     applyImportedTheme(remote, options);
@@ -1264,25 +1313,50 @@
   // Decodes a wallet import hash into a typed payload object, or null if
   // the hash is not a recognized import format. Async because "i2:" requires
   // gzip decompression.
+  function decodeTokenBytes(token) {
+    try {
+      return base64UrlDecodeBytes(token);
+    } catch (e) {
+      throw asImportError(e, "corrupt");
+    }
+  }
+
+  function decodePayloadBytes(raw) {
+    try {
+      return decodeImportV2Bytes(raw);
+    } catch (e) {
+      throw asImportError(e, "corrupt");
+    }
+  }
+
   async function parseImportHashPayload(hash) {
     if (hash.startsWith("i2u:")) {
-      const raw = base64UrlDecodeBytes(hash.slice(4));
+      const raw = decodeTokenBytes(hash.slice(4));
       // i2u carries the payload uncompressed, so guard on the raw byte length.
       // Use the same ceiling as i2:'s post-decompress bound (2 MB) — i2: and
       // import: both already cap; this closes the last unguarded path.
       if (raw.length > 2 * 1024 * 1024) {
-        throw new Error("Import payload too large");
+        throw importError("too-large", "Import payload too large");
       }
-      const remote = decodeImportV2Bytes(raw);
+      const remote = decodePayloadBytes(raw);
       return { kind: "i2u", remote, label: "QR-Import (kurz)" };
     }
     if (hash.startsWith("i2:")) {
-      const compressed = base64UrlDecodeBytes(hash.slice(3));
+      const compressed = decodeTokenBytes(hash.slice(3));
       if (compressed.length > 512 * 1024) {
-        throw new Error("Import payload too large");
+        throw importError("too-large", "Import payload too large");
       }
-      const raw = await gzipDecompress(compressed, 2 * 1024 * 1024);
-      const remote = decodeImportV2Bytes(raw);
+      if (typeof DecompressionStream === "undefined") {
+        throw importError("unsupported-browser", "DecompressionStream not available");
+      }
+      let raw;
+      try {
+        raw = await gzipDecompress(compressed, 2 * 1024 * 1024);
+      } catch (e) {
+        const tooLarge = String((e && e.message) || "").includes("too large");
+        throw asImportError(e, tooLarge ? "too-large" : "corrupt");
+      }
+      const remote = decodePayloadBytes(raw);
       return { kind: "i2", remote, label: "QR-Import (kurz)" };
     }
     if (hash.startsWith("import:")) {
@@ -1290,12 +1364,17 @@
       // The legacy JSON path had no size guard (unlike i2:), so a multi-MB link
       // could freeze the tab in base64-decode + JSON.parse + merge. Cap it.
       if (b64.length > 3 * 1024 * 1024) {
-        throw new Error("Import payload too large");
+        throw importError("too-large", "Import payload too large");
       }
-      const payload = base64UrlDecode(b64);
+      let payload;
+      try {
+        payload = base64UrlDecode(b64);
+      } catch (e) {
+        throw asImportError(e, "corrupt");
+      }
       const remote = safeParse(payload);
       if (!remote || typeof remote !== "object") {
-        throw new Error("Invalid import payload");
+        throw importError("corrupt", "Invalid import payload");
       }
       return { kind: "import", remote, label: "Import-Link erkannt" };
     }
@@ -1319,6 +1398,19 @@
     };
   }
 
+  // A cancelled import goes back to the wallet that was open (the import link
+  // is replaced by its hash, the wallet stays loaded); without one, to the
+  // start page as before.
+  function leaveCancelledImport(options) {
+    const back = returnUserIdOf(options);
+    if (back) {
+      replaceHash(back);
+      return { userId: null, redirectedToPreview: false };
+    }
+    window.location.href = "index.html";
+    return { userId: null, redirectedToPreview: true };
+  }
+
   // Dispatches a parsed import payload between the preview overlay and the
   // persist-and-route path. Returns the standard tryImportFromHash shape.
   async function handleImportChoice(remote, label, options, hooks) {
@@ -1327,10 +1419,7 @@
     let mode = "persist";
     if (chooseMode) {
       mode = await chooseMode({ header: label || "Import erkannt" });
-      if (!mode) {
-        window.location.href = "index.html";
-        return { userId: null, redirectedToPreview: true };
-      }
+      if (!mode) return leaveCancelledImport(options);
     }
 
     if (mode === "preview" && openPreview) {
@@ -1343,8 +1432,7 @@
         theme,
       });
       if (ok) return { userId: null, redirectedToPreview: true };
-      window.location.href = "index.html";
-      return { userId: null, redirectedToPreview: true };
+      return leaveCancelledImport(options);
     }
 
     return {
@@ -1367,7 +1455,7 @@
         ? api.decodeActionHash(hash)
         : safeParse(base64UrlDecode(hash.slice(3)));
     if (!payload || typeof payload !== "object") {
-      throw new Error("Invalid action payload");
+      throw importError("corrupt", "Invalid action payload");
     }
 
     const payloadWalletId =
@@ -1537,31 +1625,11 @@
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
-      const em = String((e && e.message) || "");
-      let msg;
-      if (hash.startsWith("i2:") && typeof DecompressionStream === "undefined") {
-        msg =
-          "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON.";
-      } else if (em.indexOf("too large") !== -1) {
-        msg =
-          "Import abgebrochen: Die Daten sind zu groß.\nBitte einen frischen Export-Link/QR vom Quellgerät nutzen.";
-      } else if (em.indexOf("Unsupported codec version") !== -1) {
-        msg =
-          "Import fehlgeschlagen ❌ — die Daten stammen aus einer neueren App-Version.\nBitte diese App aktualisieren.";
-      } else if (
-        em.indexOf("Truncated") !== -1 ||
-        em.indexOf("Invalid") !== -1 ||
-        em.indexOf("varint") !== -1 ||
-        em.indexOf("device index") !== -1 ||
-        em.indexOf("range") !== -1
-      ) {
-        msg =
-          "Import fehlgeschlagen ❌ — die Daten sind beschädigt oder unvollständig.\nBitte einen frischen Export-Link/QR nutzen.";
-      } else {
-        msg = "Import fehlgeschlagen ❌";
-      }
-      alert(msg);
-      window.location.hash = "";
+      alert(IMPORT_ERROR_MESSAGES[importErrorCode(e)]);
+      // Drop the failed link from the address bar without a history entry:
+      // back to the open wallet's hash, or no hash on a cold start (wallet-ui
+      // then shows the no-wallet state).
+      replaceHash(returnUserIdOf(options));
       return { userId: null, redirectedToPreview: false };
     }
   }
@@ -1585,6 +1653,8 @@
     buildImportedWallet,
     importRemoteWallet,
     IMPORT_SAVE_FAILED_MESSAGE,
+    IMPORT_ERROR_MESSAGES,
+    importErrorCode,
     parseImportHashPayload,
     handleImportChoice,
     parseActionCodeHash,
