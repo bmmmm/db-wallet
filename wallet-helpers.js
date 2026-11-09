@@ -395,6 +395,32 @@
     }
   }
 
+  // Object URLs of a download stay valid this long. Revoking right after
+  // click() can cancel the download in Safari (the click only schedules it);
+  // FileSaver.js waits 40 s for the same reason.
+  const BLOB_URL_REVOKE_MS = 40000;
+
+  // Saves `blob` as `filename` via a temporary <a download>. The single path
+  // for every Blob download (JSON backup, export QR PNG, action-code QR PNG).
+  function downloadBlob(blob, filename) {
+    if (!blob || typeof URL === "undefined" || !URL.createObjectURL) return false;
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => {
+      try {
+        URL.revokeObjectURL(href);
+      } catch (e) {
+        // ignore
+      }
+    }, BLOB_URL_REVOKE_MS);
+    return true;
+  }
+
   window.dbWalletHelpers = {
     STORAGE_PREFIX,
     REGISTRY_KEY,
@@ -428,5 +454,7 @@
     normalizeUserId,
     replaceHashSilently,
     drawQrToCanvas,
+    BLOB_URL_REVOKE_MS,
+    downloadBlob,
   };
 })();

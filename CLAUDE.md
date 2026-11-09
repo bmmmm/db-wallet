@@ -75,7 +75,7 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-sync.js` | Wallet-Sync-Logik |
 | `wallet-history-ui.js` | Verlaufs-UI |
 | `wallet-device-ui.js` | Geräte-UI |
-| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
+| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`, `downloadBlob` = the one Blob-download path, revokes late); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
 | `hash-router.js` | Client-seitiges Routing via URL-Hash |
 | `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |

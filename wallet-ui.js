@@ -163,6 +163,7 @@
     const qrHint = document.getElementById("qr-hint");
     const qrCanvas = document.getElementById("qr-canvas");
     const qrUrl = document.getElementById("qr-url");
+    const exportUrlActions = document.getElementById("export-url-actions");
     const topRow = document.querySelector(".top-row");
     let syncStatusLine = document.getElementById("sync-status-line");
     const actionCodesPanel = document.getElementById("action-codes-panel");
@@ -491,6 +492,13 @@
           qrHint,
           qrCanvas,
           qrUrl,
+          exportUrlActions,
+          btnCopyExportUrl: document.getElementById("btn-copy-export-url"),
+          btnShareExportUrl: document.getElementById("btn-share-export-url"),
+          exportUrlStatus: document.getElementById("export-url-status"),
+          btnCopyQrUrl: document.getElementById("btn-copy-qr-url"),
+          btnShareQrUrl: document.getElementById("btn-share-qr-url"),
+          qrUrlStatus: document.getElementById("qr-url-status"),
         },
         getWallet: () => wallet,
         saveWallet: (w) => saveWallet(w),
@@ -840,13 +848,7 @@
       const blob = new Blob([JSON.stringify(data, null, 2)], {
         type: "application/json",
       });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      helpers.downloadBlob(blob, filename);
     }
 
     function downloadCurrentWalletBackup(tag) {

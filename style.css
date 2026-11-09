@@ -174,6 +174,7 @@ pre {
 #pay-options,
 #export-options,
 #export-url,
+#export-url-actions,
 #qr-box,
 #file-import {
     display: none;
@@ -584,12 +585,36 @@ hr {
 
 .qr-box canvas {
     image-rendering: pixelated;
+    /* JS sets the exact CSS width (backing store / devicePixelRatio). */
     width: 100%;
-    max-width: 360px;
+    max-width: min(360px, 100%);
     height: auto;
     border-radius: 10px;
     background: #ffffff;
     cursor: pointer;
+}
+
+/* Kopieren / Teilen under the export link and the QR link (P3.6). */
+.export-link-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.55rem;
+}
+
+.qr-box .export-link-actions {
+    justify-content: center;
+    margin-top: 0;
+}
+
+.export-link-actions button[hidden] {
+    display: none;
+}
+
+.export-link-status {
+    color: var(--muted);
+    font-size: 0.92rem;
 }
 
 #qr-url {

@@ -160,6 +160,11 @@
                
                 aria-label="Export-Link"
             />
+            <div id="export-url-actions" class="export-link-actions">
+                <button id="btn-copy-export-url" type="button">Kopieren 📋</button>
+                <button id="btn-share-export-url" type="button" hidden>Teilen 📤</button>
+                <span id="export-url-status" class="export-link-status" role="status" aria-live="polite"></span>
+            </div>
             <div id="qr-box" class="qr-box">
                 <div class="qr-hint" id="qr-hint"></div>
                 <canvas id="qr-canvas" aria-label="QR-Code"></canvas>
@@ -170,6 +175,11 @@
                     inputmode="none"
                     aria-label="QR-Code Link"
                 />
+                <div class="export-link-actions">
+                    <button id="btn-copy-qr-url" type="button">Kopieren 📋</button>
+                    <button id="btn-share-qr-url" type="button" hidden>Teilen 📤</button>
+                    <span id="qr-url-status" class="export-link-status" role="status" aria-live="polite"></span>
+                </div>
             </div>
         </div>
 

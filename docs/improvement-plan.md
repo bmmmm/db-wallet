@@ -587,6 +587,16 @@ und, wo vorhanden, „Teilen“ ergänzen. Der JSON-Download widerruft die Blob-
 (`wallet-ui.js:829`), der PNG-Pfad wartet eine Sekunde; angleichen, weil Safari sonst
 den Download verlieren kann (Verdacht aus dem Review).
 
+Umgesetzt: „Kopieren 📋“ und „Teilen 📤“ unter dem Linkfeld und unter dem QR-Link
+(statische Buttons in `wallet.html`, „Teilen“ nur mit `navigator.share`). Kopieren nutzt
+`navigator.clipboard.writeText`, sonst `document.execCommand("copy")`, sonst bleibt der
+Link markiert mit Hinweis; ein fehlgeschlagenes Teilen fällt auf Kopieren zurück, ein
+abgebrochenes nicht. Der QR-Hinweis verspricht kein Kopieren per Tippen mehr. Scharfer
+QR: Canvas in `devicePixelRatio`, ganzzahlige Gerätepixel pro Modul, CSS-Breite =
+Canvas / dpr. Abweichung: Statt eine Sekunde warten jetzt alle drei Blob-Downloads
+(JSON, Export-PNG, Aktionscode-PNG) über `dbWalletHelpers.downloadBlob` 40 s vor dem
+Widerruf, wie FileSaver.js. Test: `tests/p3-6-export-share.test.js`.
+
 ### P3.7 Englische Reststrings eindeutschen
 
 „New action code“ (`action-codes.js:1003`, `:1049`), „Devices:“, „Device ID“, „Last

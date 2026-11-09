@@ -25,7 +25,117 @@
       if (ctx) ctx.clearRect(0, 0, refs.qrCanvas.width, refs.qrCanvas.height);
     }
     if (refs && refs.qrUrl) refs.qrUrl.value = "";
+    setStatus(refs && refs.qrUrlStatus, "");
     lastQrUrl = "";
+  }
+
+  // Shows the classic link field with `url` (and its Kopieren/Teilen row), or
+  // hides both for an empty url.
+  function setExportUrl(url) {
+    if (!refs || !refs.elExportUrl) return;
+    const show = !!url;
+    refs.elExportUrl.value = url || "";
+    refs.elExportUrl.style.display = show ? "block" : "none";
+    if (refs.exportUrlActions) refs.exportUrlActions.style.display = show ? "flex" : "none";
+    setStatus(refs.exportUrlStatus, "");
+    if (show) updateShareButtons();
+  }
+
+  // --- Kopieren / Teilen -------------------------------------------------------
+
+  function getNavigator() {
+    return (typeof window !== "undefined" && window.navigator) || null;
+  }
+
+  function canShare() {
+    const nav = getNavigator();
+    return !!(nav && typeof nav.share === "function");
+  }
+
+  // "Teilen" only where the Web Share API exists (mostly mobile).
+  function updateShareButtons() {
+    if (!refs) return;
+    const hide = !canShare();
+    if (refs.btnShareExportUrl) refs.btnShareExportUrl.hidden = hide;
+    if (refs.btnShareQrUrl) refs.btnShareQrUrl.hidden = hide;
+  }
+
+  function setStatus(el, text) {
+    if (el) el.textContent = text;
+  }
+
+  function selectField(el) {
+    if (!el) return;
+    try {
+      el.focus({ preventScroll: true });
+    } catch (e) {
+      try {
+        el.focus();
+      } catch (e2) {
+        // ignore
+      }
+    }
+    try {
+      el.select();
+      el.setSelectionRange(0, String(el.value || "").length);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Legacy path for browsers without the async Clipboard API (or when it is
+  // blocked, e.g. on plain http): copies the selection of `field`.
+  function execCopy(field) {
+    selectField(field);
+    try {
+      return typeof document.execCommand === "function" && document.execCommand("copy") === true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function copyLink(field, statusEl) {
+    const url = field ? String(field.value || "") : "";
+    if (!url) return false;
+    const nav = getNavigator();
+    let ok = false;
+    if (nav && nav.clipboard && typeof nav.clipboard.writeText === "function") {
+      try {
+        await nav.clipboard.writeText(url);
+        ok = true;
+      } catch (e) {
+        ok = false;
+      }
+    }
+    if (!ok) ok = execCopy(field);
+    if (ok) {
+      setStatus(statusEl, "Link kopiert.");
+    } else {
+      selectField(field);
+      setStatus(
+        statusEl,
+        "Kopieren nicht möglich: Der Link ist markiert, bitte selbst kopieren.",
+      );
+    }
+    return ok;
+  }
+
+  async function shareLink(field, statusEl) {
+    const url = field ? String(field.value || "") : "";
+    if (!url) return;
+    const nav = getNavigator();
+    if (!nav || typeof nav.share !== "function") {
+      await copyLink(field, statusEl);
+      return;
+    }
+    setStatus(statusEl, "");
+    try {
+      await nav.share({ title: "db-wallet Export", url });
+    } catch (e) {
+      // AbortError = the user closed the share sheet: nothing to do.
+      if (e && e.name === "AbortError") return;
+      await copyLink(field, statusEl);
+    }
   }
 
   function invalidateQrCache() {
@@ -45,8 +155,7 @@
 
   function clear() {
     if (!refs) return;
-    refs.elExportUrl.value = "";
-    refs.elExportUrl.style.display = "none";
+    setExportUrl("");
     clearQr();
   }
 
@@ -151,7 +260,14 @@
     }
     const ecc = window.qrcodegen.QrCode.Ecc.LOW;
     const qr = window.qrcodegen.QrCode.encodeText(url, ecc);
-    const maxPx = Math.min(360, Math.max(220, window.innerWidth - 48));
+    // CSS size of the code, and the backing store at devicePixelRatio with an
+    // integer number of device pixels per module: the browser then shows it
+    // 1:1 instead of stretching a small canvas (blurry or uneven modules).
+    const vw = Number(window.innerWidth);
+    const cssMax = Number.isFinite(vw) && vw > 0 ? Math.min(360, Math.max(220, vw - 48)) : 360;
+    const dprRaw = Number(window.devicePixelRatio);
+    const dpr = Number.isFinite(dprRaw) && dprRaw >= 1 ? Math.min(dprRaw, 4) : 1;
+    const maxPx = Math.floor(cssMax * dpr);
     const canvas = refs.qrCanvas;
     if (helpers && typeof helpers.drawQrToCanvas === "function") {
       helpers.drawQrToCanvas(canvas, url, { maxPx });
@@ -180,9 +296,12 @@
         }
       }
     }
+    // Only the width: height stays "auto" (style.css), so a narrower
+    // container (max-width) keeps the code square.
+    canvas.style.width = `${canvas.width / dpr}px`;
     if (refs.qrBox) refs.qrBox.style.display = "flex";
     if (refs.qrHint) {
-      refs.qrHint.textContent = `Tippen: QR=Download • Link=Kopieren • QR v${qr.version} (L) • ${url.length} Zeichen`;
+      refs.qrHint.textContent = `QR antippen = als PNG speichern • QR v${qr.version} (L) • ${url.length} Zeichen`;
     }
     lastQrUrl = url;
     storeCachedQrUrl(url);
@@ -190,10 +309,9 @@
       refs.qrUrl.value = url;
       selectQrUrl();
     }
-    if (refs.elExportUrl) {
-      refs.elExportUrl.value = "";
-      refs.elExportUrl.style.display = "none";
-    }
+    setStatus(refs.qrUrlStatus, "");
+    updateShareButtons();
+    setExportUrl("");
   }
 
   function downloadQrPng(url) {
@@ -248,9 +366,9 @@
     };
 
     const saveBlob = (blob) => {
-      const objectUrl = URL.createObjectURL(blob);
-      triggerDownload(objectUrl, filename);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      if (helpers && typeof helpers.downloadBlob === "function") {
+        helpers.downloadBlob(blob, filename);
+      }
     };
 
     if (canvas.toBlob) {
@@ -305,8 +423,7 @@
   // of throwing it away (P2.5). Real QR scaling is P5.5.
   function showCompactLinkInstead(url) {
     if (!refs || !refs.elExportUrl) return;
-    refs.elExportUrl.value = url;
-    refs.elExportUrl.style.display = "block";
+    setExportUrl(url);
     alert(
       `Zu groß für einen QR-Code. Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
     );
@@ -450,8 +567,7 @@
             `Achtung: Der Export-Link ist sehr lang (${url.length} Zeichen) und funktioniert evtl. nicht überall. Für große Wallets bitte den QR-Export oder JSON-Download nutzen.`,
           );
         }
-        refs.elExportUrl.value = url;
-        refs.elExportUrl.style.display = "block";
+        setExportUrl(url);
         refs.elExportUrl.focus();
         refs.elExportUrl.select();
         clearQr();
@@ -476,6 +592,15 @@
       refs.qrUrl.addEventListener("focus", selectQrUrl);
       refs.qrUrl.addEventListener("click", selectQrUrl);
     }
+    const bind = (btn, fn, field, status) => {
+      if (btn) btn.addEventListener("click", () => fn(field, status));
+    };
+    bind(refs.btnCopyExportUrl, copyLink, refs.elExportUrl, refs.exportUrlStatus);
+    bind(refs.btnShareExportUrl, shareLink, refs.elExportUrl, refs.exportUrlStatus);
+    bind(refs.btnCopyQrUrl, copyLink, refs.qrUrl, refs.qrUrlStatus);
+    bind(refs.btnShareQrUrl, shareLink, refs.qrUrl, refs.qrUrlStatus);
+    updateShareButtons();
+
     if (refs.qrCanvas) {
       refs.qrCanvas.addEventListener("click", () => {
         if (!lastQrUrl) return;
@@ -488,5 +613,7 @@
     init,
     clear,
     openSection,
+    copyLink,
+    shareLink,
   };
 })();
