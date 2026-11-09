@@ -1,12 +1,15 @@
 :root {
-    --bg: #0d1118;
-    --panel: #111827;
-    --border: #1c2434;
-    --accent: #9ec5ff;
-    --accent-strong: #7fb8ff;
-    --text: #e8ecf4;
-    --muted: #b5becd;
-    --danger: #ef9a9a;
+    /* Fallback = Lilac Carbon (themes.css); theme.js always sets data-theme. */
+    --bg: #121322;
+    --panel: #181a2b;
+    --border: #242842;
+    --accent: #c7b6ff;
+    --accent-strong: #b59bff;
+    --text: #f0edff;
+    --muted: #c5c2d8;
+    --danger: #f7a3c0;
+    --glow: rgba(199, 182, 255, 0.25);
+    color-scheme: dark;
     --shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
     font-family:
         "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas,
@@ -78,7 +81,7 @@ button {
 
 button:hover {
     border-color: var(--accent);
-    box-shadow: 0 6px 18px rgba(125, 211, 252, 0.25);
+    box-shadow: 0 6px 18px var(--glow);
     transform: translateY(-1px);
 }
 
@@ -92,7 +95,13 @@ a {
 }
 
 a:hover {
-    color: var(--accent);
+    color: var(--text);
+}
+
+/* One visible focus ring for every focusable element (keyboard focus). */
+:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
 }
 
 input[type="text"],
@@ -115,9 +124,8 @@ input[type="text"]:focus,
 input[type="number"]:focus,
 #export-url:focus,
 #delete-range:focus {
-    outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2);
+    box-shadow: 0 0 0 3px var(--glow);
 }
 
 input[type="text"] {
@@ -178,7 +186,7 @@ hr {
 .theme-btn.active {
     border-color: var(--accent);
     color: var(--accent-strong);
-    box-shadow: 0 6px 18px rgba(34, 211, 238, 0.25);
+    box-shadow: 0 6px 18px var(--glow);
 }
 
 .raw-toggle {
@@ -273,8 +281,6 @@ hr {
 .action-codes-summary:focus-visible,
 .wallet-actions-summary:focus-visible,
 .theme-summary:focus-visible {
-    outline: 2px solid rgba(34, 211, 238, 0.35);
-    outline-offset: 2px;
     border-radius: 10px;
 }
 
@@ -843,11 +849,6 @@ body[data-no-wallet="1"] > :not(#global-action-message) {
 .global-action-card:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow);
-}
-
-.global-action-card:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
 }
 
 .global-action-card-title {

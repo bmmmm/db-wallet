@@ -479,6 +479,18 @@ Alle Pakete sind klein. Messwerte stammen aus dem Review (headless Chromium, 320
   `themes.css` bekommt je Theme `color-scheme: dark` oder `light`, damit Checkboxen und
   Scrollbars dem Theme folgen statt dem Betriebssystem.
 
+**Umgesetzt, Abweichungen.** `--accent-strong` ist nur Textfarbe (per `grep`
+geprüft), deshalb keine eigene Variable; die Vorschlagswerte für Paper Mint und Peach
+Cloud sind übernommen, `tests/p3-1-theme.test.js` rechnet für alle fünf Themes
+`--text`, `--muted`, `--accent-strong`, `--danger` gegen `--bg` und `--panel` nach
+(≥ 4,5:1) und den Fokusring (`--text`, ≥ 3:1). `--accent` bleibt hell: es färbt nur
+Rahmen (Hover, aktiver Zustand, Fokus-Rahmen), der Zustand ist zusätzlich über die
+Textfarbe bzw. den Fokusring erkennbar; deshalb nutzt `a:hover` jetzt `--text` statt
+`--accent` (in den hellen Themes wäre der Link beim Hover kaum lesbar). Die Cyan-Werte
+wurden zu einer neuen Variable `--glow` je Theme. Der Standard wird nicht gespeichert
+und folgt einem späteren Wechsel des Systems. Die Theme-Hinweise verlinken
+`colors.html` nicht mehr (E6). Aussehen und Fokusringe sind nicht im Browser geprüft.
+
 ### P3.2 CSS-Grundlagen für Touch und Lesbarkeit
 
 - Buttons im Mobile-Breakpoint auf `min-height: 44px` (heute haben nur die sechs
