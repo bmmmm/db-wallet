@@ -1128,25 +1128,37 @@
       }
     }
 
-    // Belt-and-suspenders: re-point any remaining legacy-form tombstone ref to
-    // its v2 id. Migration only remaps refs whose target it migrated; a ref to an
-    // already-compact target would otherwise stay legacy-form and resurface the
-    // deleted event.
+    // Belt-and-suspenders: re-point any remaining legacy-form tombstone ref or
+    // edit `supersedes` link to its v2 id. Migration only remaps links whose
+    // target it migrated in the same pass; a link to an already-compact target
+    // (e.g. migrated earlier on this device) would otherwise stay legacy-form —
+    // the deleted event resurfaces, or the edited entry counts twice. Resolve
+    // via the target's recorded `oid` first, then the deterministic alias.
     try {
       const v2IdSet = new Set();
+      const byOid = new Map();
       for (const e of local.events) {
-        if (e && typeof e.id === "string" && e.id) v2IdSet.add(e.id);
-      }
-      for (const e of local.events) {
-        if (
-          e &&
-          e.t === "x" &&
-          typeof e.ref === "string" &&
-          e.ref.includes("-")
-        ) {
-          const v2Ref = legacyIdToV2Id(e.ref);
-          if (v2Ref && v2IdSet.has(v2Ref)) e.ref = v2Ref;
+        if (e && typeof e.id === "string" && e.id) {
+          v2IdSet.add(e.id);
+          if (typeof e.oid === "string" && e.oid && !byOid.has(e.oid)) {
+            byOid.set(e.oid, e.id);
+          }
         }
+      }
+      const resolve = (legacy) => {
+        if (typeof legacy !== "string" || !legacy.includes("-")) return null;
+        if (byOid.has(legacy)) return byOid.get(legacy);
+        const v2 = legacyIdToV2Id(legacy);
+        return v2 && v2IdSet.has(v2) ? v2 : null;
+      };
+      for (const e of local.events) {
+        if (!e) continue;
+        if (e.t === "x") {
+          const v2Ref = resolve(e.ref);
+          if (v2Ref) e.ref = v2Ref;
+        }
+        const v2Sup = resolve(e.supersedes);
+        if (v2Sup) e.supersedes = v2Sup;
       }
     } catch (e) {
       console.warn("db-wallet: import legacy-ref remap failed", e);

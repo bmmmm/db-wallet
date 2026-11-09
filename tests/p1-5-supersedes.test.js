@@ -3,7 +3,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { makeEnv } = require("./harness");
 
-const TODO = { todo: "P1.5" };
 
 const L1 = "legacydev-1700000000000-abc";
 const L2 = "legacydev-1700000060000-def";
@@ -15,7 +14,7 @@ function legacyEvents() {
   ];
 }
 
-test("A5: migrating a v1 wallet with an edit keeps the total", TODO, () => {
+test("A5: migrating a v1 wallet with an edit keeps the total", () => {
   const w = makeEnv();
   const wallet = { userId: "eve", v: 1, events: legacyEvents() };
   assert.equal(w.dbWalletSummary.computeSummary(wallet).total, 2);
@@ -26,7 +25,7 @@ test("A5: migrating a v1 wallet with an edit keeps the total", TODO, () => {
   assert.equal(repl.supersedes, orig.id);
 });
 
-test("import: a legacy edit into an already migrated wallet keeps the total", TODO, () => {
+test("import: a legacy edit into an already migrated wallet keeps the total", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const I = w.dbWalletImportV2;
