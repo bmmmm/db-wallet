@@ -292,7 +292,14 @@
         }
 
         ensureDeviceSeq(wallet);
-        saveWallet(wallet);
+        if (!saveWallet(wallet, { quiet: true })) {
+          const importApi = window.dbWalletImportV2 || null;
+          alert(
+            (importApi && importApi.IMPORT_SAVE_FAILED_MESSAGE) ||
+              "Import fehlgeschlagen: Die Daten konnten nicht gespeichert werden.",
+          );
+          return;
+        }
         applyImportedTheme(remote);
 
         renderExistingUsers();

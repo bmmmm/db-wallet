@@ -1229,10 +1229,19 @@
     return { userId, wallet: local };
   }
 
+  const IMPORT_SAVE_FAILED_MESSAGE =
+    "Import fehlgeschlagen: Die Daten konnten nicht gespeichert werden (Speicher voll oder blockiert). Nichts wurde importiert.";
+
   function importRemoteWallet(remote, options) {
     const { userId, wallet } = buildImportedWallet(remote);
     ensureDeviceSeq(wallet);
-    saveWallet(wallet);
+    // A failed save (storage full/blocked) must not end in "importiert ✅" and a
+    // redirect to a wallet that holds none of the imported data: report it once
+    // and stay on the import link so it can be retried after freeing space.
+    if (!saveWallet(wallet, { quiet: true })) {
+      alert(IMPORT_SAVE_FAILED_MESSAGE);
+      return null;
+    }
     applyImportedTheme(remote, options);
     window.location.hash = "#" + userId;
     alert(
@@ -1566,6 +1575,7 @@
     applyImportedTheme,
     buildImportedWallet,
     importRemoteWallet,
+    IMPORT_SAVE_FAILED_MESSAGE,
     parseImportHashPayload,
     handleImportChoice,
     parseActionCodeHash,

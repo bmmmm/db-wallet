@@ -3,7 +3,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { makeEnv } = require("./harness");
 
-const TODO = { todo: "P1.7" };
 
 function remoteWithEvents(n) {
   const events = [];
@@ -13,7 +12,7 @@ function remoteWithEvents(n) {
   return { userId: "rita", walletId: "AAAAAAAAAAAAAAAA", v: 2, events };
 }
 
-test("import into full storage ends with exactly one error message", TODO, () => {
+test("import into full storage ends with exactly one error message", () => {
   const w = makeEnv({ deviceKey: "devA", quota: 2000 });
   const I = w.dbWalletImportV2;
   w.location.hash = "#i2:something";
@@ -25,7 +24,7 @@ test("import into full storage ends with exactly one error message", TODO, () =>
   assert.equal(w.localStorage.getItem("db-wallet:rita"), null);
 });
 
-test("a second failing import also shows exactly one message", TODO, () => {
+test("a second failing import also shows exactly one message", () => {
   const w = makeEnv({ deviceKey: "devA", quota: 2000 });
   const I = w.dbWalletImportV2;
   I.importRemoteWallet(remoteWithEvents(200), {});

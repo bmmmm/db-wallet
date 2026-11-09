@@ -689,8 +689,12 @@
     }
   }
 
-  function saveWallet(wallet) {
+  // opts.quiet: skip the generic one-time alert on failure (the banner/body
+  // flag is still set). For callers that report the failure themselves, e.g.
+  // the import, which must not claim success after a failed save.
+  function saveWallet(wallet, opts) {
     if (!wallet || !wallet.userId) return false;
+    const quiet = !!(opts && opts.quiet);
 
     const storageKey = STORAGE_PREFIX + wallet.userId;
     if (isReservedStorageKey(storageKey)) {
@@ -698,7 +702,7 @@
         true,
         "⚠️ Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
       );
-      if (!hasShownStorageWriteError) {
+      if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
         alert(
           "Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
@@ -813,7 +817,7 @@
     // Hauptspeicherort
     if (!safeLocalStorageSetItem(storageKey, json)) {
       markStorageFailed(true);
-      if (!hasShownStorageWriteError) {
+      if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
         alert(
           "Konnte nicht speichern (Storage voll oder blockiert). Änderungen sind nicht gesichert.",
