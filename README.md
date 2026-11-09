@@ -27,7 +27,9 @@ ohne Cloud.
 - **Bezahlen & Guthaben** — offene Drinks ausgleichen, Guthaben wie Vorrat
   auf- und abbauen.
 - **Verwaltung** — Einträge bearbeiten/löschen, Nutzer:innen einzeln oder
-  gesammelt entfernen.
+  gesammelt entfernen. Zurücksetzen macht daraus ein neues Wallet mit gleichem
+  Namen (neue Wallet-ID): ein vorher gemachter Export landet beim Import als
+  eigenes Wallet, lokale Action-Code-QRs des alten Wallets gelten nicht mehr.
 - **Import/Export** — Link (auto-merge), kompakter QR-Code oder JSON; inklusive
   Theme und Wallet-ID gegen Namens-Kollisionen.
 - **Offline-fähig** — als PWA installierbar, läuft ohne Netz.
@@ -215,7 +217,8 @@ Cache nicht vergiften.
   (Merge dedupt nach `id`); Order = `ts`, dann numerische base36-`seq`;
   Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm);
   gelöschte Codes stehen in `deletedActionCodes` (Löschen nur über
-  `removeActionCode`, Reconcile und Import-Merge filtern sie).
+  `removeActionCode`, Reconcile und Import-Merge filtern sie); Reset = neue
+  `walletId`, die `seq`-Zähler laufen weiter (keine Event-ID wird neu vergeben).
 - **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes) und `ck`
   (Integritäts-Checksum) stehen als Letztes, `ck` ganz zuletzt. Bei jeder
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:

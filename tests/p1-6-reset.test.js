@@ -4,7 +4,6 @@ const assert = require("node:assert/strict");
 const { makeEnv } = require("./harness");
 const { makeActionsCtx } = require("./actions-ctx");
 
-const TODO = { todo: "P1.6" };
 
 function bookTwoAndReset(w) {
   const S = w.dbWalletStorage;
@@ -18,7 +17,7 @@ function bookTwoAndReset(w) {
   return { before, oldWalletId, oldExport, state };
 }
 
-test("A6: the first booking after reset reuses no earlier id", TODO, () => {
+test("A6: the first booking after reset reuses no earlier id", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const { before, state } = bookTwoAndReset(w);
@@ -30,14 +29,14 @@ test("A6: the first booking after reset reuses no earlier id", TODO, () => {
   assert.ok(!before.includes(reloaded.events[0].id), `reused ${reloaded.events[0].id}`);
 });
 
-test("reset gives the wallet a new walletId", TODO, () => {
+test("reset gives the wallet a new walletId", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const { oldWalletId, state } = bookTwoAndReset(w);
   assert.notEqual(state.wallet.walletId, oldWalletId);
   assert.equal(w.dbWalletStorage.loadWallet("dora").walletId, state.wallet.walletId);
 });
 
-test("importing a pre-reset export does not land in the reset wallet", TODO, () => {
+test("importing a pre-reset export does not land in the reset wallet", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const I = w.dbWalletImportV2;

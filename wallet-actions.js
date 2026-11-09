@@ -161,14 +161,23 @@
     ) {
       safeLocalStorageRemoveItem(wallet.userId);
     }
+    // Reset = a new wallet under the same name (E2): a fresh walletId, so an
+    // export taken before the reset no longer merges into it (it imports as a
+    // separate wallet) and local action-code QRs bound to the old walletId stop
+    // working. The per-device seq counters carry over (bumped past every old
+    // event first), so no event id is ever re-issued — another device or an
+    // old export can't confuse a new booking with a deleted one.
+    storage.ensureDeviceSeq(wallet);
+    const seq = Object.assign({}, wallet.seq || {});
     const next = {
       userId: wallet.userId,
-      walletId: wallet.walletId || randomWalletId(),
+      walletId: randomWalletId(),
       deviceId: wallet.deviceId || randomId(),
       v: 2,
-      seq: {},
+      seq,
       events: [],
       actionCodes: [],
+      globalActionCodes: [],
     };
     saveWallet(next);
     ctx.setWallet(next);

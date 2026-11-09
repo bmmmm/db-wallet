@@ -118,6 +118,9 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   `wallet.deletedActionCodes` (local-only, newest 50, not exported). `saveWallet`'s
   reconcile and the import merge filter those ids, so a stale tab or an old export
   can't resurrect a deleted code. Don't splice `actionCodes` by hand.
+- **Reset = a new wallet under the same name** — `resetWallet` assigns a fresh
+  `walletId` (a pre-reset export imports as a separate wallet) and carries `seq`
+  over after `ensureDeviceSeq`, so an event id is never re-issued. Don't reset `seq`.
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
 - **Bump `service-worker.js` VERSION when any APP_SHELL asset changes** — enforced by
