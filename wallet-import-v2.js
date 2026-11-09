@@ -112,6 +112,10 @@
   function legacyIdToV2Id(legacyId) {
     if (!legacyId || typeof legacyId !== "string") return null;
     if (!legacyId.includes("-")) return null;
+    // A compact v2 id is never legacy, even when its base64url device key
+    // contains "-" (~12 % of keys): no alias, and no BigInt hash per event on
+    // every saveWallet merge (P2.4).
+    if (parseCompactEventId(legacyId)) return null;
     const device = extractLegacyDeviceKey(legacyId);
     const seq = hash53(legacyId);
     return `${device}.${seq.toString(36)}`;
