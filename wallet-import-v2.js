@@ -454,7 +454,7 @@
   }
 
   // Reads the optional trailing extension blocks ("ac", "gc", "sp", "dv", "xt",
-  // "se") and mutates decoded in place. Tolerates parse errors for forward-compat.
+  // "se", "dc") and mutates decoded in place. Tolerates parse errors for forward-compat.
   function decodeV2Extensions(bytes, startOffset, decoded) {
     let offset = startOffset;
     try {
@@ -616,6 +616,29 @@
         }
 
         if (
+          bytes[offset] === 100 && // "d"
+          bytes[offset + 1] === 99 // "c"
+        ) {
+          offset += 2;
+          const [dcVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (dcVersion !== 1) break;
+          const [count, o9] = readVarUint(bytes, offset);
+          offset = o9;
+          // null-prototype: the ids become keys.
+          const deleted = Object.create(null);
+          for (let i = 0; i < count; i++) {
+            let id;
+            [id, offset] = readString(bytes, offset);
+            const [at, o11] = readVarUint(bytes, offset);
+            offset = o11;
+            if (id) deleted[id] = Math.max(deleted[id] || 0, at);
+          }
+          decoded.deletedActionCodes = deleted;
+          continue;
+        }
+
+        if (
           bytes[offset] === 99 && // "c"
           bytes[offset + 1] === 107 // "k"
         ) {
@@ -712,6 +735,7 @@
     //  - device list ("dv", v1)
     //  - supersedes links ("se", v1)
     //  - global action codes ("gc", v1)
+    //  - deleted action codes ("dc", v1)
     //  - integrity checksum ("ck", v1)
     if (evResult.offset < bytes.length) {
       decodeV2Extensions(bytes, evResult.offset, decoded);
@@ -991,6 +1015,36 @@
       }
     }
 
+    // optional extension: deleted action codes ("dc", v1) — the deletion list
+    // (wallet.deletedActionCodes: id -> deletedAt ms, newest 50), so an import
+    // on another device removes a code deleted here (E4). Written AFTER "gc"
+    // and BEFORE "ck" (covered by the checksum); an OLD decoder stops here and
+    // only misses the deletions.
+    let deletedCodes = null;
+    try {
+      const api = window.dbWalletActionCodes || null;
+      if (
+        wallet &&
+        wallet.deletedActionCodes &&
+        api &&
+        typeof api.normalizeDeletedActionCodes === "function"
+      ) {
+        deletedCodes = api.normalizeDeletedActionCodes(wallet.deletedActionCodes);
+      }
+    } catch (e) {
+      console.warn("db-wallet: encode-v2 deleted action codes failed", e);
+    }
+    const deletedIds = deletedCodes ? Object.keys(deletedCodes) : [];
+    if (deletedIds.length) {
+      out.push(100, 99); // "dc"
+      writeVarUint(1, out);
+      writeVarUint(deletedIds.length, out);
+      for (const id of deletedIds) {
+        writeString(id, out);
+        writeVarUint(deletedCodes[id], out);
+      }
+    }
+
     // optional extension: integrity checksum ("ck", v1) — fnv1a64 truncated to
     // 32 bits over every preceding byte. Written ABSOLUTELY LAST so it covers all
     // other blocks. Hardens the uncompressed i2u: and legacy import: paths that
@@ -1107,13 +1161,30 @@
       local.events,
       sanitizeImportedEvents(remote && remote.events),
     );
+    // Deletion lists first (E4): union the local and the remote one, then both
+    // code merges below skip every listed id — a code deleted on the exporting
+    // device is removed here, and one deleted here stays deleted.
+    let deleted = local.deletedActionCodes;
+    try {
+      const api = window.dbWalletActionCodes || null;
+      const remoteDeleted =
+        remote && remote.deletedActionCodes && typeof remote.deletedActionCodes === "object"
+          ? remote.deletedActionCodes
+          : null;
+      if (remoteDeleted && api && typeof api.mergeDeletedActionCodes === "function") {
+        deleted = api.mergeDeletedActionCodes(local.deletedActionCodes, remoteDeleted);
+        if (Object.keys(deleted).length) local.deletedActionCodes = deleted;
+      }
+    } catch (e) {
+      console.warn("db-wallet: import deleted action codes merge failed", e);
+    }
     try {
       const api = window.dbWalletActionCodes || null;
       if (api && typeof api.mergeActionCodes === "function") {
         local.actionCodes = api.mergeActionCodes(
           local.actionCodes,
           remote && remote.actionCodes,
-          local.deletedActionCodes,
+          deleted,
         );
       } else if (remote && Array.isArray(remote.actionCodes)) {
         local.actionCodes = remote.actionCodes;
@@ -1140,7 +1211,7 @@
           local.globalActionCodes = api.mergeGlobalActionCodes(
             localGlobal,
             remoteGlobal,
-            local.deletedActionCodes,
+            deleted,
           );
         } else if (remoteGlobal.length) {
           local.globalActionCodes = remoteGlobal;

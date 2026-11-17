@@ -650,6 +650,7 @@
         events: wallet.events,
         actionCodes: wallet.actionCodes,
         globalActionCodes: wallet.globalActionCodes,
+        deletedActionCodes: wallet.deletedActionCodes,
         devices: wallet.devices,
         theme,
       };

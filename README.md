@@ -56,9 +56,10 @@ Gut zu wissen:
   aber **nie den lokalen Key** überschreiben.
 - Codes **laufen nicht ab** — Widerruf = Bearbeiten (Key-Rotation) oder Löschen;
   der Key ist das einzige Geheimnis.
-- Löschen merkt sich die Code-ID lokal (`deletedActionCodes`, die 50 neuesten).
+- Löschen merkt sich die Code-ID (`deletedActionCodes`, die 50 neuesten).
   Ein anderer Tab oder ein Import eines älteren Exports holt den Code nicht zurück.
-  Die Liste wird nicht exportiert: ein anderes Gerät behält seine Kopie.
+  Die Liste reist im Export mit (QR/Link und JSON): importiert ein anderes Gerät
+  den Export, verschwindet der Code auch dort.
 - Max. 6 Codes pro Wallet empfohlen; ab 10 bleiben die 10 zuletzt **bearbeiteten**
   (nicht „benutzten").
 - Globale Codes validieren Typ (`d`/`g`) und Menge (`1`–`100`).
@@ -223,8 +224,9 @@ Cache nicht vergiften.
   ein veralteter Tab mit der alten `walletId` speichert danach nicht mehr
   (`saveWallet` lehnt abweichende `walletId` ab, nur der Reset darf sie wechseln;
   eine frisch vergebene, nie gespeicherte `walletId` übernimmt die gespeicherte).
-- **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes) und `ck`
-  (Integritäts-Checksum) stehen als Letztes, `ck` ganz zuletzt. Bei jeder
+- **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes), `gc`
+  (globale Codes), `dc` (gelöschte Codes) und `ck` (Integritäts-Checksum) stehen
+  als Letztes, `ck` ganz zuletzt. Bei jeder
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:
   `scripts/check-sw-version.sh`).
 - **Wo editieren:** Storage/Modell → `wallet-storage.js`; Summary/Tombstones →

@@ -275,10 +275,14 @@
   // every import merges remote codes; both would otherwise resurrect a deleted
   // code (and its still-printed QR keeps booking). Deleting, converting
   // local <-> global, all record the old id here; reconcile and import skip
-  // listed ids. Local-only for now: the list does not travel in exports.
+  // listed ids. The list travels in exports (codec block "dc", JSON field) and
+  // an import unions it with the local one (E4), so a code deleted on one
+  // device is removed on the others too.
   const DELETED_LIMIT = 50;
 
-  function normalizeDeletedActionCodes(input) {
+  // Times are capped at `now`: a crafted far-future entry would otherwise
+  // stay in the newest-50 window forever.
+  function normalizeDeletedActionCodes(input, now = Date.now()) {
     const entries = [];
     if (input && typeof input === "object" && !Array.isArray(input)) {
       for (const id of Object.keys(input)) {
@@ -286,7 +290,7 @@
         const ts = input[id];
         const at =
           typeof ts === "number" && Number.isFinite(ts) && ts > 0
-            ? Math.floor(ts)
+            ? Math.min(Math.floor(ts), now)
             : 0;
         entries.push([id, at]);
       }

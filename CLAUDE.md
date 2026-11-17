@@ -104,11 +104,12 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   from payload position). The export QR/link carries the full event log, userId, and
   action-code keys with no encryption — anyone who captures it can replay it.
 - **Codec extension blocks are order-sensitive** — they have no length prefix, so an
-  old decoder stops at the first unknown block. New blocks (`se`, `gc`, `ck`) are written
-  LAST and `ck` (integrity checksum) is absolutely last so it covers everything. `gc`
+  old decoder stops at the first unknown block. New blocks (`se`, `gc`, `dc`, `ck`) are
+  written LAST and `ck` (integrity checksum) is absolutely last so it covers everything. `gc`
   carries `globalActionCodes` with an empty key field — global codes have no key
   (`normalizeGlobalActionCodes`: scope "global", no key, amount 1..100); decode drops
   the random key that pre-2026-11 exports wrote there, so old exports still import.
+  `dc` carries `deletedActionCodes` (`id → ts`).
 - **Events are constructed and persisted only via `dbWalletStorage`** —
   `newEvent(wallet, type, n)` is the single event factory and
   `appendEvents(wallet, events)` the atomic append+save (rolls back and returns
@@ -125,9 +126,11 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   local key (key rotation is local-only). A global `acg:` apply asks for confirmation.
   Deleting a code (local or global, also the old half of a local↔global conversion)
   goes through `dbWalletActionCodes.removeActionCode`, which records `id → ts` in
-  `wallet.deletedActionCodes` (local-only, newest 50, not exported). `saveWallet`'s
-  reconcile and the import merge filter those ids, so a stale tab or an old export
-  can't resurrect a deleted code. Don't splice `actionCodes` by hand.
+  `wallet.deletedActionCodes` (newest 50, times capped at now). The list travels in
+  exports (codec block `dc`, JSON field) and an import unions it with the local one
+  before merging codes, so a code deleted on one device disappears on the others.
+  `saveWallet`'s reconcile and the import merge filter those ids, so a stale tab or an
+  old export can't resurrect a deleted code. Don't splice `actionCodes` by hand.
 - **Reset = a new wallet under the same name** — `resetWallet` assigns a fresh
   `walletId` (a pre-reset export imports as a separate wallet) and carries `seq`
   over after `ensureDeviceSeq`, so an event id is never re-issued. Don't reset `seq`.
