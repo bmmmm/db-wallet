@@ -23,6 +23,47 @@ ohne Cloud.
 
 > Theme lässt sich am Seitenende wählen und wird gespeichert.
 
+## Update
+
+Neue Versionen kommen von selbst, sobald die App mit Internet geöffnet wird. Die
+Daten bleiben dabei im Browser, ein Update löscht nichts. Was sich geändert hat,
+steht in [CHANGELOG.md](CHANGELOG.md).
+
+1. App (oder die Seite im Browser) mit Internet öffnen.
+2. Nach ein paar Sekunden erscheint unten **„Neue Version verfügbar.“**. Dort
+   auf **„Aktualisieren“** tippen (bei späteren Updates heißt der Knopf
+   „Neu laden“).
+3. Erscheint kein Hinweis: die App ganz schließen (auch aus der App-Übersicht
+   wegwischen) und wieder öffnen; im Browser die Seite neu laden.
+
+Erkennen lässt sich die neue Version daran, dass nach „+ Trinken“ unten eine
+Zeile „+1 gebucht · Offen: …“ mit „Rückgängig“ erscheint.
+
+Bis zum Tippen auf „Aktualisieren“ ist die Seite ein Mischstand aus alt und neu:
+
+- Sie sieht halb fertig aus, das Guthaben-Formular steht offen.
+- Export- und Action-Code-QRs werden nicht gezeichnet („QR-Code konnte nicht
+  erzeugt werden“).
+
+Buchen geht, die Zahlen stimmen, aber besser erst aktualisieren.
+
+**Mehrere Geräte:** erst **alle** Geräte aktualisieren, dann Links oder QR-Codes
+austauschen.
+
+- **Import scheitert:** Zeigt ein Gerät „Import fehlgeschlagen ❌ — die Daten
+  stammen aus einer neueren App-Version“, dieses Gerät aktualisieren und den
+  Link oder QR danach noch einmal öffnen. Es wurde nichts importiert und nichts
+  geht verloren. Das passiert bei jedem Export, der gelöschte Einträge enthält.
+- **Gelöschte Action Codes:** Die Löschung reist erst zwischen zwei
+  aktualisierten Geräten mit. Ein vorher gelöschter Code muss auf dem anderen
+  Gerät einmal von Hand gelöscht werden.
+- **Reihenfolge:** Solange noch ein altes Gerät im Spiel ist, können Einträge
+  aus derselben Minute dort in anderer Reihenfolge stehen. Die Summen sind
+  gleich.
+
+Gemessen ist das mit `scripts/upgrade-check.js`, Ergebnis und Einzelheiten in
+[`docs/upgrade-compat.md`](docs/upgrade-compat.md).
+
 ## Features
 
 - **Buchen & Korrigieren** — Drinks zählen (höchstens 99 je Buchung, ab 20 mit

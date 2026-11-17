@@ -184,6 +184,31 @@ vorhandener, auf dem neuen gelöschter Code bleibt dort sichtbar.
   `bootWalletPage({ root, html, scriptSource })` nimmt Seite und Skripte aus
   einem anderen Stand. Ohne die Optionen verhalten sich beide wie vorher.
 
+## Gegenprobe im Browser (2026-11-17)
+
+Einmal von Hand nachgestellt, mit echtem Service Worker und Chromium, Viewport
+390 × 844:
+
+1. 39efb6e lokal ausgeliefert, `wallet.html#updtest` geöffnet. Der alte SW
+   (`db-wallet-v2-2026-11-09c`) übernimmt die Seite, zwei Buchungen.
+2. Die ausgelieferten Dateien gegen diesen Stand getauscht, die Seite neu
+   geladen. Ergebnis:
+   - Die neue `wallet.html` kommt vom Netz, die Skripte und `style.css` aus dem
+     alten Cache (`loadQrLibrary` fehlt).
+   - Der neue SW installiert und übernimmt sofort, der alte Cache ist weg.
+   - Unten steht „Neue Version verfügbar.“ mit „Aktualisieren“.
+   - Die Seite sieht halb fertig aus: Zahlenkacheln versetzt, das
+     Guthaben-Formular offen, die Guthaben-Kachel bei 0 ausgeblendet. Die
+     Zahlen stimmen (2/2).
+3. Auf „Aktualisieren“ getippt. Ergebnis:
+   - Alles neu, die drei Kacheln stehen fest, das Formular ist zu.
+   - Die Buchung meldet „+1 gebucht · Offen: 3“, der Speicher hat 3 Events.
+   - `dbWalletSelfCheck.run()` liefert 80/80.
+
+Damit ist S6-css beobachtet: Der Mischstand sieht unfertig aus, bleibt aber
+bedienbar, bis der Nutzer aktualisiert. Der Ablauf in einer installierten App
+auf einem echten Handy ist weiter offen (O1 in `open-points.md`).
+
 ## Nicht gemessen
 
 - **Darstellung** (S6-css): Der Fake-DOM hat kein CSS und kein Layout.
