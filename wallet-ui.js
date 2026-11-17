@@ -165,7 +165,6 @@
     const qrUrl = document.getElementById("qr-url");
     const exportUrlActions = document.getElementById("export-url-actions");
     const topRow = document.querySelector(".top-row");
-    let syncStatusLine = document.getElementById("sync-status-line");
     const actionCodesPanel = document.getElementById("action-codes-panel");
     const actionCodesBody = document.getElementById("action-codes-body");
     const elHistory = document.getElementById("history");
@@ -175,8 +174,6 @@
     const rawToggle = document.querySelector(".raw-toggle");
     const logEditToggle = document.getElementById("log-edit-toggle");
 
-    const btnHome = document.getElementById("btn-home");
-    const btnInfo = document.getElementById("btn-info");
     const btnMigrate = document.getElementById("btn-migrate");
     const btnDrink = document.getElementById("btn-drink");
     const btnUndo = document.getElementById("btn-undo");
@@ -371,10 +368,6 @@
         if (!btn) return;
         setTimeout(updateCurrentThemeLabel, 0);
       });
-    }
-
-    if (!syncStatusLine && topRow && topRow.parentNode) {
-      // created by wallet-sync-ui.js
     }
 
     const deviceUi = window.dbWalletDeviceUI || null;
@@ -997,31 +990,14 @@
       if (wasOpen) focusEl(btnPay);
     }
 
-    function toggleStatVisibility(el, value) {
-      if (!el) return;
-      const parent =
-        typeof el.closest === "function" ? el.closest(".stat") : el.parentNode;
-      if (!parent) return;
-      const parsed =
-        typeof value === "number"
-          ? value
-          : typeof value === "string"
-            ? parseInt(value, 10)
-            : 0;
-      const n = Number.isFinite(parsed) ? parsed : 0;
-      parent.hidden = n === 0;
-    }
-
     function refreshSummary() {
       const summary = getSummary();
       elTotal.textContent = summary.total;
       elUnpaid.textContent = summary.unpaid;
       updatePayButton(summary.unpaid);
-      toggleStatVisibility(elUnpaid, summary.unpaid);
-      if (elCredit) {
-        elCredit.textContent = summary.credit;
-        toggleStatVisibility(elCredit, summary.credit);
-      }
+      // P4.2: all three stats always show (a card hiding at 0 made the
+      // booking buttons jump after the first booking).
+      if (elCredit) elCredit.textContent = summary.credit;
 
       // syncUi.refresh() runs via historyUi.render()'s onAfterRender callback
       // (see historyUi.init), which also fires on the mode/raw-scope toggles that
@@ -1055,17 +1031,6 @@
         handleWalletStateChange();
       }
     });
-
-    if (btnHome) {
-      btnHome.addEventListener("click", () => {
-        window.location.href = "index.html";
-      });
-    }
-    if (btnInfo) {
-      btnInfo.addEventListener("click", () => {
-        window.open("https://github.com/bmmmm/db-wallet", "_blank");
-      });
-    }
 
     const actionsApi = window.dbWalletActions || null;
     const actionsCtx = actionsApi

@@ -79,13 +79,15 @@ Gut zu wissen:
 
 Rein lokale Anzeige, **kein Hintergrund-Sync** — synchronisiert wird
 ausschließlich über Export/Import. Gezählt werden **Events**: 1 Event = 1 Schritt,
-egal ob `+1` oder `+10`.
+egal ob `+1` oder `+10`. Die Sync-Zeile erscheint erst, wenn es einen Sync-Partner
+gibt, also nach dem ersten Import von einem anderen Gerät; ein frisches Wallet
+(oder eins, das nur exportiert wurde) zeigt sie nicht.
 
 | Ampel | Bedeutung |
 |-------|-----------|
 | ✅ Grün | aktuell (≤ 5 Tage) |
 | ⚠️ Gelb | älter (6–10 Tage) |
-| 🛑 Rot | veraltet (≥ 11 Tage) — Klick springt zum Export |
+| 🛑 Rot | veraltet (≥ 11 Tage) — „Zum Export“ (oder ein Klick auf die Zeile) springt zum Export |
 
 Der Button **„✅ passt"** setzt den Sync-Stand manuell auf „gleich" (Vertrauens-
 Reset auf diesem Gerät, ohne Export/Import).
@@ -93,7 +95,8 @@ Reset auf diesem Gerät, ohne Export/Import).
 Pro Wallet gibt es zudem eine synchronisierte **Geräte-Liste** (Symbol
 `L/M/D/K/T/*`, `lastSeenAt`), die bei Export/Import deterministisch gemerged wird:
 max. 6 Geräte (älteste fallen raus), jedes Symbol pro Wallet eindeutig, gesetzt
-per Button in der Top-Row.
+im Kopfbereich über „Gerät: wählen“ (die Auswahl erklärt, wofür das Zeichen steht,
+und zeigt die Geräte-ID).
 
 <details>
 <summary>ASCII-Timeline lesen</summary>
@@ -182,8 +185,8 @@ rückwärtskompatibel.
 | `wallet-ui.js` | Wallet-Composer (DOM-Wiring, Hash-Routing, Module initialisieren) |
 | `wallet-actions.js` | Buchungen (Drink/Undo/Pay/Credit/Reset/Delete/Edit) |
 | `wallet-history-ui.js` | Verlauf (Diagramm, Historie als Zeilen mit Bearbeiten/Löschen, Raw) |
-| `wallet-device-ui.js` | Geräte-Symbol-Picker (Top-Row) |
-| `wallet-sync-ui.js` | Sync-Zeile (Ampel, Timeline, „✅ passt") |
+| `wallet-device-ui.js` | Geräte-Symbol-Picker (Kopfbereich, beschriftet) |
+| `wallet-sync-ui.js` | Sync-Zeile (Ampel, Timeline, „✅ passt", „Zum Export"; nur mit Sync-Partner) |
 | `wallet-export-ui.js` | Export (Link/QR/JSON, PNG-Download) |
 | `wallet-hash-actions.js` | Wallet-Auswahl bei globalen Action Codes |
 | `wallet-messages.js` | Zentrale UI-Message-API |

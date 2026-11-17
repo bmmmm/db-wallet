@@ -199,6 +199,191 @@ hr {
     margin: 2rem 0 1.2rem;
 }
 
+/* Text for screen readers only (e.g. the block headings P4.9 adds where a
+   visible heading would only repeat the buttons). */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* P4.2: wallet.html header — title with small page links, then who and
+   which device on one wrapping line (no card). */
+.wallet-header .header-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0 0.75rem;
+}
+
+.wallet-header h1 {
+    margin: 0;
+}
+
+.header-links {
+    display: flex;
+    gap: 0.25rem;
+    margin-left: auto;
+}
+
+.header-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.5rem;
+    font-size: 0.95rem;
+}
+
+.wallet-header .top-row {
+    background: none;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    border-radius: 0;
+    gap: 0.25rem 0.75rem;
+}
+
+.wallet-version {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+/* P4.7: the device symbol, labelled; the six choices with their meaning
+   open below it. */
+.device-selector {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.4rem;
+}
+
+.device-selector.is-expanded {
+    flex-basis: 100%;
+}
+
+.device-label {
+    color: var(--muted);
+}
+
+.device-toggle,
+.device-symbol {
+    margin: 0;
+    min-width: 44px;
+    min-height: 44px;
+    font-weight: 700;
+}
+
+.device-options {
+    flex-basis: 100%;
+}
+
+.device-hint {
+    margin: 0.25rem 0 0.4rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+.device-symbols {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.device-symbol[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+}
+
+/* P4.2: the booking block right under the stats, always open. */
+.booking {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0;
+}
+
+.amount-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.75rem;
+}
+
+.amount-row input {
+    width: 120px;
+}
+
+/* A block heading inside a <summary> keeps the summary's look (P4.9). */
+.panel-title {
+    margin: 0;
+    font: inherit;
+    text-transform: none;
+    letter-spacing: inherit;
+    color: inherit;
+}
+
+/* P4.7: the sync line appears only with a sync partner (wallet-sync-ui.js
+   adds .is-visible). */
+#sync-status-line {
+    display: none;
+}
+
+#sync-status-line.is-visible {
+    display: block;
+}
+
+.sync-line.is-red {
+    cursor: pointer;
+}
+
+.sync-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.6rem;
+}
+
+.sync-main {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.sync-text {
+    margin-bottom: 0.2rem;
+}
+
+.sync-timeline {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    white-space: pre;
+    overflow: hidden;
+}
+
+.sync-delta,
+.sync-legend {
+    margin-top: 0.2rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.sync-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.sync-buttons button {
+    margin: 0;
+    min-height: 44px;
+}
+
 .top-row {
     display: flex;
     align-items: center;
@@ -235,23 +420,35 @@ hr {
     font-size: 0.85rem;
 }
 
+/* P4.2: one fixed row of three stats (Getrunken / Offen / Guthaben), always
+   all three, so nothing below moves when a value becomes 0 or leaves it. */
 .stat-panel {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 0.75rem;
-    margin: 1rem 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin: 0.75rem 0;
 }
 
 .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 0.8rem;
+    padding: 0.55rem 0.7rem;
     box-shadow: var(--shadow);
 }
 
+.stat-label {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
 .stat strong {
-    font-size: 1.2rem;
+    font-size: 1.35rem;
+    line-height: 1.2;
     color: var(--accent-strong);
     overflow-wrap: anywhere;
 }
@@ -872,8 +1069,18 @@ hr {
         align-items: stretch;
     }
 
-    .top-row button {
+    .top-row > button {
         width: 100%;
+    }
+
+    .wallet-header .top-row {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .amount-row input[type="number"] {
+        width: 120px;
     }
 
     input[type="text"] {

@@ -79,7 +79,9 @@
     function highlightActiveTheme(name) {
         const buttons = document.querySelectorAll(".theme-btn");
         buttons.forEach((btn) => {
-            btn.classList.toggle("active", btn.dataset.theme === name);
+            const on = btn.dataset.theme === name;
+            btn.classList.toggle("active", on);
+            btn.setAttribute("aria-pressed", on ? "true" : "false");
         });
     }
 
@@ -119,6 +121,7 @@
 
         names.forEach((themeName) => {
             const btn = document.createElement("button");
+            btn.type = "button";
             btn.className = "theme-btn";
             btn.dataset.theme = themeName;
             btn.textContent = themeName;

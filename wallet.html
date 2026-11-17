@@ -26,52 +26,54 @@
         <script src="theme.js"></script>
     </head>
     <body>
-        <h1>dein Getränke-Wallet 🥤</h1>
+        <!-- P4.2: compact header — title, page links, who and which device. -->
+        <header id="wallet-header" class="wallet-header">
+            <div class="header-bar">
+                <h1>dein Getränke-Wallet 🥤</h1>
+                <nav class="header-links" aria-label="Seiten">
+                    <a id="btn-home" href="index.html">Start</a>
+                    <a id="btn-info" href="https://github.com/bmmmm/db-wallet" target="_blank" rel="noopener noreferrer">Info</a>
+                </nav>
+            </div>
+            <div class="top-row">
+                <span class="wallet-who">
+                    Nutzer:in: <strong id="uid"></strong>
+                    <span id="wallet-version" class="wallet-version">v1</span>
+                </span>
+                <!-- Filled by wallet-device-ui.js (P4.7: labelled). -->
+                <div id="device-symbol-selector" class="device-selector"></div>
+                <button id="btn-migrate" type="button">Auf v2 migrieren</button>
+            </div>
+        </header>
 
-        <div class="top-row">
-            <div>
-                <span id="wallet-version">v1</span> Nutzer:in:
-                <strong id="uid"></strong>
+        <main id="wallet-main">
+            <!-- P4.2: fixed three-column stat row; no card hides at 0. -->
+            <div class="stat-panel" role="group" aria-labelledby="stats-title">
+                <h2 id="stats-title" class="visually-hidden">Stand</h2>
+                <div class="stat">
+                    <span class="stat-label">Getrunken</span>
+                    <strong id="total">0</strong>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Offen</span>
+                    <strong id="unpaid">0</strong>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Guthaben</span>
+                    <strong id="credit">0</strong>
+                </div>
             </div>
-            <button id="btn-migrate">
-                Auf v2 migrieren
-            </button>
-            <button id="btn-home" aria-label="Zur Startseite">Zur Startseite 🏠</button>
-            <button id="btn-info" aria-label="Info">Info ℹ️</button>
-        </div>
-        <details id="action-codes-panel" class="action-codes-panel">
-            <summary class="action-codes-summary">Action Codes</summary>
-            <div id="action-codes-body" class="action-codes-body"></div>
-        </details>
-        <div class="stat-panel">
-            <div class="stat">
-                Gesamt getrunken:<br /><strong id="total">0</strong>
-            </div>
-            <div class="stat">
-                Offen seit letzter Zahlung:<br /><strong id="unpaid">0</strong>
-            </div>
-            <div class="stat">
-                Guthaben:<br /><strong id="credit">0</strong>
-            </div>
-        </div>
 
-        <details id="wallet-actions-panel" class="wallet-actions-panel" open>
-            <summary class="wallet-actions-summary">
-                Getränke-Management
-            </summary>
-            <div class="wallet-actions">
-                <label for="amount">Menge (Getränke):</label>
-                <input id="amount" type="number" min="1" max="99" value="1" inputmode="numeric" enterkeyhint="done" />
+            <section id="booking" class="booking" aria-labelledby="booking-title">
+                <h2 id="booking-title" class="visually-hidden">Buchen</h2>
+                <div class="amount-row">
+                    <label for="amount">Menge (Getränke):</label>
+                    <input id="amount" type="number" min="1" max="99" value="1" inputmode="numeric" enterkeyhint="done" />
+                </div>
 
                 <div class="action-buttons">
                     <button id="btn-drink" aria-label="Trinken hinzufügen">+ Trinken 🥤</button>
-                    <button
-                        id="btn-undo"
-                        title="Letzte Buchung rückgängig machen"
-                        aria-label="Letzte Buchung rückgängig machen"
-                    >
-                        ↩️ Rückgängig
-                    </button>
+                    <button id="btn-undo" aria-label="Letzte Buchung rückgängig machen">↩️ Rückgängig</button>
                     <button id="btn-pay" aria-label="Bezahlen">Bezahlen 💸</button>
                 </div>
                 <div id="pay-options" class="pay-options">
@@ -86,106 +88,123 @@
                     <button id="btn-credit-save" type="submit">Aufladen</button>
                     <button id="btn-credit-cancel" type="button">Abbrechen</button>
                 </form>
+            </section>
 
-                <!-- Ausgabe-Modus -->
-                <div>
-                    <span class="history-mode-label">Ausgabe:</span>
-                    <button id="mode-diagram" class="mode-btn active" aria-label="Diagramm-Ansicht">
-                        Diagramm 📊
-                    </button>
-                    <button id="mode-log" class="mode-btn" aria-label="Historie-Ansicht">Historie 📜</button>
-                    <button id="mode-raw" class="mode-btn" aria-label="Raw-Log-Ansicht">Raw-Log 🛠️</button>
-                </div>
+            <details id="history-panel" class="wallet-actions-panel" open>
+                <summary class="wallet-actions-summary">
+                    <h2 class="panel-title">Verlauf</h2>
+                </summary>
+                <div class="wallet-actions">
+                    <!-- Ausgabe-Modus -->
+                    <div>
+                        <span class="history-mode-label">Ausgabe:</span>
+                        <button id="mode-diagram" class="mode-btn active" aria-label="Diagramm-Ansicht">
+                            Diagramm 📊
+                        </button>
+                        <button id="mode-log" class="mode-btn" aria-label="Historie-Ansicht">Historie 📜</button>
+                        <button id="mode-raw" class="mode-btn" aria-label="Raw-Log-Ansicht">Raw-Log 🛠️</button>
+                    </div>
 
-                <div class="raw-toggle">
-                    Raw-Log für:
-                    <button
-                        id="raw-scope-current"
-                        class="raw-toggle-btn active"
-                    >
-                        diese:n Nutzer:in
-                    </button>
-                    <button id="raw-scope-all" class="raw-toggle-btn">
-                        alle Nutzer:innen
-                    </button>
-                </div>
-
-                <!-- Log-Bearbeitung -->
-                <div id="log-tools">
-                    <label>
-                        <input type="checkbox" id="log-edit-toggle" />
-                        Einträge bearbeiten oder löschen
-                    </label>
-                    <div id="log-edit-group">
-                        <button id="btn-reset" aria-label="Alle Daten dieser Nutzer:in löschen">
-                            Alle Daten für diese:n Nutzer:in löschen 🗑️
+                    <div class="raw-toggle">
+                        Raw-Log für:
+                        <button
+                            id="raw-scope-current"
+                            class="raw-toggle-btn active"
+                        >
+                            diese:n Nutzer:in
+                        </button>
+                        <button id="raw-scope-all" class="raw-toggle-btn">
+                            alle Nutzer:innen
                         </button>
                     </div>
+
+                    <!-- Log-Bearbeitung -->
+                    <div id="log-tools">
+                        <label>
+                            <input type="checkbox" id="log-edit-toggle" />
+                            Einträge bearbeiten oder löschen
+                        </label>
+                        <div id="log-edit-group">
+                            <button id="btn-reset" aria-label="Alle Daten dieser Nutzer:in löschen">
+                                Alle Daten für diese:n Nutzer:in löschen 🗑️
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- P4.4: Historie = one row per visible entry (newest first). -->
+                    <ol id="history-list" class="history-list" aria-label="Historie" tabindex="-1"></ol>
+                    <pre id="history">Noch keine Drinks geloggt. ✨</pre>
                 </div>
+            </details>
 
-                <!-- P4.4: Historie = one row per visible entry (newest first). -->
-                <ol id="history-list" class="history-list" aria-label="Historie" tabindex="-1"></ol>
-                <pre id="history">Noch keine Drinks geloggt. ✨</pre>
-            </div>
-        </details>
+            <details id="action-codes-panel" class="action-codes-panel">
+                <summary class="action-codes-summary"><h2 class="panel-title">Action Codes</h2></summary>
+                <div id="action-codes-body" class="action-codes-body"></div>
+            </details>
 
-        <div class="wallet-export">
-            <!-- Export-Bereich -->
-            <button id="btn-export">Export</button>
-            <span id="export-options">
-                <button id="btn-export-link" aria-label="Export-Link (klassisch)">Export-Link (klassisch) 🔗</button>
-                <button id="btn-export-link-qr" aria-label="QR-Code anzeigen">
-                    QR-Code (kurz) anzeigen 📱
-                </button>
-                <button id="btn-export-json" aria-label="Als JSON herunterladen">Als JSON herunterladen 📄</button>
-            </span>
-            <input
-                id="export-url"
-                readonly
-                placeholder="Hier erscheint dein Export-Link"
-               
-                aria-label="Export-Link"
-            />
-            <div id="export-url-actions" class="export-link-actions">
-                <button id="btn-copy-export-url" type="button">Kopieren 📋</button>
-                <button id="btn-share-export-url" type="button" hidden>Teilen 📤</button>
-                <span id="export-url-status" class="export-link-status" role="status" aria-live="polite"></span>
-            </div>
-            <div id="qr-box" class="qr-box">
-                <div class="qr-hint" id="qr-hint"></div>
-                <canvas id="qr-canvas" aria-label="QR-Code"></canvas>
-                <input
-                    id="qr-url"
-                    type="text"
-                    readonly
-                    inputmode="none"
-                    aria-label="QR-Code Link"
-                />
-                <div class="export-link-actions">
-                    <button id="btn-copy-qr-url" type="button">Kopieren 📋</button>
-                    <button id="btn-share-qr-url" type="button" hidden>Teilen 📤</button>
-                    <span id="qr-url-status" class="export-link-status" role="status" aria-live="polite"></span>
-                </div>
-            </div>
-        </div>
-
-        <hr />
-
-        <details id="theme-panel" class="theme-panel">
-            <summary class="theme-summary">
-                Theme: <span id="current-theme-name">Lilac Carbon</span>
-            </summary>
-            <section id="theme-section">
-                <h2>Theme auswählen</h2>
-                <p class="theme-note">
-                    Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name:
-                    Lilac Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach
-                    Cloud. Ohne Auswahl folgt es dem System (dunkel: Lilac
-                    Carbon, hell: Paper Mint).
-                </p>
-                <div class="theme-buttons" id="theme-buttons"></div>
+            <!-- P4.7: shown only once there is a sync partner (wallet-sync-ui.js). -->
+            <section id="sync-status-line" class="sync-line" aria-labelledby="sync-title">
+                <h2 id="sync-title" class="visually-hidden">Sync</h2>
             </section>
-        </details>
+
+            <section class="wallet-export" aria-labelledby="export-title">
+                <h2 id="export-title" class="visually-hidden">Export</h2>
+                <!-- Export-Bereich -->
+                <button id="btn-export">Export</button>
+                <span id="export-options">
+                    <button id="btn-export-link" aria-label="Export-Link (klassisch)">Export-Link (klassisch) 🔗</button>
+                    <button id="btn-export-link-qr" aria-label="QR-Code anzeigen">
+                        QR-Code (kurz) anzeigen 📱
+                    </button>
+                    <button id="btn-export-json" aria-label="Als JSON herunterladen">Als JSON herunterladen 📄</button>
+                </span>
+                <input
+                    id="export-url"
+                    readonly
+                    placeholder="Hier erscheint dein Export-Link"
+                    aria-label="Export-Link"
+                />
+                <div id="export-url-actions" class="export-link-actions">
+                    <button id="btn-copy-export-url" type="button">Kopieren 📋</button>
+                    <button id="btn-share-export-url" type="button" hidden>Teilen 📤</button>
+                    <span id="export-url-status" class="export-link-status" role="status" aria-live="polite"></span>
+                </div>
+                <div id="qr-box" class="qr-box">
+                    <div class="qr-hint" id="qr-hint"></div>
+                    <canvas id="qr-canvas" aria-label="QR-Code"></canvas>
+                    <input
+                        id="qr-url"
+                        type="text"
+                        readonly
+                        inputmode="none"
+                        aria-label="QR-Code Link"
+                    />
+                    <div class="export-link-actions">
+                        <button id="btn-copy-qr-url" type="button">Kopieren 📋</button>
+                        <button id="btn-share-qr-url" type="button" hidden>Teilen 📤</button>
+                        <span id="qr-url-status" class="export-link-status" role="status" aria-live="polite"></span>
+                    </div>
+                </div>
+            </section>
+
+            <hr />
+
+            <details id="theme-panel" class="theme-panel">
+                <summary class="theme-summary">
+                    Theme: <span id="current-theme-name">Lilac Carbon</span>
+                </summary>
+                <section id="theme-section">
+                    <h2>Theme auswählen</h2>
+                    <p class="theme-note">
+                        Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name:
+                        Lilac Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach
+                        Cloud. Ohne Auswahl folgt es dem System (dunkel: Lilac
+                        Carbon, hell: Paper Mint).
+                    </p>
+                    <div class="theme-buttons" id="theme-buttons"></div>
+                </section>
+            </details>
+        </main>
 
         <!-- P4.3: the one confirm dialog (wallet-helpers.js confirmDialog). -->
         <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-text">

@@ -137,6 +137,10 @@ function loadThemeJs({ light = false, stored = null } = {}) {
     const el = {
       dataset: {},
       _cls: new Set(),
+      _attrs: {},
+      setAttribute(k, v) {
+        el._attrs[k] = String(v);
+      },
       addEventListener(t, fn) {
         el._click = fn;
       },
@@ -192,6 +196,10 @@ test("no stored theme, light OS: Paper Mint, selector marks its button", () => {
   ctx.dbWalletTheme.initThemeSelector();
   const active = buttons.filter((b) => b._cls.has("active")).map((b) => b.dataset.theme);
   assert.deepEqual(active, ["Paper Mint"]);
+  // P4.9: the state is announced too, not only coloured.
+  const pressed = buttons.filter((b) => b._attrs["aria-pressed"] === "true").map((b) => b.dataset.theme);
+  assert.deepEqual(pressed, ["Paper Mint"]);
+  assert.ok(buttons.every((b) => b._attrs["aria-pressed"] && b.type === "button"));
   assert.equal(store.has("db-wallet:theme"), false, "the default is not stored");
 });
 

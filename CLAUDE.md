@@ -179,6 +179,19 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   `el.style.x = …` assignments are fine. Initially hidden elements get `display: none`
   from an `#id` rule in `style.css`, so their inline `style.display` starts as `""` —
   toggles must treat `""` as hidden (`tests/p3-3-csp.test.js` checks all of this).
+  Newer UI toggles a class (`.is-visible`, `.is-expanded`) or the `hidden`
+  attribute instead — `hidden` only works on elements whose CSS sets no `display`.
+- **`wallet.html` layout (P4.2/P4.7/P4.9)** — `<header id="wallet-header">` (title,
+  "Start"/"Info" links, user, device picker), then `<main>`: the fixed three-stat row
+  (never hide a stat — the booking buttons must not jump), the booking block, then
+  history, action codes, sync line, export, theme. One `h2` per block; headings that
+  would only repeat what is visible use `.visually-hidden`. `#confirm-dialog` and
+  `#status-line` stay direct `<body>` children, and so does the no-wallet notice
+  (inserted after `#wallet-header`): the no-wallet CSS hides every other body child.
+  The device picker is one labelled button ("Gerät: wählen") that expands to visible
+  text + six `aria-pressed` symbols, no `title` tooltips. The sync line
+  (`#sync-status-line`) shows only with a sync partner (`pickActivePeer`, i.e. after
+  an import from another device); red adds a visible "Zum Export" button.
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
 - **Deploy allowlist** — Pages copies only the files on the `cp` line of

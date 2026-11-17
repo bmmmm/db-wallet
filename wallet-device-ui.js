@@ -1,14 +1,24 @@
 (function () {
+  // Device symbol picker in the wallet header (P4.7). Collapsed it is one
+  // labelled button ("Gerät: L" or "Gerät: wählen"); expanded it shows what
+  // the symbol is for, the device id, and the six symbols as a pressed-state
+  // group. The explanation is visible text, not a title tooltip (touch
+  // devices never show those). Styling lives in style.css (.device-*).
+
   // Canonical list lives in dbWalletHelpers; the literal is only a fallback for
   // the (never-in-practice) case where helpers failed to load.
   const DEVICE_SYMBOLS =
     (window.dbWalletHelpers && window.dbWalletHelpers.DEVICE_SYMBOLS) ||
     ["L", "M", "D", "K", "T", "*"];
 
+  const OPTIONS_ID = "device-symbol-options";
+
   let opts = null;
   let expanded = false;
   let rootEl = null;
   let docListenerBound = false;
+  // "toggle" | "option" | null — where focus goes after the next render.
+  let pendingFocus = null;
 
   function onDocumentClose(e) {
     if (!expanded) return;
@@ -19,7 +29,7 @@
   }
 
   function ensureRoot() {
-    if (!opts || !opts.elUid) return null;
+    if (!opts) return null;
     if (rootEl && rootEl.isConnected) return rootEl;
 
     const existing = document.getElementById("device-symbol-selector");
@@ -27,45 +37,26 @@
       rootEl = existing;
       return rootEl;
     }
-
-    const root = document.createElement("span");
+    // Pages without the placeholder: append next to the user id.
+    if (!opts.elUid || !opts.elUid.parentNode) return null;
+    const root = document.createElement("div");
     root.id = "device-symbol-selector";
-    root.style.display = "flex";
-    root.style.alignItems = "center";
-    root.style.gap = "0.35rem";
-    root.style.marginTop = "0.2rem";
-    root.style.position = "relative";
-
-    // Wichtig: unterhalb des Usernamens, gleicher linker Block
+    root.className = "device-selector";
     opts.elUid.parentNode.appendChild(root);
-
     rootEl = root;
     return rootEl;
   }
 
-  function createSymbolButton(symbol, isActive) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = symbol;
-    btn.style.padding = "0.1rem 0.45rem";
-    btn.style.fontSize = "0.9rem";
-    btn.style.lineHeight = "1.1";
-    btn.style.width = "auto";
-    btn.style.minWidth = "0";
-    btn.style.margin = "0 0.15rem";
-    if (isActive) btn.style.fontWeight = "700";
-    return btn;
+  function call(name, arg) {
+    return opts && typeof opts[name] === "function" ? opts[name](arg) : undefined;
   }
 
-  function createDeviceKeyEl(deviceKey) {
-    const span = document.createElement("span");
-    span.textContent = deviceKey;
-    span.style.marginLeft = "0.25rem";
-    span.style.fontFamily =
-      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
-    span.style.fontSize = "0.9rem";
-    span.style.opacity = "0.9";
-    return span;
+  function choose(sym) {
+    if (!call("setDeviceSymbol", sym)) return;
+    expanded = false;
+    pendingFocus = "toggle";
+    render();
+    call("onChange");
   }
 
   function render() {
@@ -77,88 +68,86 @@
       document.addEventListener("click", onDocumentClose);
     }
 
-    const deviceKey =
-      opts.getDeviceKey && typeof opts.getDeviceKey === "function"
-        ? opts.getDeviceKey()
-        : "";
-
-    const current =
-      opts.getDeviceSymbol && typeof opts.getDeviceSymbol === "function"
-        ? opts.getDeviceSymbol()
-        : "";
+    const deviceKey = call("getDeviceKey") || "";
+    const current = call("getDeviceSymbol") || "";
 
     root.innerHTML = "";
+    root.classList.toggle("is-expanded", expanded);
 
-    // shared line for symbol + device id
-    const line = document.createElement("span");
-    line.style.display = "inline-flex";
-    line.style.alignItems = "center";
-    line.style.gap = "0.35rem";
+    const label = document.createElement("span");
+    label.className = "device-label";
+    label.textContent = "Gerät:";
+    root.appendChild(label);
 
-    if (!current) {
-      expanded = false;
-
-      for (const sym of DEVICE_SYMBOLS) {
-        const btn = createSymbolButton(sym, false);
-        btn.addEventListener("click", (e) => {
-          if (e && typeof e.stopPropagation === "function") e.stopPropagation();
-          const ok =
-            opts.setDeviceSymbol && typeof opts.setDeviceSymbol === "function"
-              ? opts.setDeviceSymbol(sym)
-              : false;
-          if (!ok) return;
-          expanded = false;
-          render();
-          if (opts.onChange) opts.onChange();
-        });
-        line.appendChild(btn);
-      }
-
-      if (deviceKey) line.appendChild(createDeviceKeyEl(deviceKey));
-      root.appendChild(line);
-      return;
-    }
-
-    const activeBtn = createSymbolButton(current, true);
-    activeBtn.title = deviceKey ? `Geräte-ID: ${deviceKey}` : "";
-    activeBtn.setAttribute("aria-haspopup", "true");
-    activeBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
-    activeBtn.addEventListener("click", (e) => {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "device-toggle";
+    toggle.textContent = current || "wählen";
+    toggle.setAttribute(
+      "aria-label",
+      current ? `Gerätesymbol ${current} ändern` : "Gerätesymbol wählen",
+    );
+    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    toggle.setAttribute("aria-controls", OPTIONS_ID);
+    toggle.addEventListener("click", (e) => {
       if (e && typeof e.stopPropagation === "function") e.stopPropagation();
       expanded = !expanded;
+      pendingFocus = expanded ? "option" : "toggle";
       render();
     });
+    root.appendChild(toggle);
 
-    line.appendChild(activeBtn);
-    if (deviceKey) line.appendChild(createDeviceKeyEl(deviceKey));
-    root.appendChild(line);
+    let focusTarget = pendingFocus === "toggle" ? toggle : null;
 
-    if (!expanded) return;
+    if (expanded) {
+      const panel = document.createElement("div");
+      panel.id = OPTIONS_ID;
+      panel.className = "device-options";
+      panel.setAttribute("role", "group");
+      panel.setAttribute("aria-label", "Gerätesymbol");
 
-    const optsEl = document.createElement("span");
-    optsEl.style.display = "inline-flex";
-    optsEl.style.flexWrap = "wrap";
-    optsEl.style.gap = "0.2rem";
-    optsEl.style.marginLeft = "0.1rem";
+      const hint = document.createElement("p");
+      hint.className = "device-hint";
+      hint.textContent =
+        "Ein Zeichen für dieses Gerät. Es kennzeichnet seine Buchungen in der Sync-Anzeige auf allen Geräten." +
+        (deviceKey ? ` Geräte-ID: ${deviceKey}` : "");
+      panel.appendChild(hint);
 
-    for (const sym of DEVICE_SYMBOLS) {
-      if (sym === current) continue;
-      const btn = createSymbolButton(sym, false);
-      btn.addEventListener("click", (e) => {
-        if (e && typeof e.stopPropagation === "function") e.stopPropagation();
-        const ok =
-          opts.setDeviceSymbol && typeof opts.setDeviceSymbol === "function"
-            ? opts.setDeviceSymbol(sym)
-            : false;
-        if (!ok) return;
+      const buttons = document.createElement("div");
+      buttons.className = "device-symbols";
+      for (const sym of DEVICE_SYMBOLS) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "device-symbol";
+        btn.textContent = sym;
+        btn.setAttribute("aria-pressed", sym === current ? "true" : "false");
+        btn.addEventListener("click", (e) => {
+          if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+          choose(sym);
+        });
+        buttons.appendChild(btn);
+        if (pendingFocus === "option" && !focusTarget) focusTarget = btn;
+        if (pendingFocus === "option" && sym === current) focusTarget = btn;
+      }
+      panel.appendChild(buttons);
+      panel.addEventListener("keydown", (e) => {
+        if (!e || e.key !== "Escape") return;
+        if (typeof e.preventDefault === "function") e.preventDefault();
         expanded = false;
+        pendingFocus = "toggle";
         render();
-        if (opts.onChange) opts.onChange();
       });
-      optsEl.appendChild(btn);
+      root.appendChild(panel);
     }
 
-    root.appendChild(optsEl);
+    pendingFocus = null;
+    if (focusTarget && typeof focusTarget.focus === "function") {
+      try {
+        focusTarget.focus();
+      } catch (e) {
+        // ignore
+      }
+    }
   }
 
   function collapse() {
@@ -169,6 +158,7 @@
   function init(nextOpts) {
     opts = nextOpts || null;
     expanded = false;
+    pendingFocus = null;
     render();
   }
 
