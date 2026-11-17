@@ -11,30 +11,53 @@ const { makeEnv, REPO } = require("./harness");
 const { makePageDocument } = require("./fake-dom");
 
 const SKIP = new Set(["theme.js", "import-preview.js", "self-check-loader.js", "sw-register.js"]);
+
+// The page's <script src> files in order, without SKIP.
+function pageFiles(html) {
+  return Array.from(html.matchAll(/<script src="(?:\.\/)?([^"]+)"/g))
+    .map((m) => m[1])
+    .filter((f) => !SKIP.has(f));
+}
+
 const HTML = fs.readFileSync(path.join(REPO, "wallet.html"), "utf8");
-const PAGE_FILES = Array.from(HTML.matchAll(/<script src="(?:\.\/)?([^"]+)"/g))
-  .map((m) => m[1])
-  .filter((f) => !SKIP.has(f));
+const PAGE_FILES = pageFiles(HTML);
 
 const BASE = "https://example.invalid/wallet.html";
 
 // opts: hash (start fragment, without "#"), storage, deviceKey, seed(w) to
 // prepare storage before the boot (runs in a throwaway env on the same storage).
+// For another release (scripts/upgrade-check.js; `seed` still runs this repo's
+// modules — prepare `storage` yourself instead):
+//   root            — directory of wallet.html and the scripts, default REPO;
+//   html            — the page text, default <root>/wallet.html;
+//   scriptSource(f) — returns the text of script f (the page's scripts and the
+//                     ones it appends later), default <root>/<f>.
 async function bootWalletPage(opts = {}) {
   const { makeStorage } = require("./harness");
+  const root = opts.root || REPO;
+  const html =
+    typeof opts.html === "string"
+      ? opts.html
+      : root === REPO
+        ? HTML
+        : fs.readFileSync(path.join(root, "wallet.html"), "utf8");
+  const files = html === HTML ? PAGE_FILES : pageFiles(html);
   const storage = opts.storage || makeStorage();
   if (opts.seed) {
     opts.seed(makeEnv({ storage, deviceKey: opts.deviceKey || "devA" }));
   }
-  const document = makePageDocument(HTML);
+  const document = makePageDocument(html);
+  const source = opts.scriptSource;
   const w = makeEnv({
     storage,
     deviceKey: opts.deviceKey || "devA",
     document,
-    files: PAGE_FILES,
+    files: source ? [] : files,
+    root,
     url: BASE + (opts.hash ? "#" + opts.hash : ""),
   });
-  emulateScriptLoads(w, document.body, opts.failScripts);
+  if (source) for (const f of files) w._eval(source(f), f);
+  emulateScriptLoads(w, document.body, opts.failScripts, { root, scriptSource: source });
   // Count wallet switches: every switchToUser ends in updateUidLabel, which
   // writes #uid; count the writes.
   const uid = document.getElementById("uid");
@@ -52,7 +75,10 @@ async function bootWalletPage(opts = {}) {
   return w;
 }
 
-function emulateScriptLoads(w, parent, failScripts) {
+// `from` (optional): { root, scriptSource } as in bootWalletPage.
+function emulateScriptLoads(w, parent, failScripts, from) {
+  const root = (from && from.root) || REPO;
+  const source = from && from.scriptSource;
   w._scriptLoads = [];
   const append = parent.appendChild.bind(parent);
   parent.appendChild = (el) => {
@@ -65,7 +91,7 @@ function emulateScriptLoads(w, parent, failScripts) {
           if (typeof el.onerror === "function") el.onerror(new Error("load failed"));
           return;
         }
-        w._eval(fs.readFileSync(path.join(REPO, src), "utf8"));
+        w._eval(source ? source(src) : fs.readFileSync(path.join(root, src), "utf8"), src);
         if (typeof el.onload === "function") el.onload();
       });
     }
@@ -86,4 +112,4 @@ async function flushHashChanges(w) {
   throw new Error("flushHashChanges: the hashchange handlers kept queueing new ones");
 }
 
-module.exports = { bootWalletPage, flushHashChanges, emulateScriptLoads, PAGE_FILES, BASE };
+module.exports = { bootWalletPage, flushHashChanges, emulateScriptLoads, pageFiles, PAGE_FILES, BASE };
