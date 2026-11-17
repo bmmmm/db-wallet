@@ -168,6 +168,8 @@ function makeNav(startUrl, win) {
 //   storage    — reuse an existing storage (two tabs / two loads of one browser)
 //   document   — replace the document stub (e.g. tests/fake-dom.js)
 //   files      — module list, defaults to DEFAULT_FILES
+//   root       — directory the `files` are read from, default REPO (e.g. an
+//                unpacked older release for scripts/upgrade-check.js)
 //   globals    — extra window properties, assigned before the modules load
 function makeEnv(opts = {}) {
   const alerts = [];
@@ -238,14 +240,16 @@ function makeEnv(opts = {}) {
   if (opts.globals) Object.assign(win, opts.globals);
   const ctx = vm.createContext(win);
   for (const f of opts.files || DEFAULT_FILES) {
-    vm.runInContext(fs.readFileSync(path.join(REPO, f), "utf8"), ctx, {
+    vm.runInContext(fs.readFileSync(path.join(opts.root || REPO, f), "utf8"), ctx, {
       filename: f,
     });
   }
   win._alerts = alerts;
   // Evaluate an expression inside the module realm (e.g. "({})" to get an
-  // object with the context's own Object.prototype).
-  win._eval = (code) => vm.runInContext(code, ctx);
+  // object with the context's own Object.prototype). `filename` (optional)
+  // names the code in stack traces.
+  win._eval = (code, filename) =>
+    vm.runInContext(code, ctx, filename ? { filename } : undefined);
   return win;
 }
 

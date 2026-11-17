@@ -223,6 +223,7 @@ jedem Static-Host:
 alte Caches werden beim nächsten Besuch aufgeräumt. Der SW schreibt nur
 `200`/`basic`-Responses in die App-Shell, damit Fehler- oder Redirect-Seiten den
 Cache nicht vergiften.
+Vor dem Push auf `main`: `node scripts/upgrade-check.js <veröffentlichter Commit>` (siehe `docs/upgrade-compat.md`).
 </details>
 
 <details>
