@@ -417,6 +417,7 @@
       if (codesUiApi && typeof codesUiApi.initActionCodesUi === "function") {
         actionCodesUi = codesUiApi.initActionCodesUi({
           container: actionCodesBody,
+          panel: actionCodesPanel,
           getWallet: () => wallet,
           // The panel hands over a changed copy (action-codes.js pure
           // functions); adopt it only when it was saved, so a refused save

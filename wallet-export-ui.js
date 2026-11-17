@@ -450,6 +450,13 @@
 
   async function showQrExport() {
     clearQrUi();
+    // qrcodegen.js loads on first use (P5.6). A failed load leaves the
+    // library missing; drawExportQr then reports it below.
+    try {
+      await helpers.loadQrLibrary();
+    } catch (e) {
+      // handled by the "QR library missing" path
+    }
     const cached = loadCachedQrUrl();
     if (cached) {
       try {

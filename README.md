@@ -202,7 +202,7 @@ rückwärtskompatibel.
 
 **PWA:** `manifest.json`, `service-worker.js`, `sw-register.js` &nbsp;·&nbsp;
 **Tools:** `self-check.js` (+ `self-check-loader.js`), `colors.html` (Theme-Vorschau, nicht im Precache) &nbsp;·&nbsp;
-**QR:** `qrcodegen.js` (Nayuki)
+**QR:** `qrcodegen.js` (Nayuki), erst beim ersten QR nachgeladen (Export, offenes Action-Code-Panel)
 
 **Ladereihenfolge ist load-bearing:** jedes Modul ist ein
 `window.dbWalletX`-IIFE, das früh aussteigt, wenn eine Abhängigkeit fehlt — die

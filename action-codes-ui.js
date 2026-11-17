@@ -9,6 +9,7 @@
   if (
     !helpers ||
     typeof helpers.drawQrToCanvas !== "function" ||
+    typeof helpers.loadQrLibrary !== "function" ||
     typeof helpers.downloadBlob !== "function" ||
     !api ||
     typeof api.createActionCode !== "function"
@@ -390,16 +391,18 @@
     try {
       url = actionUrlFor(ctx, code);
       urlInput.value = url;
-      renderQrToCanvas(canvas, url);
     } catch (e) {
-      const msg = String(e && e.message ? e.message : e || "");
       const fallback = document.createElement("div");
       fallback.className = "action-code-error";
-      fallback.textContent = msg.includes("QR library missing")
-        ? "QR-Code-Generator fehlt (qrcodegen.js)."
-        : "QR-Code konnte nicht erzeugt werden.";
+      fallback.textContent = "QR-Code konnte nicht erzeugt werden.";
       return { error: fallback };
     }
+    // Drawn later, once the panel is open (drawQueuedQrs); a 1×1 canvas keeps
+    // the square place meanwhile.
+    canvas.width = 1;
+    canvas.height = 1;
+    const job = { canvas, url, drawn: false };
+    ctx.qrQueue.push(job);
 
     function selectUrl() {
       try {
@@ -423,7 +426,7 @@
     );
 
     canvas.addEventListener("click", () => {
-      if (!url) return;
+      if (!url || !job.drawn) return;
       const safeCode = String(code.label || `+${code.amount}`)
         .replace(/[^a-zA-Z0-9_-]/g, "_")
         .slice(0, 20);
@@ -515,9 +518,48 @@
     return card;
   }
 
+  function showQrError(job, text) {
+    const err = document.createElement("div");
+    err.className = "action-code-error";
+    err.textContent = text;
+    job.canvas.insertAdjacentElement("beforebegin", err);
+    job.canvas.hidden = true;
+  }
+
+  // P5.6: the QR cards of the latest render are drawn only while the panel is
+  // open — a closed <details> needs no canvases, and qrcodegen.js loads on
+  // first use (helpers.loadQrLibrary). Opening the panel draws the queue; a
+  // re-render replaces it, so a pending draw of an older render is dropped.
+  function drawQueuedQrs(ctx) {
+    if (ctx.panel && !ctx.panel.open) return;
+    const jobs = ctx.qrQueue;
+    if (!jobs.length) return;
+    ctx.qrQueue = [];
+    const gen = ctx.renderGen;
+    helpers.loadQrLibrary().then(
+      () => {
+        if (gen !== ctx.renderGen) return;
+        for (const job of jobs) {
+          try {
+            renderQrToCanvas(job.canvas, job.url);
+            job.drawn = true;
+          } catch (e) {
+            showQrError(job, "QR-Code konnte nicht erzeugt werden.");
+          }
+        }
+      },
+      () => {
+        if (gen !== ctx.renderGen) return;
+        for (const job of jobs) showQrError(job, "QR-Code-Generator fehlt (qrcodegen.js).");
+      },
+    );
+  }
+
   function renderActionList(ctx) {
     const wallet = ctx.getWallet();
     if (!wallet) return;
+    ctx.renderGen++;
+    ctx.qrQueue = [];
 
     persistIfChanged(ctx, wallet);
 
@@ -610,6 +652,7 @@
     if (ctx.showTrimNotice) ctx.container.appendChild(notice);
     if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
     ctx.container.appendChild(grid);
+    drawQueuedQrs(ctx);
   }
 
   // Global ('🌍') codes live on the wallet (wallet.globalActionCodes) and only
@@ -640,6 +683,11 @@
         options && typeof options.getBaseUrl === "function"
           ? options.getBaseUrl
           : () => String(window.location.href || "").split("#")[0],
+      // The <details> around the panel: QR cards are drawn while it is open.
+      // Without one they are drawn at once.
+      panel: (options && options.panel) || null,
+      qrQueue: [],
+      renderGen: 0,
       showTrimNotice: false,
       showSoftLimitNotice: false,
       selectedType: "d",
@@ -650,6 +698,9 @@
       refresh: null,
     };
     ctx.refresh = () => renderActionList(ctx);
+    if (ctx.panel && typeof ctx.panel.addEventListener === "function") {
+      ctx.panel.addEventListener("toggle", () => drawQueuedQrs(ctx));
+    }
 
     ctx.refresh();
     return { refresh: ctx.refresh };

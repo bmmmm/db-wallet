@@ -2062,6 +2062,21 @@
       if (origNotify) helpers.notify = origNotify;
     }
 
+    // P5.6: qrcodegen.js is no page script any more; it loads on first use.
+    try {
+      if (typeof helpers.loadQrLibrary === "function") {
+        const lib = await helpers.loadQrLibrary();
+        addCheck(
+          result,
+          "QR library loads on demand",
+          !!(lib && lib.QrCode && typeof lib.QrCode.encodeText === "function"),
+          "qrcodegen.js",
+        );
+      }
+    } catch (e) {
+      addCheck(result, "QR library loads on demand", false, String((e && e.message) || e));
+    }
+
     try {
       if (typeof caches !== "undefined" && caches && typeof caches.keys === "function") {
         const keys = await caches.keys();
@@ -2070,8 +2085,11 @@
           .filter((s) => s && s.startsWith(location.origin));
         // self-check.js itself is injected on demand by self-check-loader.js
         // (P3.5); it must be precached too, or run() fails offline.
-        const selfUrl = new URL("self-check.js", location.href).href;
-        if (!scripts.includes(selfUrl)) scripts.push(selfUrl);
+        // Likewise qrcodegen.js (P5.6, helpers.loadQrLibrary).
+        for (const f of ["self-check.js", "qrcodegen.js"]) {
+          const url = new URL(f, location.href).href;
+          if (!scripts.includes(url)) scripts.push(url);
+        }
         const missing = [];
         for (const url of scripts) {
           let hit = false;

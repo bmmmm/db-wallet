@@ -427,6 +427,43 @@
     return false;
   }
 
+  // qrcodegen.js (35 KB) is loaded on first use (P5.6), not by the page: only
+  // the export QR and an open action-code panel need it. Resolves with
+  // window.qrcodegen; a failed load rejects with "QR library missing" and a
+  // later call tries again. The file stays in the SW precache (offline).
+  const QR_LIBRARY_SRC = "qrcodegen.js";
+  let qrLibraryLoading = null;
+
+  function qrLibrary() {
+    const lib = window.qrcodegen;
+    return lib && lib.QrCode ? lib : null;
+  }
+
+  function loadQrLibrary() {
+    const ready = qrLibrary();
+    if (ready) return Promise.resolve(ready);
+    if (qrLibraryLoading) return qrLibraryLoading;
+    const missing = () => new Error("QR library missing");
+    if (typeof document === "undefined" || !document || typeof document.createElement !== "function") {
+      return Promise.reject(missing());
+    }
+    qrLibraryLoading = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = QR_LIBRARY_SRC;
+      script.onload = () => {
+        const lib = qrLibrary();
+        if (lib) resolve(lib);
+        else reject(missing());
+      };
+      script.onerror = () => reject(missing());
+      (document.head || document.body).appendChild(script);
+    }).catch((err) => {
+      qrLibraryLoading = null;
+      throw err;
+    });
+    return qrLibraryLoading;
+  }
+
   function drawQrToCanvas(canvas, text, opts) {
     if (!canvas) return;
     if (!window.qrcodegen || !window.qrcodegen.QrCode) {
@@ -739,6 +776,7 @@
     isReservedHashPrefix,
     replaceHashSilently,
     drawQrToCanvas,
+    loadQrLibrary,
     BLOB_URL_REVOKE_MS,
     downloadBlob,
     downloadJson,
