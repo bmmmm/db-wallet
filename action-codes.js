@@ -199,7 +199,9 @@
     return aid.localeCompare(bid);
   }
 
-  function normalizeActionCodes(list, now = Date.now()) {
+  // `idPrefix` is for the global wrapper: an id minted here (missing or
+  // duplicate) gets the same "global:" prefix as buildGlobalCode.
+  function normalizeActionCodes(list, now = Date.now(), idPrefix = "") {
     const arr = Array.isArray(list) ? list : [];
     const out = [];
     const seen = new Set();
@@ -208,7 +210,7 @@
       const code = normalizeActionCode(raw, now);
       if (!code) continue;
 
-      if (!code.id) code.id = randomToken(10);
+      if (!code.id) code.id = idPrefix + randomToken(10);
       if (!code.key) code.key = randomToken(18);
       if (!code.updatedAt && !code.createdAt) {
         code.updatedAt = now;
@@ -225,7 +227,7 @@
 
       let id = code.id;
       while (seen.has(id)) {
-        id = randomToken(10);
+        id = idPrefix + randomToken(10);
       }
       code.id = id;
       seen.add(id);
@@ -248,7 +250,7 @@
   // (encode and decode), the import merge and the save reconcile, so a global
   // code keeps its scope across export -> import and two exports are identical.
   function normalizeGlobalActionCodes(list, now = Date.now()) {
-    const normalized = normalizeActionCodes(list, now);
+    const normalized = normalizeActionCodes(list, now, "global:");
     const out = normalized.map((c) => {
       delete c.key;
       c.scope = "global";
