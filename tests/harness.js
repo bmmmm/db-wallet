@@ -59,7 +59,8 @@ function makeStorage(quota) {
 // fragment changes, like the browser); history.replaceState rewrites the
 // current entry and fires nothing; location.href to another page is recorded
 // in `nav.pageLoads` (the vm page never actually unloads). `nav.flush()`
-// delivers queued hashchange events to the window listeners.
+// delivers queued hashchange events to the window listeners and returns what
+// the listeners returned (wallet-ui.js returns its handler's promise).
 function makeNav(startUrl, win) {
   const entries = [new URL(startUrl).href];
   let index = 0;
@@ -75,11 +76,13 @@ function makeNav(startUrl, win) {
       return entries[index];
     },
     flush() {
+      const results = [];
       while (queue.length) {
         const ev = queue.shift();
         nav.hashchanges++;
-        win._dispatch("hashchange", ev);
+        results.push(...win._dispatch("hashchange", ev));
       }
+      return results;
     },
   };
   const fragment = (href) => {

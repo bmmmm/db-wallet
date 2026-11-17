@@ -840,9 +840,9 @@
         handlingHash = false;
       }
     }
-    window.addEventListener("hashchange", () => {
-      handleHashChange();
-    });
+    // Returns the handler's promise: the browser ignores it, the Node test
+    // harness awaits it (tests/wallet-page.js flushHashChanges).
+    window.addEventListener("hashchange", () => handleHashChange());
 
     function downloadJsonFile(data, filename) {
       const blob = new Blob([JSON.stringify(data, null, 2)], {

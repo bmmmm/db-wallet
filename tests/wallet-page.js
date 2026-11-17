@@ -48,23 +48,17 @@ async function bootWalletPage(opts = {}) {
   return w;
 }
 
-// Deliver queued hashchange events and let their async handlers settle.
-// wallet-ui.js's listener doesn't return its promise (and i2: decompression
-// is truly async), so wait until the history stops changing and no event is
-// queued for a few timer turns.
+// Deliver queued hashchange events and wait for their handlers: wallet-ui.js's
+// listener returns the handler's promise (i2: decompression is truly async).
+// A handler may queue the next hashchange, so repeat until none is left.
 async function flushHashChanges(w) {
   const nav = w._nav;
-  const snapshot = () =>
-    JSON.stringify([nav.entries, nav.index, w._alerts.length, nav.pageLoads.length]);
-  let last = "";
-  let stable = 0;
-  for (let i = 0; i < 200 && stable < 3; i++) {
-    nav.flush();
-    await new Promise((r) => setTimeout(r, 2));
-    const now = snapshot();
-    stable = now === last ? stable + 1 : 0;
-    last = now;
+  for (let i = 0; i < 50; i++) {
+    const pending = nav.flush();
+    if (!pending.length) return;
+    await Promise.all(pending);
   }
+  throw new Error("flushHashChanges: the hashchange handlers kept queueing new ones");
 }
 
 module.exports = { bootWalletPage, flushHashChanges, PAGE_FILES, BASE };
