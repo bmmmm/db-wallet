@@ -40,6 +40,10 @@
     };
 
     const helpers = window.dbWalletHelpers || null;
+    // P4.1: notices go to the status line now; the run's own bookings and
+    // errors must not land there either (restored with the dialogs below).
+    const origNotify = helpers && typeof helpers.notify === "function" ? helpers.notify : null;
+    if (origNotify) helpers.notify = () => true;
     const storage = window.dbWalletStorage || null;
     const importV2 = window.dbWalletImportV2 || null;
     const summaryApi = window.dbWalletSummary || null;
@@ -1882,7 +1886,7 @@
         // 3.6 -> 4), and that a mismatched key is rejected (no booking). Relies on:
         //   bookActionCode(targetUserId, { api, codeId, key }) -> loads the wallet,
         //   matches codeId, key-checks, books newEvent via appendEvents.
-        // bookActionCode uses global alert() and replaces the hash via
+        // bookActionCode reports via helpers.notify (stubbed for the run) and replaces the hash via
         // history.replaceState (P2.1: no new history entry, so Back can't
         // re-book), so both are overridden/saved and restored here.
         try {
@@ -2084,6 +2088,7 @@
       window.alert = origDialogs.alert;
       window.confirm = origDialogs.confirm;
       window.prompt = origDialogs.prompt;
+      if (origNotify) helpers.notify = origNotify;
     }
 
     try {

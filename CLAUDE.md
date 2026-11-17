@@ -136,7 +136,7 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   `walletId` (a pre-reset export imports as a separate wallet) and carries `seq`
   over after `ensureDeviceSeq`, so an event id is never re-issued. Don't reset `seq`.
   `saveWallet` refuses (returns `false`, one-time "in einem anderen Tab
-  zurückgesetzt" alert) when the in-memory and persisted `walletId` differ (both
+  zurückgesetzt" notice with a "Neu laden" button, `notifyWalletReplaced`) when the in-memory and persisted `walletId` differ (both
   non-empty) — a stale tab must not merge old events into the reset wallet. Only a
   save that intentionally switches the `walletId` (today: `resetWallet`) passes
   `{ allowWalletIdChange: true }`, which overwrites without reconciling. Exception:
@@ -145,6 +145,19 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   still holds every event it was loaded with (two tabs opening a new wallet). A reset
   replaces the stored record (never removes it first); if that save fails, the tab
   and the store keep the old wallet and the user gets "Zurücksetzen fehlgeschlagen".
+- **Notices go to the status line, not `alert()`** — `dbWalletHelpers.notify(text,
+  {kind:"error", sticky, action:{label, run}})` writes `#status-line` (on
+  `wallet.html` and `index.html`; `#status-text` is the page's one `role="status"`,
+  always in the DOM, shown via `.is-visible`, so the no-wallet CSS must keep it).
+  Without the line it falls back to `alert()`. Keep `alert()` only for a message
+  right before a navigation away (`redirectAfterActionError` without an open wallet).
+  A booking's notice offers "Rückgängig" for exactly that booking (`undoBooking`,
+  root id), not "the last one" — another tab may have booked in between. A save
+  failure caused by a reset elsewhere goes through `storage.notifyWalletReplaced`,
+  never "Speicher voll". Booking limits (E5, `dbWalletActions.LIMITS`): at most 99
+  drinks per booking (confirm from 20), credit at most 999, edits the same — refused,
+  not clamped. The first "Teilen" on a device shows the bearer-link hint and shares
+  only from its button (`localStorage` flag `db-wallet.share-hint-seen`).
 - **CSP has no `'unsafe-inline'`** (index/wallet/preview) — no `style="…"`, no
   `<style>`, no `setAttribute("style")`/`.cssText`/HTML strings with `style=`; single
   `el.style.x = …` assignments are fine. Initially hidden elements get `display: none`

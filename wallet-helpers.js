@@ -430,6 +430,91 @@
     return true;
   }
 
+  // --- Status line (P4.1) ----------------------------------------------------
+  // One line per page (#status-line; #status-text is the role="status" live
+  // region) takes the success and error notices that used to be alert()s.
+  // opts: kind "ok" | "error", action { label, run } (one button), sticky
+  // (stays until the next notice or ×). Others clear themselves after a while,
+  // errors later than successes. Without the line (a page that has none) the
+  // notice falls back to alert(); a notice right before leaving the page must
+  // call alert() itself, the line would vanish with the page.
+  const STATUS_CLEAR_MS = { ok: 6000, action: 10000, error: 15000 };
+  let statusTimer = null;
+  let statusAction = null;
+
+  function statusRefs() {
+    if (typeof document === "undefined" || !document || typeof document.getElementById !== "function") {
+      return null;
+    }
+    const line = document.getElementById("status-line");
+    const text = document.getElementById("status-text");
+    if (!line || !text) return null;
+    const refs = {
+      line,
+      text,
+      action: document.getElementById("status-action"),
+      close: document.getElementById("status-close"),
+    };
+    if (!line.dataset.statusBound) {
+      line.dataset.statusBound = "1";
+      if (refs.action) {
+        refs.action.addEventListener("click", () => {
+          const action = statusAction;
+          clearStatus();
+          if (action) action.run();
+        });
+      }
+      if (refs.close) refs.close.addEventListener("click", () => clearStatus());
+    }
+    return refs;
+  }
+
+  function clearStatus() {
+    if (statusTimer) clearTimeout(statusTimer);
+    statusTimer = null;
+    statusAction = null;
+    const refs = statusRefs();
+    if (!refs) return;
+    refs.text.textContent = "";
+    refs.line.classList.remove("is-visible");
+    refs.line.classList.remove("is-error");
+    if (refs.action) {
+      refs.action.textContent = "";
+      refs.action.hidden = true;
+    }
+    if (refs.close) refs.close.hidden = true;
+  }
+
+  function notify(message, opts) {
+    const text = String(message == null ? "" : message).trim();
+    if (!text) return false;
+    const o = opts || {};
+    const refs = statusRefs();
+    if (!refs) {
+      if (typeof alert === "function") alert(text);
+      return false;
+    }
+    const isError = o.kind === "error";
+    const action =
+      o.action && typeof o.action.run === "function" && o.action.label ? o.action : null;
+    if (statusTimer) clearTimeout(statusTimer);
+    statusTimer = null;
+    statusAction = action;
+    refs.text.textContent = text;
+    refs.line.classList.add("is-visible");
+    refs.line.classList.toggle("is-error", isError);
+    if (refs.action) {
+      refs.action.textContent = action ? String(action.label) : "";
+      refs.action.hidden = !action;
+    }
+    if (refs.close) refs.close.hidden = false;
+    if (!o.sticky) {
+      const ms = isError ? STATUS_CLEAR_MS.error : action ? STATUS_CLEAR_MS.action : STATUS_CLEAR_MS.ok;
+      statusTimer = setTimeout(clearStatus, ms);
+    }
+    return true;
+  }
+
   window.dbWalletHelpers = {
     STORAGE_PREFIX,
     REGISTRY_KEY,
@@ -467,5 +552,7 @@
     drawQrToCanvas,
     BLOB_URL_REVOKE_MS,
     downloadBlob,
+    notify,
+    clearStatus,
   };
 })();

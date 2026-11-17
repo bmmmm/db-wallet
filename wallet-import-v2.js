@@ -1381,16 +1381,17 @@
     // The import link is dropped from the address bar (back to the wallet that
     // was open, if any) — a reload must not replay the failing import.
     if (!saveWallet(wallet, { quiet: true })) {
-      alert(importSaveFailedMessage());
+      helpers.notify(importSaveFailedMessage(), { kind: "error" });
       replaceHash(returnUserIdOf(options));
       return null;
     }
     applyImportedTheme(remote, options);
     replaceHash(userId);
-    alert(
+    helpers.notify(
       remote && remote._extWarning
         ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Daten (Zusatzdaten oder Einträge ohne gültige ID) konnte nicht vollständig importiert und wurde übersprungen."
         : "Getränkedaten importiert ✅",
+      remote && remote._extWarning ? { sticky: true } : undefined,
     );
     return userId;
   }
@@ -1546,22 +1547,34 @@
     const key = typeof payload.key === "string" ? payload.key : "";
 
     if (!payloadWalletId) {
-      alert("Action Code ungültig: Ziel-Wallet fehlt.\nBuchung verweigert.");
-      return { done: redirectAfterActionError(activeUserId) };
+      return {
+        done: redirectAfterActionError(
+          activeUserId,
+          "Action Code ungültig: Ziel-Wallet fehlt.\nBuchung verweigert.",
+        ),
+      };
     }
     if (!codeId || !key) {
-      alert("Action Code ungültig (Daten fehlen).\nBuchung verweigert.");
-      return { done: redirectAfterActionError(activeUserId) };
+      return {
+        done: redirectAfterActionError(
+          activeUserId,
+          "Action Code ungültig (Daten fehlen).\nBuchung verweigert.",
+        ),
+      };
     }
 
     return { api, payload, payloadWalletId, codeId, key, activeUserId };
   }
 
-  function redirectAfterActionError(activeUserId) {
+  // With a wallet open the page stays and the message goes to the status line;
+  // without one the page leaves for index.html, so the message must block.
+  function redirectAfterActionError(activeUserId, message) {
     if (activeUserId) {
+      helpers.notify(message, { kind: "error" });
       replaceHash(activeUserId);
       return { userId: activeUserId, redirectedToPreview: false };
     }
+    alert(message);
     window.location.href = "index.html";
     return { userId: null, redirectedToPreview: true };
   }
@@ -1621,8 +1634,9 @@
     const codes = Array.isArray(wallet.actionCodes) ? wallet.actionCodes : [];
     const match = codeId && codes.find((c) => c && c.id === codeId);
     if (!match) {
-      alert(
+      helpers.notify(
         "Action Code ist unbekannt oder nicht mehr vorhanden.\nBuchung verweigert.",
+        { kind: "error" },
       );
       replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
@@ -1630,8 +1644,9 @@
 
     const matchKey = match && typeof match.key === "string" ? match.key : "";
     if (!matchKey || matchKey !== key) {
-      alert(
+      helpers.notify(
         "Action Code wurde erneuert.\nBitte den neuen QR-Code nutzen.\nBuchung verweigert.",
+        { kind: "error" },
       );
       replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
@@ -1655,17 +1670,31 @@
 
     const event = newEvent(wallet, type === "d" ? "d" : "g", amount);
     if (!appendEvents(wallet, [event])) {
-      alert(
-        "Speichern fehlgeschlagen — Buchung verworfen (Speicher voll oder blockiert).",
-      );
+      if (storage.getLastSaveError() === "replaced") {
+        storage.notifyWalletReplaced();
+      } else {
+        helpers.notify(
+          "Speichern fehlgeschlagen — Buchung verworfen (Speicher voll oder blockiert).",
+          { kind: "error" },
+        );
+      }
       replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
     }
     replaceHash(targetUserId);
-    alert(
-      type === "d"
-        ? `${amount} Getränk(e) getrunken gebucht ✅`
-        : `Guthaben +${amount} Getränke gebucht ✅`,
+    const summaryApi = window.dbWalletSummary || null;
+    const summary =
+      summaryApi && typeof summaryApi.computeSummarySafe === "function"
+        ? summaryApi.computeSummarySafe(wallet)
+        : null;
+    const balance = !summary
+      ? ""
+      : summary.credit > 0
+        ? ` · Guthaben: ${summary.credit}`
+        : ` · Offen: ${summary.unpaid}`;
+    const label = match.label ? ` „${match.label}“` : "";
+    helpers.notify(
+      `Action Code${label}: ${type === "d" ? `+${amount}` : `Guthaben +${amount}`} gebucht${balance}`,
     );
     return { userId: targetUserId, redirectedToPreview: false };
   }
@@ -1697,7 +1726,7 @@
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
-      alert(IMPORT_ERROR_MESSAGES[importErrorCode(e)]);
+      helpers.notify(IMPORT_ERROR_MESSAGES[importErrorCode(e)], { kind: "error" });
       // Drop the failed link from the address bar without a history entry:
       // back to the open wallet's hash, or no hash on a cold start (wallet-ui
       // then shows the no-wallet state).

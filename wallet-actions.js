@@ -21,6 +21,69 @@
   } = storage;
   const { dateStrFromTimestamp, parseDeleteRange } = summaryApi;
 
+  // E5: limits of one booking (wallet.html's amount field has max="99").
+  const LIMITS = Object.freeze({ drinkMax: 99, creditMax: 999, drinkConfirmFrom: 20 });
+  const SAVE_FAILED_MESSAGE =
+    "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).";
+
+  const drinksText = (n) => `${n} ${n === 1 ? "Getränk" : "Getränke"}`;
+
+  // The balance after a change, for the status line: "Offen: 4" or
+  // "Guthaben: 7".
+  function balanceText(ctx) {
+    const summary = ctx.getSummary();
+    if (summary && summary.credit > 0) return `Guthaben: ${summary.credit}`;
+    return `Offen: ${summary ? summary.unpaid : 0}`;
+  }
+
+  // Success notices go to the status line (P4.1); errors keep going through
+  // ctx.dialogAlert, which wallet-ui.js also routes there.
+  function notify(ctx, text, opts) {
+    if (typeof ctx.notify === "function") ctx.notify(text, opts);
+  }
+
+  // A refused save: after a reset in another tab only a reload helps (P1.9),
+  // otherwise storage is full or blocked.
+  function reportSaveFailure(ctx) {
+    if (storage.getLastSaveError() === "replaced") {
+      storage.notifyWalletReplaced();
+      return;
+    }
+    ctx.dialogAlert(SAVE_FAILED_MESSAGE);
+  }
+
+  // The status line's "Rückgängig" after a booking.
+  function undoAction(ctx, eventId) {
+    const userId = ctx.getUserId();
+    return { label: "Rückgängig", run: () => undoBooking(ctx, eventId, userId) };
+  }
+
+  // Removes exactly that booking (a tombstone on its id, which is its own
+  // root), not the newest visible entry like undoLast: another tab may have
+  // booked in between. A booking that is gone already stays gone.
+  function undoBooking(ctx, eventId, userId) {
+    if (ctx.getUserId() !== userId) {
+      notify(ctx, "Inzwischen ist ein anderes Wallet offen — nichts geändert.");
+      return false;
+    }
+    const wallet = ctx.getWallet();
+    const sorted = wallet.events.slice().sort(helpers.compareEventsByTime);
+    const live = summaryApi
+      .applyTombstones(sorted)
+      .effectiveEvents.some((e) => e && summaryApi.rootIdOf(e) === eventId);
+    if (!live) {
+      notify(ctx, "Diese Buchung ist schon entfernt.");
+      return false;
+    }
+    const ok = persistMutation(ctx, wallet, () => {
+      appendTombstone(wallet, eventId);
+    });
+    if (!ok) return false;
+    ctx.onStateChanged();
+    notify(ctx, `Buchung zurückgenommen · ${balanceText(ctx)}`);
+    return true;
+  }
+
   // Persist a wallet mutation, rolling back the optimistic in-memory append when
   // the write fails (quota exceeded / disabled storage). Returns true on success.
   // `mutate` must only APPEND events. Built on storage.appendEvents: we capture
@@ -33,20 +96,34 @@
     const appended = wallet.events.slice(before.length);
     wallet.events = before;
     if (appendEvents(wallet, appended)) return true;
-    ctx.dialogAlert(
-      "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
-    );
+    reportSaveFailure(ctx);
     return false;
   }
 
   function bookDrink(ctx) {
     const wallet = ctx.getWallet();
+    const n = ctx.getAmount();
+    if (n > LIMITS.drinkMax) {
+      ctx.dialogAlert(`Höchstens ${LIMITS.drinkMax} Getränke auf einmal.`);
+      return;
+    }
+    if (
+      n >= LIMITS.drinkConfirmFrom &&
+      !ctx.dialogConfirm(`Wirklich ${drinksText(n)} auf einmal buchen?`)
+    ) {
+      return;
+    }
+    let event = null;
     const ok = persistMutation(ctx, wallet, () => {
-      wallet.events.push(newEvent(wallet, "d", ctx.getAmount()));
+      event = newEvent(wallet, "d", n);
+      wallet.events.push(event);
     });
     if (!ok) return;
     ctx.resetAmount();
     ctx.onStateChanged();
+    notify(ctx, `+${n} gebucht · ${balanceText(ctx)}`, {
+      action: undoAction(ctx, event.id),
+    });
   }
 
   function undoLast(ctx) {
@@ -84,39 +161,52 @@
     // Pass the already-resolved plan so undoLastEvent doesn't re-resolve it.
     const removed = undoLastEvent(wallet, plan);
     if (removed && removed.status === "failed") {
-      // A real save failure (quota / blocked storage) — surface it instead of
-      // failing silently like an empty log. Mirror persistMutation's wording.
-      ctx.dialogAlert(
-        "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
-      );
+      // A real save failure (quota / blocked storage / reset elsewhere) —
+      // surface it instead of failing silently like an empty log.
+      reportSaveFailure(ctx);
       ctx.resetAmount();
       ctx.clearExport();
       return;
     }
     if (!removed) {
-      // Nothing to undo — keep today's silent behavior.
+      notify(ctx, "Nichts zum Rückgängigmachen.");
       ctx.resetAmount();
       ctx.clearExport();
       return;
     }
     ctx.resetAmount();
     ctx.onStateChanged();
+    const ev = plan && plan.event;
+    const what =
+      !ev || ev.t === "p"
+        ? "Bezahlung"
+        : ev.t === "g"
+          ? `Guthaben +${ev.n}`
+          : `+${drinksText(ev.n)}`;
+    notify(ctx, `Rückgängig: ${what} entfernt · ${balanceText(ctx)}`);
   }
 
+  // Settles every open drink (not only today's; the button says so).
   function payToday(ctx) {
     const wallet = ctx.getWallet();
-    if (ctx.getSummary().unpaid <= 0) {
+    const open = ctx.getSummary().unpaid;
+    if (open <= 0) {
       ctx.dialogAlert("Keine offenen Getränke zum Bezahlen.");
       ctx.clearExport();
       return;
     }
+    let event = null;
     const ok = persistMutation(ctx, wallet, () => {
-      wallet.events.push(newEvent(wallet, "p"));
+      event = newEvent(wallet, "p");
+      wallet.events.push(event);
     });
     if (!ok) return;
     ctx.resetAmount();
     ctx.resetPayUi();
     ctx.onStateChanged();
+    notify(ctx, `${drinksText(open)} bezahlt · ${balanceText(ctx)}`, {
+      action: undoAction(ctx, event.id),
+    });
   }
 
   function bookCredit(ctx) {
@@ -135,13 +225,23 @@
       ctx.clearExport();
       return;
     }
+    if (n > LIMITS.creditMax) {
+      ctx.dialogAlert(`Höchstens ${LIMITS.creditMax} Getränke Guthaben auf einmal.`);
+      ctx.clearExport();
+      return;
+    }
+    let event = null;
     const ok = persistMutation(ctx, wallet, () => {
-      wallet.events.push(newEvent(wallet, "g", Math.min(n, MAX_EVENT_AMOUNT)));
+      event = newEvent(wallet, "g", n);
+      wallet.events.push(event);
     });
     if (!ok) return;
     ctx.resetAmount();
     ctx.resetPayUi();
     ctx.onStateChanged();
+    notify(ctx, `Guthaben +${n} gebucht · ${balanceText(ctx)}`, {
+      action: undoAction(ctx, event.id),
+    });
   }
 
   function resetWallet(ctx) {
@@ -197,6 +297,7 @@
     ctx.resetAmount();
     ctx.updateHeaderUi();
     ctx.onStateChanged();
+    notify(ctx, `Alle Daten für „${userId}“ gelöscht.`);
   }
 
   function deleteSelection(ctx) {
@@ -265,6 +366,8 @@
     ctx.clearExport();
     ctx.clearDeleteRange();
     ctx.onStateChanged();
+    const k = idsToDelete.size;
+    notify(ctx, `${k} ${k === 1 ? "Eintrag" : "Einträge"} gelöscht · ${balanceText(ctx)}`);
   }
 
   function editEntry(ctx) {
@@ -433,6 +536,19 @@
         ctx.clearDeleteRange();
         return;
       }
+      // The same limits as a new booking (E5).
+      const limit =
+        targetEvent.t === "d" ? LIMITS.drinkMax : targetEvent.t === "g" ? LIMITS.creditMax : 0;
+      if (limit && parsed > limit) {
+        ctx.dialogAlert(
+          targetEvent.t === "d"
+            ? `Höchstens ${limit} Getränke auf einmal.`
+            : `Höchstens ${limit} Getränke Guthaben auf einmal.`,
+        );
+        ctx.clearExport();
+        ctx.clearDeleteRange();
+        return;
+      }
       newAmount = Math.min(parsed, MAX_EVENT_AMOUNT);
     }
 
@@ -457,9 +573,11 @@
     ctx.clearExport();
     ctx.clearDeleteRange();
     ctx.onStateChanged();
+    notify(ctx, `Eintrag #${targetIndex} geändert · ${balanceText(ctx)}`);
   }
 
   window.dbWalletActions = {
+    LIMITS,
     bookDrink,
     undoLast,
     payToday,

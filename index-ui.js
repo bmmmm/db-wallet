@@ -313,10 +313,11 @@
         ensureDeviceSeq(wallet);
         if (!saveWallet(wallet, { quiet: true })) {
           const importApi = window.dbWalletImportV2 || null;
-          alert(
+          helpers.notify(
             importApi && typeof importApi.importSaveFailedMessage === "function"
               ? importApi.importSaveFailedMessage()
               : "Import fehlgeschlagen: Die Daten konnten nicht gespeichert werden.",
+            { kind: "error" },
           );
           return;
         }
@@ -325,8 +326,9 @@
         renderExistingUsers();
         window.location.href = "wallet.html#" + userId;
       } catch (err) {
-        alert(
+        helpers.notify(
           "Import fehlgeschlagen: " + (err && err.message ? err.message : err),
+          { kind: "error" },
         );
       }
     };
@@ -380,7 +382,7 @@
     }
 
     if (!keysToDelete.length) {
-      alert("Es wurden keine lokalen Nutzer:innen gefunden.");
+      helpers.notify("Es wurden keine lokalen Nutzer:innen gefunden.");
       return;
     }
 
@@ -413,7 +415,7 @@
 
     clearRawOutput();
     renderExistingUsers();
-    alert("Alle lokalen db-wallet-Nutzer:innen wurden gelöscht.");
+    helpers.notify("Alle lokalen db-wallet-Nutzer:innen wurden gelöscht.");
   }
 
   document.addEventListener("DOMContentLoaded", async () => {

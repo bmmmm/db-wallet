@@ -54,9 +54,9 @@
     syncLineLegend = document.createElement("div");
     btnSyncReset = document.createElement("button");
 
+    // Not a live region (P4.1): it is rebuilt on every render, which would
+    // re-announce the whole timeline; the status line (#status-text) speaks.
     line.innerHTML = "";
-    line.setAttribute("role", "status");
-    line.setAttribute("aria-live", "polite");
 
     const syncLeft = document.createElement("div");
     syncLeft.style.flex = "1";

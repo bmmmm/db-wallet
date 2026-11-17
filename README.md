@@ -22,16 +22,21 @@ ohne Cloud.
 
 ## Features
 
-- **Buchen & Korrigieren** — Drinks zählen, letzte Buchung rückgängig (als
-  syncbarer Löschmarker), Tagesstatistik mit Diagramm/Log/Raw.
-- **Bezahlen & Guthaben** — offene Drinks ausgleichen, Guthaben wie Vorrat
-  auf- und abbauen.
+- **Buchen & Korrigieren** — Drinks zählen (höchstens 99 je Buchung, ab 20 mit
+  Rückfrage; Enter im Mengenfeld bucht), letzte Buchung rückgängig (als
+  syncbarer Löschmarker), Tagesstatistik mit Diagramm/Log/Raw. Jede Buchung
+  meldet sich in der Statuszeile am unteren Rand („+1 gebucht · Offen: 4“) mit
+  „Rückgängig“ für genau diese Buchung; Fehler stehen dort ebenfalls.
+- **Bezahlen & Guthaben** — „Alle N offenen bezahlen“ gleicht die offenen Drinks
+  aus, Guthaben (höchstens 999 auf einmal) wird wie ein Vorrat auf- und
+  abgebaut.
 - **Verwaltung** — Einträge bearbeiten/löschen, Nutzer:innen einzeln oder
   gesammelt entfernen. Zurücksetzen macht daraus ein neues Wallet mit gleichem
   Namen (neue Wallet-ID): ein vorher gemachter Export landet beim Import als
   eigenes Wallet, lokale Action-Code-QRs des alten Wallets gelten nicht mehr.
 - **Import/Export** — Link (auto-merge), kompakter QR-Code oder JSON; inklusive
-  Theme und Wallet-ID gegen Namens-Kollisionen.
+  Theme und Wallet-ID gegen Namens-Kollisionen. Der Link ist ein Schlüssel zum
+  ganzen Wallet: das erste „Teilen“ auf einem Gerät sagt das, bevor es teilt.
 - **Offline-fähig** — als PWA installierbar, läuft ohne Netz.
 
 ## Action Codes (QR)
@@ -225,6 +230,9 @@ Cache nicht vergiften.
   ein veralteter Tab mit der alten `walletId` speichert danach nicht mehr
   (`saveWallet` lehnt abweichende `walletId` ab, nur der Reset darf sie wechseln;
   eine frisch vergebene, nie gespeicherte `walletId` übernimmt die gespeicherte).
+  Meldungen laufen über `dbWalletHelpers.notify` in die Statuszeile, `alert()`
+  nur direkt vor einem Seitenwechsel; Buchungsgrenzen in
+  `dbWalletActions.LIMITS` (99/999, Rückfrage ab 20).
 - **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes), `gc`
   (globale Codes), `dc` (gelöschte Codes) und `ck` (Integritäts-Checksum) stehen
   als Letztes, `ck` ganz zuletzt. Bei jeder

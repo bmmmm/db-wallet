@@ -121,12 +121,37 @@
     return ok;
   }
 
+  // O3.4: the shared link is a bearer credential — it carries the whole event
+  // log, the userId and the action-code keys, unencrypted. The first "Teilen"
+  // on a device says so in the status line and shares only from its button
+  // (a fresh tap, so the share sheet still has its user activation).
+  const SHARE_HINT_KEY = "db-wallet.share-hint-seen";
+  const SHARE_HINT =
+    "Bevor du teilst: Der Link enthält dein ganzes Wallet, alle Buchungen und die Schlüssel deiner Action Codes, unverschlüsselt. Wer ihn hat, kann das Wallet übernehmen. Nur an eigene Geräte oder Leute schicken, denen du es geben willst.";
+
+  function shareHintSeen() {
+    return helpers.safeLocalStorageGetItem(SHARE_HINT_KEY) === "1";
+  }
+
   async function shareLink(field, statusEl) {
     const url = field ? String(field.value || "") : "";
     if (!url) return;
     const nav = getNavigator();
     if (!nav || typeof nav.share !== "function") {
       await copyLink(field, statusEl);
+      return;
+    }
+    if (!shareHintSeen()) {
+      helpers.notify(SHARE_HINT, {
+        sticky: true,
+        action: {
+          label: "Teilen",
+          run: () => {
+            helpers.safeLocalStorageSetItem(SHARE_HINT_KEY, "1");
+            shareLink(field, statusEl);
+          },
+        },
+      });
       return;
     }
     setStatus(statusEl, "");
@@ -411,8 +436,9 @@
   function showCompactLinkInstead(url) {
     if (!refs || !refs.elExportUrl) return;
     setExportUrl(url);
-    alert(
+    helpers.notify(
       `Zu groß für einen QR-Code. Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
+      { sticky: true },
     );
     try {
       refs.elExportUrl.focus();
@@ -447,8 +473,9 @@
 
         const msg = String(e && e.message ? e.message : e || "");
         if (msg.includes("QR library missing")) {
-          alert(
+          helpers.notify(
             "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt). Du kannst den Export-Link trotzdem kopieren.",
+            { kind: "error" },
           );
           return;
         }
@@ -465,7 +492,9 @@
           if (url) {
             showCompactLinkInstead(url);
           } else {
-            alert("Zu groß für QR-Export. Nutze Export-Link oder JSON.");
+            helpers.notify("Zu groß für QR-Export. Nutze Export-Link oder JSON.", {
+              kind: "error",
+            });
           }
           return;
         }
@@ -478,14 +507,15 @@
           if (!migrated) return;
           continue;
         }
-        alert("QR-Code konnte nicht erzeugt werden.");
+        helpers.notify("QR-Code konnte nicht erzeugt werden.", { kind: "error" });
         return;
       }
     }
     // Reached only if every attempt (incl. post-migration retries) failed
     // without returning — never leave the user without feedback.
-    alert(
+    helpers.notify(
       "QR-Code konnte nach Migration nicht erzeugt werden. Bitte den Export-Link oder JSON-Download nutzen.",
+      { kind: "error" },
     );
   }
 
@@ -550,8 +580,9 @@
         // The classic link is uncompressed JSON; for large wallets it can exceed
         // what some apps/browsers accept in a URL. Warn but still show it.
         if (url.length > 8000) {
-          alert(
+          helpers.notify(
             `Achtung: Der Export-Link ist sehr lang (${url.length} Zeichen) und funktioniert evtl. nicht überall. Für große Wallets bitte den QR-Export oder JSON-Download nutzen.`,
+            { kind: "error" },
           );
         }
         setExportUrl(url);

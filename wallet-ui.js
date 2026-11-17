@@ -763,15 +763,25 @@
         // silently. Surface the failure — wording mirrors wallet-actions.js's
         // persistMutation alert — instead of pretending the booking happened.
         if (!appendEvents(wallet, [event])) {
-          alert(
-            "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
-          );
+          if (storage.getLastSaveError() === "replaced") {
+            storage.notifyWalletReplaced();
+          } else {
+            helpers.notify(
+              "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
+              { kind: "error" },
+            );
+          }
           return { handled: true, applied: false, reason: "save-failed" };
         }
         invalidateCaches();
         resetAmount();
         clearExport();
         refreshSummary();
+        const summary = getSummary();
+        const balance =
+          summary.credit > 0 ? `Guthaben: ${summary.credit}` : `Offen: ${summary.unpaid}`;
+        const what = type === "d" ? `+${amount} gebucht` : `Guthaben +${amount} gebucht`;
+        helpers.notify(`${payloadLabel ? `„${payloadLabel}“: ` : ""}${what} · ${balance}`);
       } else {
         // Non-persisting path: the boot pre-apply (skipPersist — the caller
         // saves later) or a non-active/programmatic wallet. Stage the append in
@@ -863,7 +873,9 @@
 
     function migrateWalletNow() {
       if (typeof window.dbWalletMigrateV1toV2 !== "function") {
-        alert("Migration ist nicht verfügbar (migration.js fehlt).");
+        helpers.notify("Migration ist nicht verfügbar (migration.js fehlt).", {
+          kind: "error",
+        });
         return false;
       }
       wallet = window.dbWalletMigrateV1toV2(wallet);
@@ -918,13 +930,35 @@
       return Math.min(n, helpers.MAX_EVENT_AMOUNT);
     }
 
-    // Resets the payment UI centrally
+    // Moves the keyboard focus without letting a missing element throw.
+    function focusEl(el) {
+      if (!el || typeof el.focus !== "function") return;
+      try {
+        el.focus();
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // P4.6: the pay button settles every open drink, so it says how many;
+    // nothing open, nothing to pay.
+    function updatePayButton(unpaid) {
+      if (!btnPayToday) return;
+      const n = Number.isFinite(unpaid) ? unpaid : 0;
+      btnPayToday.textContent = `Alle ${n} offenen bezahlen 💰`;
+      btnPayToday.disabled = n <= 0;
+    }
+
+    function payOptionsOpen() {
+      return !!payOptions && payOptions.style.display === "flex";
+    }
+
+    // Resets the payment UI centrally; when the options were open the focus
+    // returns to "Bezahlen" (the options it was on disappear).
     function resetPayUi() {
+      const wasOpen = payOptionsOpen();
       if (payOptions) {
         payOptions.style.display = "none";
-      }
-      if (btnPayToday) {
-        btnPayToday.textContent = "heute bezahlen 💰";
       }
       if (btnPay) {
         btnPay.style.display = "inline-block";
@@ -935,6 +969,7 @@
       if (btnDrink) {
         btnDrink.style.display = "inline-block";
       }
+      if (wasOpen) focusEl(btnPay);
     }
 
     function toggleStatVisibility(el, value) {
@@ -956,6 +991,7 @@
       const summary = getSummary();
       elTotal.textContent = summary.total;
       elUnpaid.textContent = summary.unpaid;
+      updatePayButton(summary.unpaid);
       toggleStatVisibility(elUnpaid, summary.unpaid);
       if (elCredit) {
         elCredit.textContent = summary.credit;
@@ -1034,13 +1070,25 @@
           },
           updateHeaderUi,
           onStateChanged: handleWalletStateChange,
-          dialogAlert: (msg) => alert(msg),
+          // Errors and notices go to the status line (P4.1); confirms and
+          // prompts stay native until P4.3.
+          dialogAlert: (msg) => helpers.notify(msg, { kind: "error" }),
+          notify: (msg, opts) => helpers.notify(msg, opts),
           dialogConfirm: (msg) => confirm(msg),
           dialogPrompt: (msg, def) => prompt(msg, def),
         }
       : null;
 
     btnDrink.addEventListener("click", () => {
+      if (actionsApi) actionsApi.bookDrink(actionsCtx);
+    });
+
+    // Enter in the amount field books, like "+ Trinken" (not while the pay
+    // options replace the booking buttons).
+    elAmount.addEventListener("keydown", (e) => {
+      if (!e || e.key !== "Enter") return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      if (payOptionsOpen()) return;
       if (actionsApi) actionsApi.bookDrink(actionsCtx);
     });
 
@@ -1060,6 +1108,8 @@
         if (btnPay) btnPay.style.display = "none";
         if (btnUndo) btnUndo.style.display = "none";
         if (btnDrink) btnDrink.style.display = "none";
+        // The focus was on "Bezahlen", which just disappeared (P4.9).
+        focusEl(btnPayToday && !btnPayToday.disabled ? btnPayToday : btnCredit);
       } else {
         // Cancel/collapse the payment flow -> reset the UI
         resetPayUi();

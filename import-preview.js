@@ -163,8 +163,9 @@
   function openPreview(payload) {
     const token = cacheSet(payload);
     if (!token) {
-      alert(
+      helpers.notify(
         "Read-Only Vorschau konnte nicht geöffnet werden (Session-Cache voll oder nicht verfügbar).",
+        { kind: "error" },
       );
       return false;
     }

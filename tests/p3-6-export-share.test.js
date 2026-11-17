@@ -12,6 +12,8 @@ const { bootWalletPage, BASE } = require("./wallet-page");
 const { makeEnv } = require("./harness");
 
 function seedOne(e) {
+  // The one-time share hint (O3.4, tested in p4-1) is already seen here.
+  e.localStorage.setItem("db-wallet.share-hint-seen", "1");
   const S = e.dbWalletStorage;
   const x = S.loadWallet("max");
   S.appendEvents(x, [S.newEvent(x, "d", 1)]);

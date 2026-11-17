@@ -101,6 +101,15 @@ button:active {
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
 }
 
+/* A disabled button (e.g. "Alle 0 offenen bezahlen") looks inert and does not
+   lift on hover. */
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
 a {
     color: var(--accent-strong);
 }
@@ -855,7 +864,7 @@ hr {
     border-radius: 14px;
 }
 
-body[data-no-wallet="1"] > :not(#global-action-message) {
+body[data-no-wallet="1"] > :not(#global-action-message):not(#status-line) {
     display: none;
 }
 
@@ -955,6 +964,63 @@ body[data-no-wallet="1"] > :not(#global-action-message) {
     background: transparent;
     border: 1px solid var(--border);
     font-size: 0.9rem;
+}
+
+/* Status line (P4.1): fixed at the bottom of the viewport, so a notice is
+   visible wherever the page is scrolled. Empty it is transparent and lets
+   clicks through; #status-text stays in the accessibility tree (a live region
+   must exist before its text changes). */
+.status-line {
+    position: fixed;
+    left: 50%;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: 9000;
+    box-sizing: border-box;
+    width: min(720px, calc(100% - 24px));
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.45rem 0.45rem 0.9rem;
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    background: var(--panel);
+    color: var(--text);
+    box-shadow: var(--shadow);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+}
+
+.status-line.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.status-line.is-error {
+    border-color: var(--danger);
+}
+
+.status-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.status-line button {
+    flex: 0 0 auto;
+    margin: 0;
+    min-height: 44px;
+}
+
+.status-line button[hidden] {
+    display: none;
+}
+
+.status-close {
+    min-width: 44px;
+    padding: 0.45rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

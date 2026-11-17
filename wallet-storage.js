@@ -661,6 +661,9 @@
     if (codesApi && typeof codesApi.applyDeletedActionCodes === "function") {
       codesApi.applyDeletedActionCodes(wallet);
     }
+    const count = (list) => (Array.isArray(list) ? list.length : 0);
+    const codesBefore = count(wallet.actionCodes) + count(wallet.globalActionCodes);
+    const devicesBefore = count(wallet.devices);
     // Re-apply the caps after the union (max 10 codes, max 6 devices) — a union
     // of two capped lists can exceed them.
     if (codesApi && typeof codesApi.ensureWalletActionCodes === "function") {
@@ -678,6 +681,10 @@
       );
     }
     ensureWalletDevices(wallet);
+    const trimmed = {
+      codes: Math.max(0, codesBefore - count(wallet.actionCodes) - count(wallet.globalActionCodes)),
+      devices: Math.max(0, devicesBefore - count(wallet.devices)),
+    };
     // syncPeers is a map keyed by peer key — union keys, local wins.
     if (
       persisted.syncPeers &&
@@ -689,6 +696,7 @@
       for (const k of Object.keys(localPeers)) merged[k] = localPeers[k];
       wallet.syncPeers = merged;
     }
+    return trimmed;
   }
 
   // syncPeers is a map keyed by peer key, and peer keys come from imported data
@@ -728,6 +736,30 @@
     return lastSaveError;
   }
 
+  // P1.9 in the status line: the stale tab can only reload, so offer that.
+  function notifyWalletReplaced() {
+    helpers.notify(WALLET_REPLACED_MESSAGE, {
+      kind: "error",
+      sticky: true,
+      action: { label: "Neu laden", run: () => window.location.reload() },
+    });
+  }
+
+  // O3.3: the reconcile with another tab's copy re-applies the caps (10 codes
+  // per list, 6 devices); what that drops is reported once per save.
+  function trimNotice(trimmed) {
+    const parts = [];
+    if (trimmed.codes > 0) {
+      parts.push(`${trimmed.codes} Action Code${trimmed.codes === 1 ? "" : "s"} (höchstens 10 je Liste)`);
+    }
+    if (trimmed.devices > 0) {
+      parts.push(`${trimmed.devices} ${trimmed.devices === 1 ? "Gerät" : "Geräte"} (höchstens 6)`);
+    }
+    return parts.length
+      ? `Abgleich mit einem anderen Tab: ${parts.join(" und ")} über der Obergrenze entfernt, die ältesten zuerst.`
+      : "";
+  }
+
   // opts.quiet: skip the generic one-time alert on failure (the banner/body
   // flag is still set). For callers that report the failure themselves, e.g.
   // the import, which must not claim success after a failed save.
@@ -751,8 +783,9 @@
       );
       if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
-        alert(
+        helpers.notify(
           "Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
+          { kind: "error" },
         );
       }
       return false;
@@ -789,11 +822,12 @@
       markStorageFailed(true, "⚠️ " + WALLET_REPLACED_MESSAGE);
       if (!quiet && !hasShownWalletReplacedError) {
         hasShownWalletReplacedError = true;
-        alert(WALLET_REPLACED_MESSAGE);
+        notifyWalletReplaced();
       }
       return false;
     }
 
+    let reconciledTrim = null;
     try {
       // An intentional replacement (reset) overwrites without reconciling —
       // also over a legacy record that has no walletId at all.
@@ -878,7 +912,7 @@
           ensureDeviceSeq(wallet);
           // Reconcile the remaining fields too — otherwise a concurrent tab's
           // action codes / devices / sync peers get clobbered by our stale copy.
-          reconcilePersistedFields(wallet, persisted);
+          reconciledTrim = reconcilePersistedFields(wallet, persisted);
         }
       }
     } catch (e) {
@@ -893,8 +927,9 @@
       markStorageFailed(true);
       if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
-        alert(
+        helpers.notify(
           "Konnte nicht speichern (Storage voll oder blockiert). Änderungen sind nicht gesichert.",
+          { kind: "error" },
         );
       }
       return false;
@@ -911,6 +946,8 @@
 
     unsavedWalletIds.delete(wallet);
     markStorageFailed(false);
+    const notice = !quiet && reconciledTrim ? trimNotice(reconciledTrim) : "";
+    if (notice) helpers.notify(notice);
     return true;
   }
 
@@ -1053,6 +1090,7 @@
     loadWallet,
     saveWallet,
     getLastSaveError,
+    notifyWalletReplaced,
     getAllWallets,
     userIdExists,
     makeUniqueUserId,

@@ -122,16 +122,17 @@ test("action code with amount 1e20: capped, export still works", () => {
   assert.equal(decoded.actionCodes[0].amount, w.dbWalletHelpers.MAX_EVENT_AMOUNT);
 });
 
-test("bookCredit and editEntry cap the amount", () => {
+// E5: the UI limits (credit 999, drinks 99) sit far below MAX_EVENT_AMOUNT;
+// an absurd input is refused, not clamped (p4-6 has the limits themselves).
+test("bookCredit and editEntry refuse amounts beyond the limits", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
-  const MAX = w.dbWalletHelpers.MAX_EVENT_AMOUNT;
   const wallet = S.loadWallet("anna");
-  const { ctx } = makeActionsCtx(w, wallet, { prompts: ["5000000000"] });
-  w.dbWalletActions.bookCredit(ctx);
+  const c = makeActionsCtx(w, wallet, { prompts: ["5000000000"] });
+  w.dbWalletActions.bookCredit(c.ctx);
   let evs = S.loadWallet("anna").events;
-  assert.equal(evs.length, 1);
-  assert.equal(evs[0].n, MAX);
+  assert.equal(evs.length, 0);
+  assert.match(c.state.alerts.join(" "), /Höchstens 999/);
 
   const old = S.newEvent(wallet, "d", 1);
   old.ts = Date.now() - 86400000;
@@ -140,7 +141,6 @@ test("bookCredit and editEntry cap the amount", () => {
   const e = makeActionsCtx(w, wallet, { deleteRange: "1", prompts: [date, "7000000000"] });
   w.dbWalletActions.editEntry(e.ctx);
   evs = S.loadWallet("anna").events;
-  const repl = evs.find((x) => x.supersedes === old.id);
-  assert.ok(repl, "replacement written");
-  assert.equal(repl.n, MAX);
+  assert.equal(evs.find((x) => x.supersedes === old.id), undefined, "no replacement");
+  assert.match(e.state.alerts.join(" "), /Höchstens 99\b/);
 });

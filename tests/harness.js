@@ -179,7 +179,13 @@ function makeEnv(opts = {}) {
     Response,
     CompressionStream,
     DecompressionStream,
-    setTimeout,
+    // Long timers (status line auto-clear, late Blob URL revoke) must not keep
+    // the test process alive; short ones behave as usual.
+    setTimeout: (fn, ms, ...args) => {
+      const t = setTimeout(fn, ms, ...args);
+      if (ms > 1000 && t && typeof t.unref === "function") t.unref();
+      return t;
+    },
     clearTimeout,
     URL,
     localStorage,

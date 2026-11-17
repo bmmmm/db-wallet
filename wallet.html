@@ -61,7 +61,7 @@
             </summary>
             <div class="wallet-actions">
                 <label for="amount">Menge (Getränke):</label>
-                <input id="amount" type="number" min="1" value="1" inputmode="numeric" />
+                <input id="amount" type="number" min="1" max="99" value="1" inputmode="numeric" enterkeyhint="done" />
 
                 <div class="action-buttons">
                     <button id="btn-drink" aria-label="Trinken hinzufügen">+ Trinken 🥤</button>
@@ -75,7 +75,7 @@
                     <button id="btn-pay" aria-label="Bezahlen">Bezahlen 💸</button>
                 </div>
                 <div id="pay-options" class="pay-options">
-                    <button id="btn-pay-today" aria-label="Heute bezahlen">heute bezahlen 💰</button>
+                    <button id="btn-pay-today">Alle offenen bezahlen 💰</button>
                     <button id="btn-credit" aria-label="Guthaben aufladen">Guthaben aufladen 💰</button>
                     <button id="btn-pay-cancel">Bezahlen abbrechen</button>
                 </div>
@@ -199,6 +199,13 @@
                 <div class="theme-buttons" id="theme-buttons"></div>
             </section>
         </details>
+
+        <!-- Status line (P4.1): notices instead of alert(), see wallet-helpers.js notify. -->
+        <div id="status-line" class="status-line">
+            <span id="status-text" class="status-text" role="status"></span>
+            <button id="status-action" class="status-action" type="button" hidden></button>
+            <button id="status-close" class="status-close" type="button" aria-label="Meldung schließen" hidden>✕</button>
+        </div>
 
         <script src="qrcodegen.js" defer></script>
         <script src="wallet-helpers.js" defer></script>

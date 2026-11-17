@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bootWalletPage, BASE } = require("./wallet-page");
-const { makeEnv } = require("./harness");
+const { makeEnv, plain } = require("./harness");
 
 function seed700(e) {
   const S = e.dbWalletStorage;
@@ -36,13 +36,15 @@ test("700 events: QR too large, export offers a working i2: link", async () => {
   const linkField = doc.getElementById("export-url");
   w.console = Object.assign({}, console, { error() {} }); // expected "Data too long" log
   doc.getElementById("btn-export-link-qr").click();
-  await waitFor(() => w._alerts.length > 0 || linkField.value, "export result");
+  await waitFor(() => linkField.value || doc.getElementById("status-text").textContent, "export result");
 
   assert.equal(doc.getElementById("qr-box").style.display, "none", "no QR rendered");
   assert.ok(linkField.value.startsWith(BASE + "#i2:"), linkField.value.slice(0, 80));
   assert.equal(linkField.style.display, "block");
-  assert.equal(w._alerts.length, 1, JSON.stringify(w._alerts));
-  assert.match(w._alerts[0], /kompakte/);
+  // P4.1: the explanation is a sticky status notice, not an alert.
+  assert.deepEqual(plain(w._alerts), []);
+  assert.match(doc.getElementById("status-text").textContent, /kompakte/);
+  assert.ok(doc.getElementById("status-line").classList.contains("is-visible"));
 
   // The offered link imports all 700 events on another device.
   const other = makeEnv({ deviceKey: "devB" });
