@@ -11,12 +11,28 @@ lässt sich einer nicht nachstellen, streichen statt reparieren.
 
 ## Fortschritt
 
-- [ ] O1 Veröffentlichten Stand im Browser prüfen (Nutzer, etwa 10 Minuten)
-- [ ] O2 Remotes dieses Checkouts an `CLAUDE.md` angleichen (Entscheidung)
-- [ ] O3 Nachzügler aus den Läufen (ein Agentenlauf, in Node prüfbar)
-- [ ] O4 Löschliste der Action Codes im Export (E4, eigenes Paket)
-- [ ] O5 Phase 4 Bedienung (Freigabe, vier Läufe, braucht einen Browser)
-- [ ] O6 Phase 5 Struktur (einzeln nach Bedarf)
+- [ ] O1 Veröffentlichten Stand im Browser prüfen (Nutzer, etwa 10 Minuten) —
+  teilweise, siehe unten
+- [x] O2 Remotes dieses Checkouts an `CLAUDE.md` angleichen: `origin` = Forgejo,
+  `github` = Spiegel (Stand 2026-11-17 geprüft)
+- [x] O3 Nachzügler: 1 b693ed8, 2 b406cd8, 3 und 4 in der Statuszeile (975951b),
+  5 d502097, 6 b5037e7
+- [x] O4 Löschliste der Action Codes im Export (2bb409b)
+- [x] O5 Phase 4 Bedienung (975951b, 3d0f2a0, 9618deb, e6e907d)
+- [x] O6 Phase 5 Struktur: P5.2 4761937, P5.1 45fe306, P5.4 05681b5, P5.6 928f6a3,
+  P5.3 688b575, P5.5 5b378ae; P5.7 mit P3.4 (9289d03)
+
+Stand 2026-11-17: Alles ab O3 ist nach jedem Lauf in einem Browser geprüft
+(Chromium headless, 360 × 740, die Skripte des Branches gegen die Pages-Origin
+eingespielt): Self-Check, alle drei Seiten ohne CSP-Meldung und ohne
+waagrechtes Scrollen, Buchen, Bearbeiten, Löschen, Rückgängig, Export-QR und
+Import des Links, der Update-Hinweis in der Statuszeile. Aus der O1-Tabelle
+bleibt für ein echtes Gerät: Flugmodus und Neustart, Installation mit Icon
+(Android und iOS), das Teilen-Blatt, der Update-Hinweis bei einer schon
+installierten App, Tab-Fokus in jedem Theme. Neu dazu: Nach P5.5 lehnt eine
+App von vor 5b378ae einen Export mit Löschungen als „neuere App-Version“ ab,
+bis sie aktualisiert ist; also beide Geräte aktualisieren, bevor sie
+abgleichen.
 
 ## O1 Veröffentlichten Stand im Browser prüfen
 

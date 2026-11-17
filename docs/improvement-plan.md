@@ -59,7 +59,7 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
 - [x] P5.2 Toter und doppelter Code (4761937)
 - [x] P5.3 CSS zusammenführen, Update-Hinweis in der Statuszeile (688b575)
 - [x] P5.4 Kanonische Reihenfolge über Geräte hinweg (05681b5)
-- [x] P5.5 QR-Kapazität: Tombstones kompakt (siehe dort)
+- [x] P5.5 QR-Kapazität: Tombstones kompakt, Codec 3 nur mit Tombstones (5b378ae)
 - [x] P5.6 `qrcodegen.js` bei Bedarf laden (928f6a3)
 - [x] P5.7 `colors.html` und `colors.css` aus dem Precache (mit P3.4, 9289d03)
 
