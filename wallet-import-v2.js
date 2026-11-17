@@ -1463,9 +1463,6 @@
       }
       return { kind: "import", remote, label: "Import-Link erkannt" };
     }
-    if (hash.startsWith("ac:")) {
-      return { kind: "ac" };
-    }
     return null;
   }
 
@@ -1588,16 +1585,6 @@
         }
         return { done: { userId: null, redirectedToPreview: false } };
       }
-      try {
-        if (typeof sessionStorage !== "undefined" && sessionStorage) {
-          sessionStorage.setItem(
-            "db-wallet:pending-walletId",
-            payloadWalletId,
-          );
-        }
-      } catch (e) {
-        // ignore
-      }
       window.location.href = "index.html";
       return { done: { userId: null, redirectedToPreview: true } };
     }
@@ -1700,7 +1687,7 @@
         return handleActionCodeHash(hash, options);
       }
       const parsed = await parseImportHashPayload(hash);
-      if (parsed && parsed.kind !== "ac") {
+      if (parsed) {
         return await handleImportChoice(
           parsed.remote,
           parsed.label,

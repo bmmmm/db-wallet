@@ -17,14 +17,12 @@
   }
 
   function buildGlobalActionPreview(payload) {
-    const type = payload && payload.t === "g" ? "g" : "d";
-    const amount =
-      payload && typeof payload.n === "number" && Number.isFinite(payload.n)
-        ? Math.max(1, Math.round(payload.n))
-        : 1;
-    const label =
-      payload && typeof payload.l === "string" ? payload.l.trim() : "";
-    return { type, amount, label };
+    const api = window.dbWalletActionCodes || null;
+    const action =
+      api && typeof api.globalPayloadAction === "function"
+        ? api.globalPayloadAction(payload)
+        : null;
+    return action || { type: "d", amount: 1, label: "" };
   }
 
   const CONTAINER_OPTIONS = {

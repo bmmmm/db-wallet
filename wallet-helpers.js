@@ -322,6 +322,15 @@
     return `${datePart} ${hh}:${mm}`;
   }
 
+  // Hash prefixes the router reads as an action or an import — never a user
+  // id. The one list (hash-router.js and wallet-storage.js use it).
+  const RESERVED_HASH_PREFIXES = Object.freeze(["ac:", "acg:", "import:", "i2u:", "i2:"]);
+
+  function isReservedHashPrefix(raw) {
+    const s = String(raw || "");
+    return RESERVED_HASH_PREFIXES.some((p) => s.startsWith(p));
+  }
+
   // Sanitizes a raw user-supplied string into a safe user id: lowercase,
   // spaces collapsed to hyphens, anything outside [a-z0-9_-] stripped, capped
   // at 64 chars. Returns "" if nothing usable remains (caller decides the
@@ -452,6 +461,8 @@
     formatDate,
     formatDateTime,
     normalizeUserId,
+    RESERVED_HASH_PREFIXES,
+    isReservedHashPrefix,
     replaceHashSilently,
     drawQrToCanvas,
     BLOB_URL_REVOKE_MS,

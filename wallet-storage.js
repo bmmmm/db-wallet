@@ -60,13 +60,7 @@
     if (!raw) {
       return makeUniqueUserId("user-" + randomId());
     }
-    if (
-      raw.startsWith("import:") ||
-      raw.startsWith("i2:") ||
-      raw.startsWith("i2u:") ||
-      raw.startsWith("ac:") ||
-      raw.startsWith("acg:")
-    ) {
+    if (helpers.isReservedHashPrefix(raw)) {
       return makeUniqueUserId("user-" + raw);
     }
     if (!isReservedStorageKey(STORAGE_PREFIX + raw)) {

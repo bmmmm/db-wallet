@@ -73,6 +73,15 @@
     return out;
   }
 
+  // The booking an `acg:` payload asks for: the one reading of it (the confirm
+  // in wallet-ui.js, the wallet picker in wallet-hash-actions.js). null for an
+  // invalid payload.
+  function globalPayloadAction(payload) {
+    const p = normalizeGlobalPayload(payload);
+    if (!p) return null;
+    return { type: p.t, amount: p.n, label: p.l || "" };
+  }
+
   function defaultLabelForType(type, amount) {
     const amountValue = normalizeAmount(amount);
     const normalizedType = normalizeType(type);
@@ -491,42 +500,7 @@
 
   function renderQrToCanvas(canvas, url) {
     if (!canvas) return;
-    if (typeof helpers.drawQrToCanvas === "function") {
-      helpers.drawQrToCanvas(canvas, String(url || ""), { scale: 6 });
-      return;
-    }
-    // Fallback: shared helper not loaded yet, render inline as before.
-    if (!window.qrcodegen || !window.qrcodegen.QrCode) {
-      throw new Error("QR library missing");
-    }
-
-    const ecc = window.qrcodegen.QrCode.Ecc.LOW;
-    const qr = window.qrcodegen.QrCode.encodeText(String(url || ""), ecc);
-    const border = 4;
-    const scale = 6;
-    const size = qr.size;
-    const dim = (size + border * 2) * scale;
-    canvas.width = dim;
-    canvas.height = dim;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, dim, dim);
-    ctx.fillStyle = "#000000";
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        if (qr.getModule(x, y)) {
-          ctx.fillRect(
-            (x + border) * scale,
-            (y + border) * scale,
-            scale,
-            scale,
-          );
-        }
-      }
-    }
+    helpers.drawQrToCanvas(canvas, String(url || ""), { scale: 6 });
   }
 
   function ensureWalletActionCodes(wallet) {
@@ -1245,6 +1219,7 @@
     mergeActionCodes,
     mergeGlobalActionCodes,
     normalizeGlobalActionCodes,
+    globalPayloadAction,
     removeActionCode,
     recordDeletedActionCode,
     applyDeletedActionCodes,

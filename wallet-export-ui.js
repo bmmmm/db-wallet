@@ -1,5 +1,6 @@
 (function () {
   const helpers = window.dbWalletHelpers || null;
+  if (!helpers || typeof helpers.drawQrToCanvas !== "function") return;
 
   let opts = null;
   let refs = null;
@@ -293,33 +294,7 @@
     const dpr = Number.isFinite(dprRaw) && dprRaw >= 1 ? Math.min(dprRaw, 4) : 1;
     const maxPx = Math.floor(cssMax * dpr);
     const canvas = refs.qrCanvas;
-    if (helpers && typeof helpers.drawQrToCanvas === "function") {
-      helpers.drawQrToCanvas(canvas, url, { maxPx });
-    } else {
-      const border = 4;
-      const modules = qr.size + border * 2;
-      const scale = Math.max(2, Math.floor(maxPx / modules));
-      canvas.width = modules * scale;
-      canvas.height = modules * scale;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return qr;
-      ctx.imageSmoothingEnabled = false;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#000000";
-      for (let y = 0; y < qr.size; y++) {
-        for (let x = 0; x < qr.size; x++) {
-          if (qr.getModule(x, y)) {
-            ctx.fillRect(
-              (x + border) * scale,
-              (y + border) * scale,
-              scale,
-              scale,
-            );
-          }
-        }
-      }
-    }
+    helpers.drawQrToCanvas(canvas, url, { maxPx });
     // Only the width: height stays "auto" (style.css), so the code stays
     // square even if a container still clamps it.
     canvas.style.width = `${canvas.width / dpr}px`;
@@ -362,36 +337,7 @@
   function downloadQrPng(url) {
     if (!window.qrcodegen || !window.qrcodegen.QrCode) return;
     const canvas = document.createElement("canvas");
-    if (helpers && typeof helpers.drawQrToCanvas === "function") {
-      helpers.drawQrToCanvas(canvas, url, { scale: 10 });
-    } else {
-      const ecc = window.qrcodegen.QrCode.Ecc.LOW;
-      const qr = window.qrcodegen.QrCode.encodeText(url, ecc);
-      const border = 4;
-      const scale = 10;
-      const size = qr.size;
-      const dim = (size + border * 2) * scale;
-      canvas.width = dim;
-      canvas.height = dim;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.imageSmoothingEnabled = false;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, dim, dim);
-      ctx.fillStyle = "#000000";
-      for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-          if (qr.getModule(x, y)) {
-            ctx.fillRect(
-              (x + border) * scale,
-              (y + border) * scale,
-              scale,
-              scale,
-            );
-          }
-        }
-      }
-    }
+    helpers.drawQrToCanvas(canvas, url, { scale: 10 });
 
     const date = opts.todayDateStr ? opts.todayDateStr() : "date";
     const wallet = opts.getWallet ? opts.getWallet() : null;
@@ -410,11 +356,7 @@
       document.body.removeChild(link);
     };
 
-    const saveBlob = (blob) => {
-      if (helpers && typeof helpers.downloadBlob === "function") {
-        helpers.downloadBlob(blob, filename);
-      }
-    };
+    const saveBlob = (blob) => helpers.downloadBlob(blob, filename);
 
     if (canvas.toBlob) {
       canvas.toBlob((blob) => {

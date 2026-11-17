@@ -718,20 +718,14 @@
       }
       if (!Array.isArray(targetWallet.events)) targetWallet.events = [];
 
-      const type = payload.t === "d" ? "d" : "g";
-      const amount =
-        typeof payload.n === "number" && Number.isFinite(payload.n)
-          ? Math.max(1, Math.round(payload.n))
-          : 1;
+      const { type, amount, label: payloadLabel } =
+        actionApi.globalPayloadAction(payload);
 
       // Confirm before applying: a global ('acg:') QR books onto the wallet with
       // no key/auth check, so make the inflation explicit instead of silently
       // pushing it (on every path — boot, hashchange, and after wallet select).
       if (!options.skipConfirm && typeof confirm === "function") {
-        const label =
-          payload && typeof payload.l === "string" && payload.l
-            ? ` „${payload.l}“`
-            : "";
+        const label = payloadLabel ? ` „${payloadLabel}“` : "";
         const what =
           type === "d"
             ? `${amount} Getränk(e) trinken`

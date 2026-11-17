@@ -1,28 +1,23 @@
 (() => {
+  // Loads after wallet-helpers.js and wallet-summary.js on every page
+  // (index.html, wallet.html, preview.html), so both are bound once here.
   const helpers = window.dbWalletHelpers || null;
+  const summaryApi = window.dbWalletSummary || null;
+  if (
+    !helpers ||
+    typeof helpers.safeParse !== "function" ||
+    typeof helpers.randomToken !== "function" ||
+    !summaryApi ||
+    typeof summaryApi.computeSummarySafe !== "function" ||
+    typeof summaryApi.formatPerDayDiagram !== "function"
+  ) {
+    return;
+  }
+  const { safeParse, randomToken } = helpers;
   const CACHE_PREFIX = "db-wallet:import-cache:";
 
-  function safeParseFallback(raw) {
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  const safeParse =
-    helpers && typeof helpers.safeParse === "function"
-      ? helpers.safeParse
-      : safeParseFallback;
-
   function cacheSet(payload) {
-    // Resolved lazily at call time (unlike `helpers` above): on wallet.html
-    // this script loads before wallet-helpers.js, so a module-load-time
-    // binding would permanently miss the real implementation. Safe because
-    // cacheSet only ever runs from a user-triggered import action, long after
-    // all deferred scripts have executed — nothing here runs at IIFE eval
-    // time.
-    const token = window.dbWalletHelpers.randomToken();
+    const token = randomToken();
     try {
       sessionStorage.setItem(CACHE_PREFIX + token, JSON.stringify(payload));
       return token;
@@ -178,40 +173,11 @@
   }
 
   function computeSummary(wallet) {
-    const summaryApi = window.dbWalletSummary || null;
-    if (summaryApi && typeof summaryApi.computeSummarySafe === "function") {
-      return summaryApi.computeSummarySafe(wallet);
-    }
-    return {
-      userId: wallet && typeof wallet.userId === "string" ? wallet.userId : "",
-      v: 1,
-      total: 0,
-      unpaid: 0,
-      credit: 0,
-      perDay: [],
-      eventsSorted: [],
-    };
+    return summaryApi.computeSummarySafe(wallet);
   }
 
-  // Resolved lazily at call time, same as computeSummary above: on wallet.html
-  // this script loads before wallet-summary.js, so a module-load-time binding
-  // would permanently miss the real implementation.
   function formatPerDayDiagram(perDay) {
-    const summaryApi = window.dbWalletSummary || null;
-    if (summaryApi && typeof summaryApi.formatPerDayDiagram === "function") {
-      return summaryApi.formatPerDayDiagram(perDay);
-    }
-    return perDay.map((d) => {
-      const drinkCount =
-        typeof d.drinkCount === "number" && Number.isFinite(d.drinkCount)
-          ? d.drinkCount
-          : typeof d.drinks === "number" && Number.isFinite(d.drinks)
-            ? Math.max(0, Math.round(d.drinks))
-            : 0;
-      const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
-      const paidMark = d.paid ? " 💰" : "";
-      return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
-    });
+    return summaryApi.formatPerDayDiagram(perDay);
   }
 
   function applyThemeTransient(themeName) {
