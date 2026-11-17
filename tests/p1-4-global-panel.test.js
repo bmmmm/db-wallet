@@ -18,7 +18,7 @@ function setup() {
 
   let current = S.loadWallet("anna");
   const container = w.document.createElement("div");
-  const ui = w.dbWalletActionCodes.initActionCodesUi({
+  const ui = w.dbWalletActionCodesUI.initActionCodesUi({
     container,
     getWallet: () => current,
     persistWallet: (next) => {

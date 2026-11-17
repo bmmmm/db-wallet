@@ -162,7 +162,8 @@ rückwärtskompatibel.
 | `wallet-import-v2.js` | Binär-Codec v2 (encode/decode), Import-Merge, Action-Code-Einlösung |
 | `wallet-summary.js` | Total / Offen / Guthaben / Diagramm (pure) |
 | `wallet-sync.js` | Sync-Ampel + ASCII-Timeline (lokal) |
-| `action-codes.js` | Action Codes: Normalisierung, Merge, Hash-Codec, UI |
+| `action-codes.js` | Action Codes: Normalisierung, Merge, Hash-Codec, Löschliste, Änderungen als reine Funktionen |
+| `action-codes-ui.js` | Action-Code-Panel (DOM, nur `wallet.html`) |
 | `hash-router.js` | Hash-Parsing (`#<name>`, `ac` / `acg` / `import` / `i2` / `i2u`) |
 | `migration.js` | Migration v1 → v2 (für robusten QR-Export) |
 
@@ -230,7 +231,8 @@ Cache nicht vergiften.
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:
   `scripts/check-sw-version.sh`).
 - **Wo editieren:** Storage/Modell → `wallet-storage.js`; Summary/Tombstones →
-  `wallet-summary.js`; Action-Codes → `action-codes.js`; Hash-Parsing →
+  `wallet-summary.js`; Action-Codes → `action-codes.js` (Panel:
+  `action-codes-ui.js`); Hash-Parsing →
   `hash-router.js`; Buchungen → `wallet-actions.js`.
 - **Smoke-Test:** Wallet anlegen → Drinks/Pay → Undo → Export/Import v2 →
   lokale/globale Action Codes → `dbWalletSelfCheck.run()`.

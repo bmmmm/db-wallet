@@ -17,6 +17,7 @@ const DEFAULT_FILES = [
   "hash-router.js",
   "migration.js",
   "action-codes.js",
+  "action-codes-ui.js",
   "wallet-storage.js",
   "wallet-import-v2.js",
   "wallet-summary.js",

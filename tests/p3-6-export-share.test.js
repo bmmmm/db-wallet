@@ -252,7 +252,7 @@ test("no shipped script revokes an object URL right after click()", () => {
   const fs = require("fs");
   const path = require("path");
   const { REPO } = require("./harness");
-  for (const f of ["wallet-ui.js", "action-codes.js", "wallet-export-ui.js"]) {
+  for (const f of ["wallet-ui.js", "action-codes.js", "action-codes-ui.js", "wallet-export-ui.js"]) {
     const src = fs.readFileSync(path.join(REPO, f), "utf8");
     assert.doesNotMatch(src, /revokeObjectURL/, f + " should use helpers.downloadBlob");
   }

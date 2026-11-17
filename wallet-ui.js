@@ -417,14 +417,16 @@
     let summaryCache = null;
     let actionCodesUi = null;
     try {
-      const actionApi = window.dbWalletActionCodes || null;
-      if (actionApi && typeof actionApi.initActionCodesUi === "function") {
-        actionCodesUi = actionApi.initActionCodesUi({
+      const codesUiApi = window.dbWalletActionCodesUI || null;
+      if (codesUiApi && typeof codesUiApi.initActionCodesUi === "function") {
+        actionCodesUi = codesUiApi.initActionCodesUi({
           container: actionCodesBody,
           getWallet: () => wallet,
+          // The panel hands over a changed copy (action-codes.js pure
+          // functions); adopt it only when it was saved, so a refused save
+          // leaves the shown wallet matching the stored one.
           persistWallet: (next) => {
-            wallet = next;
-            saveWallet(wallet);
+            if (saveWallet(next)) wallet = next;
           },
           getBaseUrl,
         });

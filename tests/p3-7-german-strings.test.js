@@ -15,15 +15,15 @@ function literals(src) {
 
 const ENGLISH = [/New action code/i, /\bDevices:/, /Device ID/, /Last seen/];
 
-for (const f of ["action-codes.js", "wallet-sync-ui.js", "wallet-device-ui.js"]) {
+for (const f of ["action-codes.js", "action-codes-ui.js", "wallet-sync-ui.js", "wallet-device-ui.js"]) {
   test(`${f}: no English UI strings left`, () => {
     const hits = literals(read(f)).filter((s) => ENGLISH.some((re) => re.test(s)));
     assert.deepEqual(hits, []);
   });
 }
 
-test("action-codes.js: German labels are in place", () => {
-  const src = read("action-codes.js");
+test("action-codes-ui.js: German labels are in place", () => {
+  const src = read("action-codes-ui.js");
   assert.match(src, /btnAdd\.textContent = "Neuer Action Code"/);
   assert.match(src, /klicke auf „Neuer Action Code“/);
   const sync = read("wallet-sync-ui.js");

@@ -71,7 +71,8 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-storage.js` | localStorage, Event-IDs, Tombstones, Wallet-Registry |
 | `wallet-summary.js` | Zusammenfassung / Balance-Berechnung |
 | `wallet-import-v2.js` | Binär-QR-Codec (encode/decode), Import-Merge |
-| `action-codes.js` | QR-Action-Codes (lokal/global) |
+| `action-codes.js` | QR-Action-Codes (lokal/global): Normalisierung, Merge, Hash-Codec, Löschliste und die Änderungen als reine Funktionen (`createActionCode`/`editActionCode`/`deleteActionCode`, `(wallet, change) → {wallet}`) |
+| `action-codes-ui.js` | Action-Code-Panel (DOM, nur `wallet.html`): Karten, QR, Formulare; speichert jede Änderung einmal |
 | `wallet-sync.js` | Wallet-Sync-Logik |
 | `wallet-history-ui.js` | Verlaufs-UI |
 | `wallet-device-ui.js` | Geräte-UI |

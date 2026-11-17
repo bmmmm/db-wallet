@@ -78,12 +78,12 @@ test("deletion list is capped at the 50 newest entries", () => {
   assert.ok(keys.includes("c59"));
 });
 
-// UI flows through the real panel (action-codes.js initActionCodesUi).
+// UI flows through the real panel (action-codes-ui.js initActionCodesUi).
 function mountPanel(w, userId) {
   const S = w.dbWalletStorage;
   let wallet = S.loadWallet(userId);
   const container = w.document.createElement("div");
-  const ui = w.dbWalletActionCodes.initActionCodesUi({
+  const ui = w.dbWalletActionCodesUI.initActionCodesUi({
     container,
     getWallet: () => wallet,
     persistWallet: (next) => {
