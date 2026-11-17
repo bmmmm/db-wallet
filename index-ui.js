@@ -26,14 +26,13 @@
     isReservedStorageKey,
     ensureNonReservedUserId,
     userIdExists,
-    makeUniqueUserId,
     findUserIdByWalletId,
     getAllWallets,
     ensureDeviceSeq,
     saveWallet,
   } = storage;
 
-  const { computeSummary } = summaryApi;
+  const { computeSummary, todayDateStr } = summaryApi;
 
   const { buildImportedWallet, applyImportedTheme } = importV2;
 
@@ -44,7 +43,9 @@
 
   function clearRawOutput() {
     const rawOutput = document.getElementById("raw-output");
-    if (rawOutput) rawOutput.textContent = "";
+    if (!rawOutput) return;
+    rawOutput.textContent = "";
+    rawOutput.hidden = true;
   }
 
   function showGlobalActionMessage(message) {
@@ -52,10 +53,120 @@
     if (!api || typeof api.showGlobal !== "function") return null;
     return api.showGlobal(message, {
       className: "action-codes-notice",
-      anchors: ["h1"],
+      anchors: ["#index-header", "h1"],
     });
   }
 
+  function focusEl(el) {
+    if (el && typeof el.focus === "function") {
+      try {
+        el.focus();
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  function getThemeForBackup() {
+    const api = window.dbWalletTheme || null;
+    return api && typeof api.getStoredTheme === "function" ? api.getStoredTheme() : null;
+  }
+
+  // P4.5: the JSON backup offered before a delete — the same file as
+  // wallet.html's "Als JSON herunterladen"; "JSON importieren" reads it back.
+  function downloadBackup(userId) {
+    const wallet = getAllWallets()[userId];
+    if (!wallet) return false;
+    return !!helpers.downloadJson(
+      storage.walletBackupData(wallet, getThemeForBackup()),
+      storage.walletBackupFileName(userId, todayDateStr(), "backup"),
+    );
+  }
+
+  function backupExtra(userIds) {
+    const n = userIds.length;
+    return {
+      label: n > 1 ? `Vorher ${n} Backups herunterladen 📄` : "Vorher Backup herunterladen 📄",
+      run: () => {
+        const saved = userIds.filter((id) => downloadBackup(id)).length;
+        if (saved === n) return n > 1 ? `${n} Backups heruntergeladen ✓` : "Backup heruntergeladen ✓";
+        return "Backup fehlgeschlagen – nochmal versuchen";
+      },
+    };
+  }
+
+  function removeUserData(userId) {
+    safeLocalStorageRemoveItem(STORAGE_PREFIX + userId);
+    safeLocalStorageRemoveItem(userId);
+    const nextReg = loadRegistry();
+    if (nextReg && typeof nextReg === "object" && nextReg[userId]) {
+      delete nextReg[userId];
+      saveRegistry(nextReg);
+    }
+  }
+
+  // The entries the history shows (deleted and replaced ones don't count).
+  function visibleEntryCount(wallet) {
+    try {
+      return summaryApi.applyTombstones(wallet && wallet.events).effectiveEvents.length;
+    } catch (e) {
+      return Array.isArray(wallet && wallet.events) ? wallet.events.length : 0;
+    }
+  }
+
+  function describeLoss(count) {
+    if (count === 0) return "Es enthält noch keine Einträge. ";
+    const what = count === 1 ? "Der eine Eintrag geht" : `Alle ${count} Einträge gehen`;
+    return `${what} hier verloren; andere Geräte behalten ihre Kopie. `;
+  }
+
+  async function deleteUser(userId) {
+    const wallet = getAllWallets()[userId];
+    if (!wallet) {
+      renderExistingUsers();
+      return;
+    }
+    const ok = await helpers.confirmDialog(
+      `Wallet „${userId}“ auf diesem Gerät löschen?\n\n` +
+        describeLoss(visibleEntryCount(wallet)) +
+        "Ein Backup lässt sich später über „JSON importieren“ zurückholen.",
+      { okLabel: "Löschen", danger: true, extra: backupExtra([userId]) },
+    );
+    if (!ok) return;
+
+    // The list position, so the focus can land on the neighbour afterwards.
+    const ids = sortedUserIds();
+    const at = ids.indexOf(userId);
+    removeUserData(userId);
+    clearRawOutput();
+    renderExistingUsers();
+    helpers.notify(`Wallet „${userId}“ gelöscht.`);
+
+    const rest = sortedUserIds();
+    const next = rest.length ? rest[Math.min(Math.max(at, 0), rest.length - 1)] : "";
+    const container = document.getElementById("existing-users");
+    const target = next && container ? findOpenButton(container, next) : null;
+    focusEl(target || document.getElementById("username"));
+  }
+
+  function findOpenButton(container, userId) {
+    const buttons = container.querySelectorAll ? container.querySelectorAll("button") : [];
+    for (const b of buttons) {
+      if (b.dataset && b.dataset.openUser === userId) return b;
+    }
+    return null;
+  }
+
+  function sortedUserIds() {
+    return Object.keys(getAllWallets()).sort((a, b) => a.localeCompare(b));
+  }
+
+  function openUser(userId) {
+    window.location.href = "wallet.html#" + userId;
+  }
+
+  // P4.5: the wallets on this device, above the "open or create" field.
+  // "Öffnen" and "Löschen" sit apart, "Löschen" in --danger.
   function renderExistingUsers() {
     const container = document.getElementById("existing-users");
     const section = document.getElementById("existing-users-section");
@@ -66,14 +177,8 @@
     const userIds = Object.keys(wallets).sort((a, b) => a.localeCompare(b));
 
     container.innerHTML = "";
-    container.className = userIds.length ? "stat-panel" : "";
-
-    if (!userIds.length) {
-      if (section) section.style.display = "none";
-      return;
-    }
-
-    if (section) section.style.display = "block";
+    if (section) section.hidden = !userIds.length;
+    if (!userIds.length) return;
 
     // Per-wallet summaries (computeSummary walks the full event log) are filled
     // in after first paint so the user list appears immediately instead of
@@ -83,13 +188,12 @@
     for (const userId of userIds) {
       const wallet = wallets[userId];
 
-      const card = document.createElement("div");
-      card.className = "stat";
+      const card = document.createElement("li");
+      card.className = "wallet-card";
 
-      const title = document.createElement("div");
-      const strong = document.createElement("strong");
-      strong.textContent = userId;
-      title.appendChild(strong);
+      const name = document.createElement("strong");
+      name.className = "wallet-card-name";
+      name.textContent = userId;
 
       const entry =
         reg && typeof reg === "object" && reg[userId] ? reg[userId] : null;
@@ -101,51 +205,36 @@
           : 0;
 
       const meta = document.createElement("div");
-      meta.style.marginTop = "0.35rem";
-      meta.style.fontSize = "0.9rem";
-      meta.style.color = "var(--muted)";
+      meta.className = "wallet-card-meta";
       meta.textContent = "Letztes Update: " + formatDateTimeDisplay(lastUpdated);
 
       const summaryLine = document.createElement("div");
-      summaryLine.style.marginTop = "0.35rem";
+      summaryLine.className = "wallet-card-summary";
       summaryLine.textContent = "Lädt …";
       pendingSummaries.push({ summaryLine, wallet });
 
       const actions = document.createElement("div");
-      actions.className = "action-buttons";
-      actions.style.marginTop = "0.6rem";
+      actions.className = "wallet-card-actions";
 
       const btnOpen = document.createElement("button");
+      btnOpen.type = "button";
+      btnOpen.className = "wallet-open";
       btnOpen.textContent = "Öffnen";
-      btnOpen.addEventListener("click", () => {
-        window.location.href = "wallet.html#" + userId;
-      });
+      btnOpen.dataset.openUser = userId;
+      btnOpen.setAttribute("aria-label", `Wallet „${userId}“ öffnen`);
+      btnOpen.addEventListener("click", () => openUser(userId));
 
       const btnDelete = document.createElement("button");
+      btnDelete.type = "button";
+      btnDelete.className = "wallet-delete btn-danger";
       btnDelete.textContent = "Löschen";
-      btnDelete.addEventListener("click", () => {
-        const ok = window.confirm(
-          `Soll die lokale Nutzer:in "${userId}" wirklich vollständig gelöscht werden?`,
-        );
-        if (!ok) return;
-
-        safeLocalStorageRemoveItem(STORAGE_PREFIX + userId);
-        safeLocalStorageRemoveItem(userId);
-
-        const nextReg = loadRegistry();
-        if (nextReg && typeof nextReg === "object" && nextReg[userId]) {
-          delete nextReg[userId];
-          saveRegistry(nextReg);
-        }
-
-        clearRawOutput();
-        renderExistingUsers();
-      });
+      btnDelete.setAttribute("aria-label", `Wallet „${userId}“ löschen`);
+      btnDelete.addEventListener("click", () => deleteUser(userId));
 
       actions.appendChild(btnOpen);
       actions.appendChild(btnDelete);
 
-      card.appendChild(title);
+      card.appendChild(name);
       card.appendChild(meta);
       card.appendChild(summaryLine);
       card.appendChild(actions);
@@ -164,7 +253,7 @@
         } catch (e) {
           // ignore
         }
-        summaryLine.textContent = `Total: ${summary.total} | Offen: ${summary.unpaid} | Guthaben: ${summary.credit}`;
+        summaryLine.textContent = `Getrunken: ${summary.total} · Offen: ${summary.unpaid} · Guthaben: ${summary.credit}`;
       }
     }, 0);
   }
@@ -222,7 +311,7 @@
       msg = `${kind} Link erkannt.\n\nDieses Wallet ist lokal nicht bekannt.\n\nIn wallet.html öffnen?`;
     }
 
-    if (!window.confirm(msg)) {
+    if (!(await helpers.confirmDialog(msg, { okLabel: "Öffnen" }))) {
       // Decision I1: drop the declined link. Replace it in place — assigning
       // location.hash would leave the #i2:/#ac: entry in the session history.
       if (
@@ -237,15 +326,86 @@
     return true;
   }
 
+  // P4.5: what "Weiter" does with the typed name. An existing name opens that
+  // wallet (it used to create "peter-2" without a word); umlauts are spelled
+  // out ("Jörg" → "joerg"); an empty or unusable name gets a random one.
+  function resolveStartTarget(raw) {
+    const typed = String(raw || "").trim();
+    const normalized = normalizeUserId(typed);
+    if (!normalized) {
+      return { userId: "", exists: false, random: true, unusable: !!typed };
+    }
+    const userId = ensureNonReservedUserId(normalized);
+    return { userId, exists: userIdExists(userId), random: false, unusable: false };
+  }
+
+  function describeStartTarget(target, typed) {
+    if (!String(typed || "").trim()) return "";
+    if (target.unusable) {
+      return "Kein verwendbares Zeichen – „Weiter“ legt ein Wallet mit zufälligem Namen an.";
+    }
+    if (target.exists) return `Öffnet das vorhandene Wallet „${target.userId}“.`;
+    return `Legt das neue Wallet „${target.userId}“ an.`;
+  }
+
+  function updateStartHint() {
+    const input = document.getElementById("username");
+    const hint = document.getElementById("username-hint");
+    if (!input || !hint) return;
+    hint.textContent = describeStartTarget(resolveStartTarget(input.value), input.value);
+  }
+
   function startNewUser() {
     const input = document.getElementById("username");
-    const raw = input ? input.value : "";
-    let userId = normalizeUserId(raw);
-    userId = ensureNonReservedUserId(userId);
-    if (userIdExists(userId)) {
-      userId = makeUniqueUserId(userId);
+    const target = resolveStartTarget(input ? input.value : "");
+    const userId = target.random ? ensureNonReservedUserId("") : target.userId;
+    openUser(userId);
+  }
+
+  // P4.8: a pasted link from another device (the installed app has its own
+  // storage, so a scanned QR may have opened the browser instead). Only the
+  // part after "#" counts — the host may differ — and wallet.html's router
+  // takes it from there, like an opened link.
+  function hashFromPastedLink(text) {
+    const s = String(text || "").replace(/\s+/g, "");
+    if (!s) return "";
+    let i = s.indexOf("#");
+    let skip = 1;
+    if (i < 0) {
+      // Some apps hand the link on with the "#" percent-encoded.
+      i = s.toLowerCase().indexOf("%23");
+      skip = 3;
     }
-    window.location.href = "wallet.html#" + userId;
+    return i >= 0 ? s.slice(i + skip) : s;
+  }
+
+  function openPastedLink(text) {
+    const hash = hashFromPastedLink(text);
+    if (!hash) {
+      return { ok: false, message: "Bitte zuerst einen Link einfügen." };
+    }
+    const route = classifyHashValue(hash);
+    if (route.kind === "import" || route.kind === "localAction" || route.kind === "globalAction") {
+      window.location.href = "wallet.html#" + hash;
+      return { ok: true };
+    }
+    if (route.kind === "user") {
+      if (userIdExists(route.userId)) {
+        openUser(route.userId);
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        message:
+          `Der Link nennt nur den Namen „${route.userId}“, die Daten stehen nicht darin. ` +
+          "Auf dem anderen Gerät unter „Export“ einen Link oder QR-Code erzeugen und den einfügen.",
+      };
+    }
+    return {
+      ok: false,
+      message:
+        "Kein db-wallet-Link erkannt. Ein Export-Link enthält „#i2:“ oder „#import:“, ein Action Code „#ac:“ oder „#acg:“.",
+    };
   }
 
   function importJsonFile(file) {
@@ -338,6 +498,7 @@
   function showRawAll() {
     const rawOutput = document.getElementById("raw-output");
     if (!rawOutput) return;
+    rawOutput.hidden = false;
 
     const wallets = getAllWallets();
     const userIds = Object.keys(wallets).sort((a, b) => a.localeCompare(b));
@@ -356,31 +517,33 @@
     rawOutput.textContent = JSON.stringify(all, null, 2);
   }
 
-  function nukeAll() {
-    let len = 0;
-    try {
-      len =
-        typeof localStorage !== "undefined" && localStorage
-          ? localStorage.length
-          : 0;
-    } catch (e) {
-      len = 0;
-    }
-
-    const keysToDelete = [];
-    for (let i = 0; i < len; i++) {
-      let key = null;
+  async function nukeAll() {
+    const collectKeys = () => {
+      let len = 0;
       try {
-        key = localStorage.key(i);
+        len =
+          typeof localStorage !== "undefined" && localStorage
+            ? localStorage.length
+            : 0;
       } catch (e) {
-        continue;
+        len = 0;
       }
+      const keys = [];
+      for (let i = 0; i < len; i++) {
+        let key = null;
+        try {
+          key = localStorage.key(i);
+        } catch (e) {
+          continue;
+        }
+        if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+        if (isReservedStorageKey(key)) continue;
+        keys.push(key);
+      }
+      return keys;
+    };
 
-      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-      if (isReservedStorageKey(key)) continue;
-      keysToDelete.push(key);
-    }
-
+    const keysToDelete = collectKeys();
     if (!keysToDelete.length) {
       helpers.notify("Es wurden keine lokalen Nutzer:innen gefunden.");
       return;
@@ -389,23 +552,24 @@
     const userIds = keysToDelete
       .map((k) => k.slice(STORAGE_PREFIX.length))
       .sort((a, b) => a.localeCompare(b));
+    const walletIds = userIds.filter((id) => !!getAllWallets()[id]);
 
     const confirmMsg =
-      userIds.length === 1
-        ? `Soll die lokale Nutzer:in "${userIds[0]}" wirklich vollständig gelöscht werden?`
-        : `Sollen die folgenden ${userIds.length} lokalen Nutzer:innen wirklich vollständig gelöscht werden?\n\n` +
-          userIds.join(", ");
+      (userIds.length === 1
+        ? `Die lokale Nutzer:in „${userIds[0]}“ vollständig löschen?`
+        : `Alle ${userIds.length} lokalen Nutzer:innen vollständig löschen?\n\n` +
+          userIds.join(", ")) +
+      "\n\nDas lässt sich nicht rückgängig machen; andere Geräte behalten ihre Kopie.";
 
-    if (!window.confirm(confirmMsg)) return;
-    if (
-      !window.confirm(
-        "Wirklich ALLES löschen? Dieser Schritt kann nicht rückgängig gemacht werden.",
-      )
-    ) {
-      return;
-    }
+    const ok = await helpers.confirmDialog(confirmMsg, {
+      okLabel: userIds.length === 1 ? "Löschen" : `Alle ${userIds.length} löschen`,
+      danger: true,
+      extra: walletIds.length ? backupExtra(walletIds) : undefined,
+    });
+    if (!ok) return;
 
-    keysToDelete.forEach((key) => {
+    // Re-read: another tab may have added or removed a wallet meanwhile.
+    collectKeys().forEach((key) => {
       const userId = key.slice(STORAGE_PREFIX.length);
       safeLocalStorageRemoveItem(key);
       safeLocalStorageRemoveItem(userId);
@@ -416,20 +580,24 @@
     clearRawOutput();
     renderExistingUsers();
     helpers.notify("Alle lokalen db-wallet-Nutzer:innen wurden gelöscht.");
+    focusEl(document.getElementById("username"));
   }
 
   document.addEventListener("DOMContentLoaded", async () => {
     const inputUsername = document.getElementById("username");
     const btnStart = document.getElementById("btn-start");
-    const btnInfo = document.getElementById("btn-info");
     const btnSearchUsers = document.getElementById("btn-search-users");
     const btnImportJson = document.getElementById("btn-import-json");
     const fileImport = document.getElementById("file-import");
     const btnRawAll = document.getElementById("btn-raw-all");
     const btnNukeAll = document.getElementById("btn-nuke-all");
+    const pasteForm = document.getElementById("paste-link-form");
+    const pasteInput = document.getElementById("paste-link");
+    const rawOutput = document.getElementById("raw-output");
+
+    if (rawOutput && !rawOutput.textContent) rawOutput.hidden = true;
 
     if (btnSearchUsers) {
-      btnSearchUsers.textContent = "Neu laden";
       btnSearchUsers.addEventListener("click", () => renderExistingUsers());
     }
 
@@ -438,13 +606,21 @@
     }
     if (inputUsername) {
       inputUsername.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") startNewUser();
+        if (e && e.key === "Enter") startNewUser();
       });
+      inputUsername.addEventListener("input", () => updateStartHint());
     }
 
-    if (btnInfo) {
-      btnInfo.addEventListener("click", () => {
-        window.open("https://github.com/bmmmm/db-wallet", "_blank");
+    if (pasteForm && pasteInput) {
+      pasteInput.addEventListener("input", () => pasteInput.removeAttribute("aria-invalid"));
+      pasteForm.addEventListener("submit", (e) => {
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+        const res = openPastedLink(pasteInput.value);
+        if (res.ok) return;
+        pasteInput.setAttribute("aria-invalid", "true");
+        // Focus first: the notice scrolls the focused field clear of itself.
+        focusEl(pasteInput);
+        helpers.notify(res.message, { kind: "error" });
       });
     }
 
@@ -473,9 +649,17 @@
       themeApi.initThemeSelector();
     }
 
-    const redirected = await handleHashRouting();
-    if (redirected) return;
-
+    // The list first, so it shows behind a link's "open?" question.
     renderExistingUsers();
+    updateStartHint();
+    await handleHashRouting();
   });
+
+  // For tests (Node harness): the pure parts of the start page.
+  window.dbWalletIndexUI = {
+    resolveStartTarget,
+    describeStartTarget,
+    hashFromPastedLink,
+    openPastedLink,
+  };
 })();

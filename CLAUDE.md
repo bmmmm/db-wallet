@@ -76,7 +76,7 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-sync.js` | Wallet-Sync-Logik |
 | `wallet-history-ui.js` | Verlaufs-UI: Diagramm/Raw im `<pre>`, „Historie" als Zeilen (`#history-list`, 200 je Schritt) mit Bearbeiten (Inline-Formular) / Löschen pro Eintrag |
 | `wallet-device-ui.js` | Geräte-UI |
-| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`, `downloadBlob` = the one Blob-download path, revokes late; `notify`/`confirmDialog`/`whenConfirmed`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
+| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`, `downloadBlob` = the one Blob-download path, revokes late (`downloadJson` builds on it); `notify`/`confirmDialog`/`whenConfirmed`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
 | `hash-router.js` | Client-seitiges Routing via URL-Hash |
 | `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |
@@ -149,7 +149,9 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   {kind:"error", sticky, action:{label, run}})` writes `#status-line` (on
   `wallet.html` and `index.html`; `#status-text` is the page's one `role="status"`,
   always in the DOM, shown via `.is-visible`, so the no-wallet CSS must keep it).
-  Without the line it falls back to `alert()`. Keep `alert()` only for a message
+  Without the line it falls back to `alert()`. Showing a notice scrolls the
+  focused element clear of the fixed line, so focus the field an error is
+  about *before* calling `notify`. Keep `alert()` only for a message
   right before a navigation away (`redirectAfterActionError` without an open wallet).
   A booking's notice offers "Rückgängig" for exactly that booking (`undoBooking`,
   root id), not "the last one" — another tab may have booked in between. A save
@@ -159,9 +161,13 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   not clamped. The first "Teilen" on a device shows the bearer-link hint and shares
   only from its button (`localStorage` flag `db-wallet.share-hint-seen`).
 - **Questions go to the shared dialog, not `confirm()`/`prompt()`** —
-  `dbWalletHelpers.confirmDialog(text, {okLabel, danger})` shows `#confirm-dialog`
-  on `wallet.html` and resolves `true`/`false` (Escape = no; the focus goes back);
-  without the dialog it falls back to `window.confirm`. `ctx.dialogConfirm` may
+  `dbWalletHelpers.confirmDialog(text, {okLabel, danger, extra})` shows
+  `#confirm-dialog` (on `wallet.html` and `index.html`) and resolves `true`/`false`
+  (Escape = no; the focus goes back); without the dialog it falls back to
+  `window.confirm`. `extra: {label, run}` shows `#confirm-extra` (only
+  `index.html` has it) — a side action that keeps the question open; a string
+  returned by `run()` becomes its new label (the start page's "Vorher Backup
+  herunterladen"). `ctx.dialogConfirm` may
   answer a boolean or a Promise (`whenConfirmed`), so every action re-reads
   `ctx.getWallet()` after the answer — another tab may have changed it meanwhile:
   undo re-resolves its target and refuses if it moved, a row delete re-checks its
@@ -172,8 +178,9 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   a re-render. An edit on the same day keeps the `ts`; another day keeps the time
   of day (today but later than now → now); a later day or a move across a pay is
   refused. Still native (synchronous boot/hash path): the `acg:` apply confirm in
-  `wallet-ui.js`, the `ac:` target confirms in `wallet-import-v2.js`, the v1
-  migration prompt, and `index-ui.js` (until P4.5).
+  `wallet-ui.js`, the `ac:` target confirms in `wallet-import-v2.js`, and the v1
+  migration prompt. The import choice (`import-preview.js` `chooseImportMode`) is
+  its own native `<dialog>` (Escape/backdrop = cancel, the focus goes back).
 - **CSP has no `'unsafe-inline'`** (index/wallet/preview) — no `style="…"`, no
   `<style>`, no `setAttribute("style")`/`.cssText`/HTML strings with `style=`; single
   `el.style.x = …` assignments are fine. Initially hidden elements get `display: none`
@@ -192,6 +199,17 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   text + six `aria-pressed` symbols, no `title` tooltips. The sync line
   (`#sync-status-line`) shows only with a sync partner (`pickActivePeer`, i.e. after
   an import from another device); red adds a visible "Zum Export" button.
+- **Start page (P4.5/P4.8)** — `index.html`: `<header id="index-header">`, then
+  `<main>`: wallet list (`#existing-users-section`, hidden while empty; cards with
+  "Öffnen" and a separate `.btn-danger` "Löschen"), "Wallet öffnen oder anlegen",
+  "Link einfügen", import/raw (with "Alle löschen" in `.danger-zone`), theme.
+  An existing name **opens** that wallet (never `makeUniqueUserId` here);
+  `normalizeUserId` spells out ä/ö/ü/ß and strips other accents, everywhere
+  (imports too). "Link einfügen" (`dbWalletIndexUI.openPastedLink`) takes only
+  the part after `#`/`%23` and hands import/`ac:`/`acg:` hashes to `wallet.html`;
+  a bare name opens only an existing wallet (the data is not in it). Backups
+  use `storage.walletBackupData` + `walletBackupFileName` + `helpers.downloadJson`
+  — the same JSON as `wallet.html`'s export.
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
 - **Deploy allowlist** — Pages copies only the files on the `cp` line of

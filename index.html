@@ -26,69 +26,108 @@
         <script src="theme.js"></script>
     </head>
     <body>
-        <h1>db-wallet</h1>
-        <button id="btn-info">Info ℹ️</button>
+        <header id="index-header" class="wallet-header">
+            <div class="header-bar">
+                <h1>db-wallet</h1>
+                <nav class="header-links" aria-label="Seiten">
+                    <a id="btn-info" href="https://github.com/bmmmm/db-wallet" target="_blank" rel="noopener noreferrer">Info</a>
+                </nav>
+            </div>
+        </header>
 
-        <section>
-            <h2>Neue:n Nutzer:in anlegen</h2>
-            <p>
-                Nutzer:in-Namen eingeben oder leer lassen, um einen zufälligen
-                Namen zu erhalten.
-            </p>
-            <label for="username">Nutzer:in-Name</label>
-            <input
-                id="username"
-                type="text"
-                placeholder="z. B. peter, kueche, clubraum …"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-            />
-            <button id="btn-start">Weiter</button>
-        </section>
+        <main id="index-main">
+            <!-- P4.5: the existing wallets first (hidden while there are none). -->
+            <section id="existing-users-section" aria-labelledby="existing-users-title" hidden>
+                <h2 id="existing-users-title">Deine Wallets</h2>
+                <ul id="existing-users" class="wallet-list"></ul>
+                <button id="btn-search-users" type="button">Liste neu laden</button>
+            </section>
 
-        <hr />
+            <section id="new-user-section" aria-labelledby="new-user-title">
+                <h2 id="new-user-title">Wallet öffnen oder anlegen</h2>
+                <p class="field-note">
+                    Ein vorhandener Name öffnet das Wallet, ein neuer legt es an.
+                    Leer lassen für einen zufälligen Namen.
+                </p>
+                <label for="username">Nutzer:in-Name</label>
+                <input
+                    id="username"
+                    type="text"
+                    placeholder="z. B. peter, kueche, clubraum …"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    enterkeyhint="go"
+                    aria-describedby="username-hint"
+                />
+                <button id="btn-start" type="button">Weiter</button>
+                <p id="username-hint" class="field-hint"></p>
+            </section>
 
-        <section id="existing-users-section">
-            <h2>Vorhandene Nutzer:innen</h2>
-            <div id="existing-users"></div>
-            <br />
-            <button id="btn-search-users">
-                Nach lokalen Nutzer:innen suchen 🔍
-            </button>
-        </section>
+            <!-- P4.8: a link from another device; the hash goes to wallet.html's router. -->
+            <section id="paste-link-section" aria-labelledby="paste-link-title">
+                <h2 id="paste-link-title">Link einfügen</h2>
+                <p id="paste-link-note" class="field-note">
+                    Export- oder Action-Code-Link von einem anderen Gerät, etwa wenn ein
+                    gescannter QR-Code im Browser statt in der installierten App aufgeht.
+                </p>
+                <form id="paste-link-form" class="paste-link-form" novalidate>
+                    <label for="paste-link">Link</label>
+                    <input
+                        id="paste-link"
+                        type="text"
+                        inputmode="url"
+                        placeholder="https://…/wallet.html#i2:…"
+                        autocomplete="off"
+                        autocapitalize="off"
+                        spellcheck="false"
+                        enterkeyhint="go"
+                        aria-describedby="paste-link-note"
+                    />
+                    <button id="btn-paste-link" type="submit">Öffnen</button>
+                </form>
+            </section>
 
-        <hr />
+            <section aria-labelledby="import-title">
+                <h2 id="import-title">Import &amp; Rohdaten</h2>
+                <button id="btn-import-json" type="button">JSON importieren 📄</button>
+                <input
+                    id="file-import"
+                    type="file"
+                    accept="application/json"
+                    aria-hidden="true"
+                />
+                <button id="btn-raw-all" type="button">Alle Raw-Daten anzeigen 🧾</button>
+                <div class="danger-zone">
+                    <button id="btn-nuke-all" class="btn-danger" type="button">
+                        Alle lokalen Nutzer:innen löschen 💣
+                    </button>
+                </div>
+                <pre id="raw-output"></pre>
+            </section>
 
-        <section>
-            <h2>Import &amp; Rohdaten</h2>
-            <button id="btn-import-json">JSON importieren 📄</button>
-            <input
-                id="file-import"
-                type="file"
-                accept="application/json"
-               
-                aria-hidden="true"
-            />
-            <button id="btn-raw-all">Alle Raw-Daten anzeigen 🧾</button>
-            <button id="btn-nuke-all">
-                Alle lokalen Nutzer:innen löschen 💣
-            </button>
-            <pre id="raw-output"></pre>
-        </section>
+            <section id="theme-section" aria-labelledby="theme-title">
+                <h2 id="theme-title">Theme auswählen</h2>
+                <p class="theme-note">
+                    Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name: Lilac
+                    Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach Cloud.
+                    Ohne Auswahl folgt es dem System (dunkel: Lilac Carbon, hell:
+                    Paper Mint).
+                </p>
+                <div class="theme-buttons" id="theme-buttons"></div>
+            </section>
+        </main>
 
-        <hr />
-
-        <section id="theme-section">
-            <h2>Theme auswählen</h2>
-            <p class="theme-note">
-                Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name: Lilac
-                Carbon, Teal Ember, Slate Sunrise, Paper Mint, Peach Cloud.
-                Ohne Auswahl folgt es dem System (dunkel: Lilac Carbon, hell:
-                Paper Mint).
-            </p>
-            <div class="theme-buttons" id="theme-buttons"></div>
-        </section>
+        <!-- P4.5: the confirm dialog (wallet-helpers.js confirmDialog); the extra
+             button offers the JSON backup before a delete. -->
+        <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-text">
+            <p id="confirm-text" class="confirm-text"></p>
+            <div class="confirm-buttons">
+                <button id="confirm-extra" type="button" hidden></button>
+                <button id="confirm-cancel" type="button">Abbrechen</button>
+                <button id="confirm-ok" type="button">OK</button>
+            </div>
+        </dialog>
 
         <!-- Status line (P4.1): notices instead of alert(), see wallet-helpers.js notify. -->
         <div id="status-line" class="status-line">

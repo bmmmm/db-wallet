@@ -12,8 +12,11 @@ ohne Cloud.
 
 ## Schnellstart
 
-1. `index.html` öffnen, Namen eingeben (oder leer lassen für Zufall) →
-   `wallet.html#<name>`.
+1. `index.html` öffnen: oben stehen die Wallets dieses Geräts (Öffnen/Löschen);
+   darunter einen Namen eingeben (oder leer lassen für Zufall) →
+   `wallet.html#<name>`. Ein vorhandener Name öffnet dieses Wallet, Umlaute
+   werden ausgeschrieben („Jörg“ → `joerg`); die Zeile unter dem Feld sagt
+   vorher, was „Weiter“ tut.
 2. Getränke buchen, bezahlen, Guthaben aufladen.
 3. Zum Übertragen: auf einem Gerät **Export → „QR-Code (kurz)"**, auf dem anderen
    scannen — der Merge passiert automatisch.
@@ -33,12 +36,16 @@ ohne Cloud.
 - **Verwaltung** — in der „Historie“ steht jeder Eintrag in einer eigenen Zeile;
   mit „Einträge bearbeiten oder löschen“ bekommt jede Zeile „Bearbeiten“ (Datum
   und Menge im Formular) und „Löschen“. Rückfragen kommen in einem Dialog.
-  Nutzer:innen einzeln oder gesammelt entfernen. Zurücksetzen macht daraus ein neues Wallet mit gleichem
+  Nutzer:innen einzeln oder gesammelt entfernen — die Rückfrage bietet vorher
+  ein JSON-Backup an (über „JSON importieren“ zurückholbar). Zurücksetzen macht daraus ein neues Wallet mit gleichem
   Namen (neue Wallet-ID): ein vorher gemachter Export landet beim Import als
   eigenes Wallet, lokale Action-Code-QRs des alten Wallets gelten nicht mehr.
 - **Import/Export** — Link (auto-merge), kompakter QR-Code oder JSON; inklusive
   Theme und Wallet-ID gegen Namens-Kollisionen. Der Link ist ein Schlüssel zum
   ganzen Wallet: das erste „Teilen“ auf einem Gerät sagt das, bevor es teilt.
+  Öffnet ein gescannter Link im Browser statt in der installierten App, lässt
+  er sich auf deren Startseite unter „Link einfügen“ übernehmen (Export-Links
+  und Action Codes; der Host darf abweichen).
 - **Offline-fähig** — als PWA installierbar, läuft ohne Netz.
 
 ## Action Codes (QR)
@@ -181,7 +188,7 @@ rückwärtskompatibel.
 
 | Datei | Rolle |
 |-------|-------|
-| `index-ui.js` | Startseite (Liste, Anlegen, Import) |
+| `index-ui.js` | Startseite (Wallet-Liste, Öffnen/Anlegen, Link einfügen, Import, Löschen mit Backup) |
 | `wallet-ui.js` | Wallet-Composer (DOM-Wiring, Hash-Routing, Module initialisieren) |
 | `wallet-actions.js` | Buchungen (Drink/Undo/Pay/Credit/Reset/Delete/Edit) |
 | `wallet-history-ui.js` | Verlauf (Diagramm, Historie als Zeilen mit Bearbeiten/Löschen, Raw) |

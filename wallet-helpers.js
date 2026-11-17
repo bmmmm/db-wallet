@@ -331,14 +331,24 @@
     return RESERVED_HASH_PREFIXES.some((p) => s.startsWith(p));
   }
 
+  // German letters spelled out (P4.5: "Jörg" became "jrg"); other accents
+  // lose their mark below ("é" → "e").
+  const TRANSLITERATE = { "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss" };
+
   // Sanitizes a raw user-supplied string into a safe user id: lowercase,
-  // spaces collapsed to hyphens, anything outside [a-z0-9_-] stripped, capped
-  // at 64 chars. Returns "" if nothing usable remains (caller decides the
-  // fallback — e.g. generating a random id).
+  // umlauts transliterated and accents dropped, spaces collapsed to hyphens,
+  // anything outside [a-z0-9_-] stripped, capped at 64 chars. Returns "" if
+  // nothing usable remains (caller decides the fallback — e.g. generating a
+  // random id).
   function normalizeUserId(raw) {
-    return String(raw || "")
+    let s = String(raw || "")
       .trim()
       .toLowerCase()
+      // NFC first, so a decomposed "o" + U+0308 is the "ö" the table knows.
+      .normalize("NFC")
+      .replace(/[äöüß]/g, (c) => TRANSLITERATE[c]);
+    s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return s
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9_-]/g, "")
       .slice(0, 64);
@@ -430,6 +440,16 @@
     return true;
   }
 
+  // A JSON file download (wallet backups), pretty-printed. Goes through the
+  // namespace's downloadBlob, so a stub of it (tests) sees this download too.
+  function downloadJson(data, filename) {
+    if (typeof Blob === "undefined") return false;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const api = window.dbWalletHelpers;
+    const save = api && typeof api.downloadBlob === "function" ? api.downloadBlob : downloadBlob;
+    return save(blob, filename);
+  }
+
   // --- Status line (P4.1) ----------------------------------------------------
   // One line per page (#status-line; #status-text is the role="status" live
   // region) takes the success and error notices that used to be alert()s.
@@ -485,6 +505,23 @@
     if (refs.close) refs.close.hidden = true;
   }
 
+  // The line is fixed at the bottom of the viewport; an error usually puts
+  // the focus on the field it is about, which on a small phone may sit right
+  // behind the line. Scroll that element clear of it (WCAG 2.4.11).
+  function keepFocusClearOf(line) {
+    try {
+      const el = typeof document !== "undefined" ? document.activeElement : null;
+      if (!el || el === document.body || typeof el.getBoundingClientRect !== "function") return;
+      if (typeof line.getBoundingClientRect !== "function" || typeof window.scrollBy !== "function") return;
+      const lineTop = line.getBoundingClientRect().top;
+      const r = el.getBoundingClientRect();
+      if (!(lineTop > 0) || r.bottom <= lineTop || r.top >= window.innerHeight) return;
+      window.scrollBy(0, Math.ceil(r.bottom - lineTop + 12));
+    } catch (e) {
+      // ignore — no layout (tests) or an exotic element
+    }
+  }
+
   function notify(message, opts) {
     const text = String(message == null ? "" : message).trim();
     if (!text) return false;
@@ -508,6 +545,7 @@
       refs.action.hidden = !action;
     }
     if (refs.close) refs.close.hidden = false;
+    keepFocusClearOf(refs.line);
     if (!o.sticky) {
       const ms = isError ? STATUS_CLEAR_MS.error : action ? STATUS_CLEAR_MS.action : STATUS_CLEAR_MS.ok;
       statusTimer = setTimeout(clearStatus, ms);
@@ -520,7 +558,9 @@
   // browser's "cancel", then "close"). The focus goes back to where it was.
   // Without the dialog (or without showModal) it asks window.confirm.
   // opts: okLabel (default "OK"), cancelLabel ("Abbrechen"), danger (red OK,
-  // the focus starts on Abbrechen).
+  // the focus starts on Abbrechen), extra {label, run} (P4.5: a third button,
+  // #confirm-extra, that runs `run` and keeps the question open — e.g. "save
+  // a backup first"; a string returned by `run` becomes its new label).
   let confirmPending = null;
 
   function confirmDialog(message, opts) {
@@ -532,6 +572,7 @@
     const textEl = dlg ? document.getElementById("confirm-text") : null;
     const ok = dlg ? document.getElementById("confirm-ok") : null;
     const cancel = dlg ? document.getElementById("confirm-cancel") : null;
+    const extraBtn = dlg ? document.getElementById("confirm-extra") : null;
     if (!dlg || typeof dlg.showModal !== "function" || !textEl || !ok || !cancel) {
       return Promise.resolve(typeof confirm === "function" ? !!confirm(text) : false);
     }
@@ -542,6 +583,12 @@
     ok.textContent = o.okLabel ? String(o.okLabel) : "OK";
     cancel.textContent = o.cancelLabel ? String(o.cancelLabel) : "Abbrechen";
     dlg.classList.toggle("is-danger", !!o.danger);
+    const extra =
+      extraBtn && o.extra && typeof o.extra.run === "function" ? o.extra : null;
+    if (extraBtn) {
+      extraBtn.hidden = !extra;
+      extraBtn.textContent = extra ? String(extra.label || "") : "";
+    }
     return new Promise((resolve) => {
       let done = false;
       const finish = (answer) => {
@@ -550,6 +597,10 @@
         confirmPending = null;
         ok.removeEventListener("click", onOk);
         cancel.removeEventListener("click", onCancel);
+        if (extraBtn) {
+          extraBtn.removeEventListener("click", onExtra);
+          extraBtn.hidden = true;
+        }
         dlg.removeEventListener("close", onClose);
         if (dlg.open) {
           try {
@@ -569,6 +620,15 @@
       };
       const onOk = () => finish(true);
       const onCancel = () => finish(false);
+      const onExtra = () => {
+        let label;
+        try {
+          label = extra.run();
+        } catch (e) {
+          label = undefined;
+        }
+        if (typeof label === "string" && label) extraBtn.textContent = label;
+      };
       // dialog.close() queues its "close" event as a task: when a new
       // question already re-opened the dialog, that event is stale.
       const onClose = () => {
@@ -576,6 +636,7 @@
       };
       ok.addEventListener("click", onOk);
       cancel.addEventListener("click", onCancel);
+      if (extra) extraBtn.addEventListener("click", onExtra);
       dlg.addEventListener("close", onClose);
       confirmPending = finish;
       dlg.showModal();
@@ -630,6 +691,7 @@
     drawQrToCanvas,
     BLOB_URL_REVOKE_MS,
     downloadBlob,
+    downloadJson,
     notify,
     clearStatus,
     confirmDialog,

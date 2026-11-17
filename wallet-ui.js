@@ -647,19 +647,7 @@
       } catch (e) {
         // ignore
       }
-      return {
-        userId: wallet.userId,
-        walletId: wallet.walletId,
-        deviceId: wallet.deviceId,
-        v: wallet.v,
-        seq: wallet.seq,
-        events: wallet.events,
-        actionCodes: wallet.actionCodes,
-        globalActionCodes: wallet.globalActionCodes,
-        deletedActionCodes: wallet.deletedActionCodes,
-        devices: wallet.devices,
-        theme,
-      };
+      return storage.walletBackupData(wallet, theme);
     }
 
     async function switchToUser(nextUserId) {
@@ -855,23 +843,10 @@
     // harness awaits it (tests/wallet-page.js flushHashChanges).
     window.addEventListener("hashchange", () => handleHashChange());
 
-    function downloadJsonFile(data, filename) {
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
-        type: "application/json",
-      });
-      helpers.downloadBlob(blob, filename);
-    }
-
     function downloadCurrentWalletBackup(tag) {
-      const date = todayDateStr();
-      const safeUserId = String(wallet.userId || "user").replace(
-        /[^a-zA-Z0-9_-]/g,
-        "_",
-      );
-      const suffix = tag ? `-${tag}` : "";
-      downloadJsonFile(
+      helpers.downloadJson(
         exportJsonData(),
-        `db-wallet-${safeUserId}-${date}${suffix}.json`,
+        storage.walletBackupFileName(wallet.userId, todayDateStr(), tag),
       );
     }
 

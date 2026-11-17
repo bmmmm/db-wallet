@@ -1012,8 +1012,117 @@ hr {
     min-width: 6rem;
 }
 
-#existing-users div {
+/* P4.5: start page — the wallet list above "open or create". */
+.wallet-list {
+    list-style: none;
+    margin: 0 0 0.5rem;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.6rem;
+}
+
+.wallet-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.7rem 0.8rem;
+}
+
+.wallet-card-name {
+    font-size: 1.1rem;
     color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.wallet-card-meta {
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+
+.wallet-card-summary {
+    color: var(--text);
+}
+
+/* "Öffnen" wide on the left, "Löschen" apart on the right. */
+.wallet-card-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.35rem;
+}
+
+.wallet-card-actions button {
+    margin: 0;
+}
+
+.wallet-open {
+    flex: 1 1 auto;
+    border-color: var(--accent);
+    font-weight: 700;
+}
+
+.btn-danger {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.danger-zone {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed var(--border);
+}
+
+.field-note {
+    color: var(--muted);
+    margin: 0 0 0.6rem;
+}
+
+.field-hint {
+    color: var(--muted);
+    font-size: 0.92rem;
+    margin: 0.4rem 0 0;
+    overflow-wrap: anywhere;
+}
+
+.field-hint:empty {
+    display: none;
+}
+
+/* P4.8: "Link einfügen". */
+.paste-link-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+}
+
+.paste-link-form input[type="text"] {
+    flex: 1 1 220px;
+    width: auto;
+    max-width: none;
+}
+
+.paste-link-form button {
+    margin: 0;
+}
+
+input[aria-invalid="true"] {
+    border-color: var(--danger);
+}
+
+/* The confirm dialog's optional third button (P4.5 backup), on the left. */
+.confirm-buttons button[hidden] {
+    display: none;
+}
+
+#confirm-extra {
+    margin-right: auto;
 }
 
 .theme-note {
@@ -1147,20 +1256,24 @@ hr {
     }
 }
 
-.import-choice-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
+/* P4.9: the import choice is a native modal <dialog>. The dialog has no
+   padding, so a click on it (not on .import-choice-modal) is a backdrop click. */
+.import-choice-dialog {
+    width: min(520px, calc(100% - 32px));
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text);
+}
+
+.import-choice-dialog::backdrop {
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(3px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1.25rem;
 }
 
 .import-choice-modal {
-    width: min(520px, 100%);
+    box-sizing: border-box;
+    width: 100%;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 14px;
@@ -1171,12 +1284,14 @@ hr {
 .import-choice-title {
     font-size: 1.1rem;
     letter-spacing: 0.02em;
-    margin-bottom: 0.2rem;
+    margin: 0 0 0.2rem;
+    text-transform: none;
+    color: var(--text);
 }
 
 .import-choice-subtitle {
     color: var(--muted);
-    margin-bottom: 0.9rem;
+    margin: 0 0 0.9rem;
 }
 
 .import-choice-actions {
@@ -1187,7 +1302,9 @@ hr {
 
 .import-choice-btn,
 .import-choice-cancel {
+    box-sizing: border-box;
     width: 100%;
+    margin: 0;
 }
 
 .import-choice-btn {
@@ -1202,11 +1319,13 @@ hr {
 }
 
 .import-choice-btn-title {
+    display: block;
     font-weight: 700;
     color: var(--text);
 }
 
 .import-choice-btn-sub {
+    display: block;
     color: var(--muted);
     font-size: 0.92rem;
 }
@@ -1216,7 +1335,9 @@ hr {
     border-radius: 14px;
 }
 
-body[data-no-wallet="1"] > :not(#global-action-message):not(#status-line) {
+/* An open <dialog> stays visible: the UA shows it with display: block,
+   which this rule would override. */
+body[data-no-wallet="1"] > :not(#global-action-message):not(#status-line):not(dialog) {
     display: none;
 }
 

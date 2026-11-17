@@ -1017,6 +1017,31 @@
     return all;
   }
 
+  // The JSON backup (wallet.html "Als JSON herunterladen", the backup that
+  // index.html offers before a delete). buildImportedWallet reads it back.
+  function walletBackupData(wallet, theme) {
+    const w = wallet && typeof wallet === "object" ? wallet : {};
+    return {
+      userId: w.userId,
+      walletId: w.walletId,
+      deviceId: w.deviceId,
+      v: w.v,
+      seq: w.seq,
+      events: w.events,
+      actionCodes: w.actionCodes,
+      globalActionCodes: w.globalActionCodes,
+      deletedActionCodes: w.deletedActionCodes,
+      devices: w.devices,
+      theme: theme || null,
+    };
+  }
+
+  // "db-wallet-<user>-<YYYY-MM-DD>[-<tag>].json"
+  function walletBackupFileName(userId, dateStr, tag) {
+    const safe = String(userId || "user").replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `db-wallet-${safe}-${dateStr}${tag ? "-" + tag : ""}.json`;
+  }
+
   function findUserIdByWalletId(walletId) {
     if (!walletId) return null;
     let len = 0;
@@ -1092,6 +1117,8 @@
     getLastSaveError,
     notifyWalletReplaced,
     getAllWallets,
+    walletBackupData,
+    walletBackupFileName,
     userIdExists,
     makeUniqueUserId,
     findUserIdByWalletId,
