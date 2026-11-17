@@ -21,9 +21,10 @@ node scripts/upgrade-check.js <alter-ref> [--new-root <dir>]
   `| ID | Pfad | Erwartung | Beobachtet | Klasse |`.
 - Klassen: `OK`; `HINWEIS` = Verhalten ändert sich, keine Daten weg (auch: nicht
   gemessen); `DATENVERLUST` = eine Event-ID fehlt, die Summary weicht ab, ein
-  Action Code oder die Löschliste fehlt, oder ein gelöschter Code ist da.
-- Exit: `1` bei mindestens einem `DATENVERLUST`, `2` bei Bedienfehlern (kein
-  Ref, unbekannter Ref), sonst `0`.
+  Action Code oder die Löschliste fehlt, oder ein gelöschter Code ist da;
+  `FEHLER` = das Szenario selbst warf, es wurde nichts gemessen.
+- Exit: `1` bei mindestens einem `DATENVERLUST` oder `FEHLER`, `2` bei
+  Bedienfehlern (kein Ref, unbekannter Ref), sonst `0`.
 - Die Szenarien stehen in `scripts/scenarios-upgrade.js`
   (`runScenarios({ oldRoot, newRoot })`); `tests/upgrade-check.test.js` lässt
   sie gegen die Arbeitskopie auf beiden Seiten laufen (alles `OK`).
@@ -61,6 +62,27 @@ alt: 39efb6e (39efb6e), neu: HEAD (44b1611)
 
 Summary-Werte stehen als unpaid/total/credit.
 
+## Bewertung für diesen Release
+
+Exit `1` gegen 39efb6e kommt allein aus den vier Zeilen zur Löschliste der
+Action Codes (S3d, S4-dc, S8a, S8b). Das ist eine Grenze von 39efb6e, kein
+Fehler des neuen Stands:
+
+- 39efb6e exportiert die Liste nicht, weder im QR/Link (kein `dc`-Block) noch
+  im JSON.
+- Beim Import liest 39efb6e sie nicht (`buildImportedWallet` filtert nur mit der
+  lokalen Liste). Die damalige `CLAUDE.md` nennt sie ausdrücklich „local-only,
+  not exported“.
+
+Events, Summary und alle nicht gelöschten Codes kommen in allen vier Zeilen
+vollständig an. Folge im Mischbetrieb: Ein auf einem Gerät gelöschter Code
+bleibt auf einem Gerät der anderen Version sichtbar, bis er dort ebenfalls
+gelöscht wird. Zwischen zwei neuen Ständen reist die Löschung mit; das prüft
+`tests/upgrade-check.test.js` (alt = neu, alle Zeilen `OK`).
+
+Für den nächsten Release ist der veröffentlichte Stand dieser hier; dann
+müssen die vier Zeilen `OK` sein.
+
 ## Was der Nutzer sieht
 
 **S3b (QR/Link neu → alt, mit Löschung).** Ein Export mit mindestens einer
@@ -96,9 +118,11 @@ global. Nach „Link + QR“ erscheint „QR-Code konnte nicht erzeugt werden
 erscheint nicht. Der Button „Link“ liefert einen `#import:`-Link (das alte
 JSON-Linkformat).
 
-**S6-codes (Action-Code-Panel im Mischstand).** Das Panel zeigt beide Codes,
-aber auf keiner Karte einen QR, sondern „QR-Code-Generator fehlt
-(qrcodegen.js).“. Buchen, Rückgängig und das Laden des Speichers funktionieren
+**S6-codes (Action-Code-Panel im Mischstand).** Das neue `action-codes-ui.js`
+kommt zwar vom Netz, steigt aber an seiner Abhängigkeitsprüfung aus, weil dem
+alten `wallet-helpers.js` aus dem Cache `loadQrLibrary` fehlt. Es bleibt das
+alte Panel aus dem alten `action-codes.js`: Es zeigt beide Codes, aber auf
+keiner Karte einen QR, sondern „QR-Code-Generator fehlt (qrcodegen.js).“. Buchen, Rückgängig und das Laden des Speichers funktionieren
 im Mischstand (S6-buchen, S6-laden); nach „Aktualisieren“ ist alles neu (S6b).
 
 **S8a (JSON-Backup alt → neu).** Das JSON aus „Export → JSON“ von 39efb6e hat

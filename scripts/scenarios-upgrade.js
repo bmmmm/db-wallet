@@ -1054,7 +1054,9 @@ async function runScenarios({ oldRoot, newRoot }) {
       const r = await fn();
       for (const x of [].concat(r)) results.push(x);
     } catch (e) {
-      results.push(notMeasured(id, "-", "-", `Szenario wirft: ${String((e && e.message) || e)}`));
+      // A crashed scenario measured nothing: FEHLER fails the check (exitCode),
+      // it must never pass as a HINWEIS.
+      results.push({ id, pfad: "-", erwartung: "-", beobachtet: `Szenario wirft: ${String((e && e.message) || e)}`, klasse: "FEHLER" });
     }
   };
   try {
@@ -1084,4 +1086,9 @@ async function runScenarios({ oldRoot, newRoot }) {
   return results;
 }
 
-module.exports = { runScenarios, appShell, T0 };
+// 1 when a scenario lost data or could not run at all, else 0.
+function exitCode(results) {
+  return results.some((r) => r.klasse === "DATENVERLUST" || r.klasse === "FEHLER") ? 1 : 0;
+}
+
+module.exports = { runScenarios, exitCode, appShell, T0 };

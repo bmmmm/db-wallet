@@ -7,11 +7,12 @@
 //
 // Unpacks <alter-ref> with `git archive | tar -x` into a temp directory, runs
 // scripts/scenarios-upgrade.js against it and prints a Markdown table.
-// Exit: 1 if a scenario loses data (DATENVERLUST), 2 on a usage error (no
-// ref, unknown ref), else 0. Only Node built-ins; see docs/upgrade-compat.md.
+// Exit: 1 if a scenario loses data (DATENVERLUST) or throws (FEHLER), 2 on a
+// usage error (no ref, unknown ref), else 0. Only Node built-ins; see docs/upgrade-compat.md.
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { runScenarios, exitCode } = require("./scenarios-upgrade");
 const { execFileSync } = require("child_process");
 
 const REPO = path.join(__dirname, "..");
@@ -79,7 +80,6 @@ async function main() {
   try {
     const tarball = git(["archive", sha], { maxBuffer: 1 << 30 });
     execFileSync("tar", ["-x", "-C", tmp], { input: tarball, stdio: ["pipe", "ignore", "pipe"] });
-    const { runScenarios } = require("./scenarios-upgrade");
     results = await runScenarios({ oldRoot: tmp, newRoot });
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -94,8 +94,7 @@ async function main() {
   for (const r of results) {
     lines.push(`| ${[r.id, r.pfad, r.erwartung, r.beobachtet, r.klasse].map(cell).join(" | ")} |`);
   }
-  const loss = results.some((r) => r.klasse === "DATENVERLUST");
-  process.stdout.write(lines.join("\n") + "\n", () => process.exit(loss ? 1 : 0));
+  process.stdout.write(lines.join("\n") + "\n", () => process.exit(exitCode(results)));
 }
 
 main().catch((e) => {

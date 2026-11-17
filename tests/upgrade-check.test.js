@@ -9,7 +9,8 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { REPO } = require("./harness");
 const { bootWalletPage, PAGE_FILES } = require("./wallet-page");
-const { runScenarios } = require("../scripts/scenarios-upgrade");
+const os = require("os");
+const { runScenarios, exitCode } = require("../scripts/scenarios-upgrade");
 
 let once = null;
 const results = () => (once = once || runScenarios({ oldRoot: REPO, newRoot: REPO }));
@@ -76,4 +77,22 @@ test("CLI: without a ref it prints the usage and exits 2", () => {
   assert.equal(res.status, 2);
   assert.match(res.stderr, /Aufruf: node scripts\/upgrade-check\.js <alter-ref>/);
   assert.equal(res.stdout, "");
+});
+
+test("a scenario that throws is FEHLER and fails the check; HINWEIS alone passes", async () => {
+  // An old root without any app file: every scenario throws on its first read.
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), "db-wallet-upgrade-test-"));
+  try {
+    const rs = await runScenarios({ oldRoot: empty, newRoot: REPO });
+    assert.ok(rs.length > 0);
+    for (const r of rs) {
+      assert.equal(r.klasse, "FEHLER", `${r.id}: ${r.beobachtet}`);
+      assert.match(r.beobachtet, /^Szenario wirft: /);
+    }
+    assert.equal(exitCode(rs), 1);
+  } finally {
+    fs.rmdirSync(empty);
+  }
+  assert.equal(exitCode([{ klasse: "OK" }, { klasse: "HINWEIS" }]), 0);
+  assert.equal(exitCode([{ klasse: "OK" }, { klasse: "DATENVERLUST" }]), 1);
 });
