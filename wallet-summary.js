@@ -364,57 +364,19 @@
     };
   }
 
-  function parseDeleteRange(input, maxIndex) {
-    const result = new Set();
-    if (!input) return result;
-    const parts = input
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean);
-
-    for (const part of parts) {
-      if (part.includes("-")) {
-        const [startStr, endStr] = part.split("-").map((p) => p.trim());
-        const start = parseInt(startStr, 10);
-        const end = parseInt(endStr, 10);
-        if (isNaN(start) || isNaN(end)) continue;
-        if (start < 1 || end < 1) continue;
-        if (start > end) continue;
-        // Cap the loop bound at maxIndex — a fat-finger like "1-99999999" would
-        // otherwise spin the loop tens of millions of times and freeze the tab,
-        // since the in-loop `i <= maxIndex` guard limited only what got added.
-        const cappedEnd = Math.min(end, maxIndex);
-        for (let i = start; i <= cappedEnd; i++) {
-          result.add(i);
-        }
-      } else {
-        const n = parseInt(part, 10);
-        if (!isNaN(n) && n >= 1 && n <= maxIndex) {
-          result.add(n);
-        }
-      }
-    }
-    return result;
-  }
-
-  function formatLogLine(e, index) {
-    const dateTimeStr = window.dbWalletHelpers.formatDateTime(e.ts);
-    let action = "";
+  // "2026-11-17 12:03 · 2 Getränke": one visible entry, for the history rows
+  // and the confirm dialogs (P4.4).
+  function formatEntryText(e) {
     const n =
       typeof e.n === "number" && isFinite(e.n)
         ? Math.max(1, Math.round(e.n))
         : 1;
-    if (e.t === "d") action = `+${n} Getränk(e)`;
-    else if (e.t === "s") action = `↩️ ${n} zurückgenommen`;
-    else if (e.t === "p") action = "Bezahlt";
-    else if (e.t === "g") action = `Gutschrift ${n} Getränk(e)`;
-    else if (e.t === "x") {
-      const ref = typeof e.ref === "string" ? e.ref : "";
-      action = ref
-        ? `🗑️ gelöscht: ${ref} (nicht bearbeitbar)`
-        : "🗑️ gelöscht (nicht bearbeitbar)";
-    }
-    return `#${index} | ${dateTimeStr} | ${action}`;
+    let what;
+    if (e.t === "p") what = "Bezahlung";
+    else if (e.t === "g") what = `Guthaben +${n}`;
+    else if (e.t === "s") what = `${n} zurückgenommen`;
+    else what = `${n} ${n === 1 ? "Getränk" : "Getränke"}`;
+    return `${window.dbWalletHelpers.formatDateTime(e.ts)} · ${what}`;
   }
 
   // Renders the per-day diagram lines. FROZEN contract: returns an ARRAY of line
@@ -445,8 +407,7 @@
     applyTombstones,
     computeSummary,
     computeSummarySafe,
-    parseDeleteRange,
-    formatLogLine,
+    formatEntryText,
     formatPerDayDiagram,
   };
 })();

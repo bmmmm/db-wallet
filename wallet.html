@@ -76,9 +76,16 @@
                 </div>
                 <div id="pay-options" class="pay-options">
                     <button id="btn-pay-today">Alle offenen bezahlen 💰</button>
-                    <button id="btn-credit" aria-label="Guthaben aufladen">Guthaben aufladen 💰</button>
+                    <button id="btn-credit" aria-expanded="false" aria-controls="credit-form">Guthaben aufladen 💰</button>
                     <button id="btn-pay-cancel">Bezahlen abbrechen</button>
                 </div>
+                <!-- P4.3: credit amount inline instead of prompt(). -->
+                <form id="credit-form" class="credit-form" novalidate>
+                    <label for="credit-amount">Guthaben (Getränke):</label>
+                    <input id="credit-amount" type="number" min="1" max="999" value="10" inputmode="numeric" enterkeyhint="done" />
+                    <button id="btn-credit-save" type="submit">Aufladen</button>
+                    <button id="btn-credit-cancel" type="button">Abbrechen</button>
+                </form>
 
                 <!-- Ausgabe-Modus -->
                 <div>
@@ -107,37 +114,17 @@
                 <div id="log-tools">
                     <label>
                         <input type="checkbox" id="log-edit-toggle" />
-                        Bearbeitungsfunktionen anzeigen
+                        Einträge bearbeiten oder löschen
                     </label>
                     <div id="log-edit-group">
-                        <label for="delete-range">
-                            Log-Aktions-IDs:
-                            <small
-                                >(Bearbeiten: genau eine ID, Löschen: mehrere
-                                IDs/Ranges, z. B. 1,3,5-7)</small
-                            >
-                        </label>
-                        <input
-                            id="delete-range"
-                            type="text"
-                            placeholder="IDs aus der Historie-Ansicht eingeben …"
-                            autocomplete="off"
-                            autocapitalize="off"
-                            spellcheck="false"
-                        />
-                        <br />
-                        <button id="btn-edit-entry" aria-label="Ausgewählten Eintrag bearbeiten">
-                            Ausgewählten Eintrag bearbeiten ✏️
-                        </button>
-                        <button id="btn-selection-delete" aria-label="Ausgewählte Einträge löschen">
-                            Ausgewählte Einträge löschen 🧹
-                        </button>
                         <button id="btn-reset" aria-label="Alle Daten dieser Nutzer:in löschen">
                             Alle Daten für diese:n Nutzer:in löschen 🗑️
                         </button>
                     </div>
                 </div>
 
+                <!-- P4.4: Historie = one row per visible entry (newest first). -->
+                <ol id="history-list" class="history-list" aria-label="Historie" tabindex="-1"></ol>
                 <pre id="history">Noch keine Drinks geloggt. ✨</pre>
             </div>
         </details>
@@ -199,6 +186,15 @@
                 <div class="theme-buttons" id="theme-buttons"></div>
             </section>
         </details>
+
+        <!-- P4.3: the one confirm dialog (wallet-helpers.js confirmDialog). -->
+        <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-text">
+            <p id="confirm-text" class="confirm-text"></p>
+            <div class="confirm-buttons">
+                <button id="confirm-cancel" type="button">Abbrechen</button>
+                <button id="confirm-ok" type="button">OK</button>
+            </div>
+        </dialog>
 
         <!-- Status line (P4.1): notices instead of alert(), see wallet-helpers.js notify. -->
         <div id="status-line" class="status-line">

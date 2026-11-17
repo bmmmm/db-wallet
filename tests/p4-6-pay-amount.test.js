@@ -23,6 +23,8 @@ function seedOpen(n) {
 const $ = (w, id) => w.document.getElementById(id);
 const unpaid = (w) => $(w, "unpaid").textContent;
 const statusText = (w) => $(w, "status-text").textContent;
+// The confirm dialog answers with a Promise (window.confirm as the fallback).
+const settle = () => new Promise((r) => setTimeout(r, 0));
 
 test("wallet.html: amount field has max 99; the pay button has no fixed label", () => {
   const html = fs.readFileSync(path.join(REPO, "wallet.html"), "utf8");
@@ -106,6 +108,7 @@ test("more than 99 drinks are refused, from 20 on it asks first", async () => {
 
   $(w, "amount").value = "20";
   $(w, "btn-drink").click();
+  await settle();
   assert.equal(asked.length, 1);
   assert.match(asked[0], /20 Getränke/);
   assert.equal(unpaid(w), "19", "declined");
@@ -113,6 +116,8 @@ test("more than 99 drinks are refused, from 20 on it asks first", async () => {
 
   answer = true;
   $(w, "btn-drink").click();
+  assert.equal(unpaid(w), "19", "nothing booked before the answer");
+  await settle();
   assert.equal(unpaid(w), "39");
   assert.deepEqual(plain(w._alerts), []);
 });
@@ -120,11 +125,16 @@ test("more than 99 drinks are refused, from 20 on it asks first", async () => {
 test("credit is at most 999", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const wallet = w.dbWalletStorage.loadWallet("max");
-  const { ctx, state } = makeActionsCtx(w, wallet, { prompts: ["1000", "999"] });
-  w.dbWalletActions.bookCredit(ctx);
+  const { ctx, state } = makeActionsCtx(w, wallet);
+  assert.equal(w.dbWalletActions.bookCredit(ctx, "1000"), false);
   assert.equal(state.wallet.events.length, 0);
   assert.match(state.alerts[0], /Höchstens 999/);
-  w.dbWalletActions.bookCredit(ctx);
+  // Only whole numbers: "2.5", "-3", "1e3" and "" are typos.
+  for (const typo of ["2.5", "-3", "1e3", ""]) {
+    assert.equal(w.dbWalletActions.bookCredit(ctx, typo), false, typo);
+  }
+  assert.equal(state.alerts.filter((a) => /Ungültige Menge/.test(a)).length, 4);
+  assert.equal(w.dbWalletActions.bookCredit(ctx, " 999 "), true);
   assert.equal(state.wallet.events.length, 1);
   assert.equal(state.wallet.events[0].n, 999);
 });
@@ -135,12 +145,10 @@ test("editing keeps the limits: drinks 99, credit 999", () => {
   const wallet = S.loadWallet("max");
   S.appendEvents(wallet, [S.newEvent(wallet, "d", 1), S.newEvent(wallet, "g", 5)]);
   const today = w.dbWalletSummary.todayDateStr();
+  const [drink, credit] = wallet.events;
   const edit = (pos, amount) => {
-    const { ctx, state } = makeActionsCtx(w, wallet, {
-      deleteRange: String(pos),
-      prompts: [today, amount],
-    });
-    w.dbWalletActions.editEntry(ctx);
+    const { ctx, state } = makeActionsCtx(w, wallet);
+    w.dbWalletActions.editEntry(ctx, (pos === 1 ? drink : credit).id, { date: today, amount });
     return state;
   };
   let st = edit(1, "100");

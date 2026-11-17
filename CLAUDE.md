@@ -74,9 +74,9 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `action-codes.js` | QR-Action-Codes (lokal/global): Normalisierung, Merge, Hash-Codec, Löschliste und die Änderungen als reine Funktionen (`createActionCode`/`editActionCode`/`deleteActionCode`, `(wallet, change) → {wallet}`) |
 | `action-codes-ui.js` | Action-Code-Panel (DOM, nur `wallet.html`): Karten, QR, Formulare; speichert jede Änderung einmal |
 | `wallet-sync.js` | Wallet-Sync-Logik |
-| `wallet-history-ui.js` | Verlaufs-UI |
+| `wallet-history-ui.js` | Verlaufs-UI: Diagramm/Raw im `<pre>`, „Historie" als Zeilen (`#history-list`, 200 je Schritt) mit Bearbeiten (Inline-Formular) / Löschen pro Eintrag |
 | `wallet-device-ui.js` | Geräte-UI |
-| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`, `downloadBlob` = the one Blob-download path, revokes late); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
+| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`, `downloadBlob` = the one Blob-download path, revokes late; `notify`/`confirmDialog`/`whenConfirmed`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
 | `hash-router.js` | Client-seitiges Routing via URL-Hash |
 | `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |
@@ -158,6 +158,22 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   drinks per booking (confirm from 20), credit at most 999, edits the same — refused,
   not clamped. The first "Teilen" on a device shows the bearer-link hint and shares
   only from its button (`localStorage` flag `db-wallet.share-hint-seen`).
+- **Questions go to the shared dialog, not `confirm()`/`prompt()`** —
+  `dbWalletHelpers.confirmDialog(text, {okLabel, danger})` shows `#confirm-dialog`
+  on `wallet.html` and resolves `true`/`false` (Escape = no; the focus goes back);
+  without the dialog it falls back to `window.confirm`. `ctx.dialogConfirm` may
+  answer a boolean or a Promise (`whenConfirmed`), so every action re-reads
+  `ctx.getWallet()` after the answer — another tab may have changed it meanwhile:
+  undo re-resolves its target and refuses if it moved, a row delete re-checks its
+  entry, reset checks the open user. Credit comes from the inline `#credit-form`
+  (`bookCredit(ctx, value)`, whole numbers only). History entries are edited and
+  deleted from their row by **root id** (`editEntry(ctx, rootId, {date, amount})`,
+  `deleteEntry(ctx, rootId)`) — no position numbers; the open edit form survives
+  a re-render. An edit on the same day keeps the `ts`; another day keeps the time
+  of day (today but later than now → now); a later day or a move across a pay is
+  refused. Still native (synchronous boot/hash path): the `acg:` apply confirm in
+  `wallet-ui.js`, the `ac:` target confirms in `wallet-import-v2.js`, the v1
+  migration prompt, and `index-ui.js` (until P4.5).
 - **CSP has no `'unsafe-inline'`** (index/wallet/preview) — no `style="…"`, no
   `<style>`, no `setAttribute("style")`/`.cssText`/HTML strings with `style=`; single
   `el.style.x = …` assignments are fine. Initially hidden elements get `display: none`

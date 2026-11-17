@@ -126,8 +126,8 @@ a:hover {
 
 input[type="text"],
 input[type="number"],
-#export-url,
-#delete-range {
+input[type="date"],
+#export-url {
     padding: 0.5rem 0.7rem;
     font-size: 1rem;
     box-sizing: border-box;
@@ -142,8 +142,8 @@ input[type="number"],
 
 input[type="text"]:focus,
 input[type="number"]:focus,
-#export-url:focus,
-#delete-range:focus {
+input[type="date"]:focus,
+#export-url:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--glow);
 }
@@ -157,8 +157,7 @@ input[type="number"] {
     width: 5.2rem;
 }
 
-#export-url,
-#delete-range {
+#export-url {
     width: 100%;
     margin-top: 0.55rem;
 }
@@ -668,6 +667,152 @@ hr {
 
 .pay-options button {
     margin: 0;
+}
+
+/* P4.3: the credit form under the pay options, opened by "Guthaben
+   aufladen" (JS sets display: flex). */
+#credit-form {
+    display: none;
+}
+
+.credit-form {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.credit-form label {
+    color: var(--muted);
+}
+
+.credit-form button {
+    margin: 0;
+    min-height: 44px;
+}
+
+/* P4.4: Historie as one row per entry; hidden outside history mode (JS
+   shows it and hides the <pre>). */
+#history-list {
+    display: none;
+}
+
+.history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg);
+    box-shadow: var(--shadow);
+}
+
+.history-row,
+.history-empty,
+.history-more {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+    padding: 0.45rem 0.75rem;
+    border-top: 1px solid var(--border);
+}
+
+.history-list > li:first-child {
+    border-top: 0;
+}
+
+.history-row-text {
+    flex: 1 1 14rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.92rem;
+}
+
+.history-empty {
+    color: var(--muted);
+}
+
+.history-more {
+    justify-content: center;
+}
+
+.history-row-actions,
+.history-edit-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.history-row-actions button,
+.history-edit-buttons button,
+.history-more button {
+    margin: 0;
+    min-height: 44px;
+}
+
+.history-row-delete {
+    color: var(--danger);
+}
+
+.history-edit-form {
+    flex: 1 1 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.5rem 0.75rem;
+    padding: 0.3rem 0 0.2rem;
+}
+
+.history-edit-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+/* P4.3: the one confirm dialog (wallet-helpers.js confirmDialog). */
+.confirm-dialog {
+    box-sizing: border-box;
+    width: min(440px, calc(100% - 32px));
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--accent);
+    border-radius: 14px;
+    background: var(--panel);
+    color: var(--text);
+    box-shadow: var(--shadow);
+}
+
+.confirm-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.confirm-dialog.is-danger {
+    border-color: var(--danger);
+}
+
+.confirm-dialog.is-danger #confirm-ok {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.confirm-text {
+    margin: 0 0 1rem;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.confirm-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.confirm-buttons button {
+    margin: 0;
+    min-height: 44px;
+    min-width: 6rem;
 }
 
 #existing-users div {

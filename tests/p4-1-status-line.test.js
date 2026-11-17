@@ -77,9 +77,11 @@ test("Rückgängig in the status line removes exactly that booking", async () =>
 
 test("credit: a typo is an error in the status line, not an alert", async () => {
   const w = await bootWalletPage({ hash: "max", seed: seedOpen(1) });
-  w.prompt = () => "abc";
   w.document.getElementById("btn-pay").click();
   w.document.getElementById("btn-credit").click();
+  // A number input turns a typo into "" (P4.3: the form replaced prompt()).
+  w.document.getElementById("credit-amount").value = "";
+  w.document.getElementById("credit-form").dispatch("submit");
   const s = status(w);
   assert.equal(s.text, "Ungültige Menge für die Gutschrift.");
   assert.ok(s.error);
@@ -89,9 +91,10 @@ test("credit: a typo is an error in the status line, not an alert", async () => 
 
 test("credit and pay report the result", async () => {
   const w = await bootWalletPage({ hash: "max", seed: seedOpen(3) });
-  w.prompt = () => "10";
   w.document.getElementById("btn-pay").click();
   w.document.getElementById("btn-credit").click();
+  w.document.getElementById("credit-amount").value = "10";
+  w.document.getElementById("credit-form").dispatch("submit");
   assert.equal(status(w).text, "Guthaben +10 gebucht · Guthaben: 7");
   w.document.getElementById("btn-drink").click();
   assert.equal(status(w).text, "+1 gebucht · Guthaben: 6");

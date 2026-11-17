@@ -515,6 +515,84 @@
     return true;
   }
 
+  // P4.3: the one confirmation dialog (#confirm-dialog on wallet.html) —
+  // resolves true for the OK button, false for Abbrechen or Escape (the
+  // browser's "cancel", then "close"). The focus goes back to where it was.
+  // Without the dialog (or without showModal) it asks window.confirm.
+  // opts: okLabel (default "OK"), cancelLabel ("Abbrechen"), danger (red OK,
+  // the focus starts on Abbrechen).
+  let confirmPending = null;
+
+  function confirmDialog(message, opts) {
+    const text = String(message == null ? "" : message);
+    const o = opts || {};
+    const dlg = typeof document !== "undefined" && document.getElementById
+      ? document.getElementById("confirm-dialog")
+      : null;
+    const textEl = dlg ? document.getElementById("confirm-text") : null;
+    const ok = dlg ? document.getElementById("confirm-ok") : null;
+    const cancel = dlg ? document.getElementById("confirm-cancel") : null;
+    if (!dlg || typeof dlg.showModal !== "function" || !textEl || !ok || !cancel) {
+      return Promise.resolve(typeof confirm === "function" ? !!confirm(text) : false);
+    }
+    // A second question while one is open: the first one counts as declined.
+    if (confirmPending) confirmPending(false);
+    const opener = document.activeElement || null;
+    textEl.textContent = text;
+    ok.textContent = o.okLabel ? String(o.okLabel) : "OK";
+    cancel.textContent = o.cancelLabel ? String(o.cancelLabel) : "Abbrechen";
+    dlg.classList.toggle("is-danger", !!o.danger);
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (answer) => {
+        if (done) return;
+        done = true;
+        confirmPending = null;
+        ok.removeEventListener("click", onOk);
+        cancel.removeEventListener("click", onCancel);
+        dlg.removeEventListener("close", onClose);
+        if (dlg.open) {
+          try {
+            dlg.close();
+          } catch (e) {
+            // ignore
+          }
+        }
+        if (opener && typeof opener.focus === "function") {
+          try {
+            opener.focus();
+          } catch (e) {
+            // ignore
+          }
+        }
+        resolve(answer);
+      };
+      const onOk = () => finish(true);
+      const onCancel = () => finish(false);
+      // dialog.close() queues its "close" event as a task: when a new
+      // question already re-opened the dialog, that event is stale.
+      const onClose = () => {
+        if (!dlg.open) finish(false);
+      };
+      ok.addEventListener("click", onOk);
+      cancel.addEventListener("click", onCancel);
+      dlg.addEventListener("close", onClose);
+      confirmPending = finish;
+      dlg.showModal();
+      const first = o.danger ? cancel : ok;
+      if (typeof first.focus === "function") first.focus();
+    });
+  }
+
+  // Runs onYes/onNo for an answer that is a boolean or a promise of one (a
+  // ctx stub answers at once, the dialog later). Returns what they return,
+  // or a promise of it.
+  function whenConfirmed(answer, onYes, onNo) {
+    const pick = (yes) => (yes ? onYes() : typeof onNo === "function" ? onNo() : undefined);
+    if (answer && typeof answer.then === "function") return answer.then(pick);
+    return pick(!!answer);
+  }
+
   window.dbWalletHelpers = {
     STORAGE_PREFIX,
     REGISTRY_KEY,
@@ -554,5 +632,7 @@
     downloadBlob,
     notify,
     clearStatus,
+    confirmDialog,
+    whenConfirmed,
   };
 })();

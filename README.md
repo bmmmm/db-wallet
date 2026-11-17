@@ -28,10 +28,12 @@ ohne Cloud.
   meldet sich in der Statuszeile am unteren Rand („+1 gebucht · Offen: 4“) mit
   „Rückgängig“ für genau diese Buchung; Fehler stehen dort ebenfalls.
 - **Bezahlen & Guthaben** — „Alle N offenen bezahlen“ gleicht die offenen Drinks
-  aus, Guthaben (höchstens 999 auf einmal) wird wie ein Vorrat auf- und
-  abgebaut.
-- **Verwaltung** — Einträge bearbeiten/löschen, Nutzer:innen einzeln oder
-  gesammelt entfernen. Zurücksetzen macht daraus ein neues Wallet mit gleichem
+  aus, Guthaben (höchstens 999 auf einmal, im Formular unter „Guthaben
+  aufladen“) wird wie ein Vorrat auf- und abgebaut.
+- **Verwaltung** — in der „Historie“ steht jeder Eintrag in einer eigenen Zeile;
+  mit „Einträge bearbeiten oder löschen“ bekommt jede Zeile „Bearbeiten“ (Datum
+  und Menge im Formular) und „Löschen“. Rückfragen kommen in einem Dialog.
+  Nutzer:innen einzeln oder gesammelt entfernen. Zurücksetzen macht daraus ein neues Wallet mit gleichem
   Namen (neue Wallet-ID): ein vorher gemachter Export landet beim Import als
   eigenes Wallet, lokale Action-Code-QRs des alten Wallets gelten nicht mehr.
 - **Import/Export** — Link (auto-merge), kompakter QR-Code oder JSON; inklusive
@@ -179,7 +181,7 @@ rückwärtskompatibel.
 | `index-ui.js` | Startseite (Liste, Anlegen, Import) |
 | `wallet-ui.js` | Wallet-Composer (DOM-Wiring, Hash-Routing, Module initialisieren) |
 | `wallet-actions.js` | Buchungen (Drink/Undo/Pay/Credit/Reset/Delete/Edit) |
-| `wallet-history-ui.js` | Verlauf (Diagramm/Log/Raw) |
+| `wallet-history-ui.js` | Verlauf (Diagramm, Historie als Zeilen mit Bearbeiten/Löschen, Raw) |
 | `wallet-device-ui.js` | Geräte-Symbol-Picker (Top-Row) |
 | `wallet-sync-ui.js` | Sync-Zeile (Ampel, Timeline, „✅ passt") |
 | `wallet-export-ui.js` | Export (Link/QR/JSON, PNG-Download) |

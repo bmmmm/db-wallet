@@ -169,7 +169,7 @@
     const actionCodesPanel = document.getElementById("action-codes-panel");
     const actionCodesBody = document.getElementById("action-codes-body");
     const elHistory = document.getElementById("history");
-    const elDeleteRange = document.getElementById("delete-range");
+    const elHistoryList = document.getElementById("history-list");
     const logTools = document.getElementById("log-tools");
     const logEditGroup = document.getElementById("log-edit-group");
     const rawToggle = document.querySelector(".raw-toggle");
@@ -184,6 +184,11 @@
     const payOptions = document.getElementById("pay-options");
     const btnPayToday = document.getElementById("btn-pay-today");
     const btnCredit = document.getElementById("btn-credit");
+    const creditForm = document.getElementById("credit-form");
+    const creditAmount = document.getElementById("credit-amount");
+    const btnCreditCancel = document.getElementById("btn-credit-cancel");
+    // The credit form's default amount (wallet.html value="10").
+    const CREDIT_DEFAULT = "10";
     const btnPayCancel = document.getElementById("btn-pay-cancel");
     const btnExport = document.getElementById("btn-export");
     const exportOptions = document.getElementById("export-options");
@@ -194,8 +199,6 @@
     const btnModeDiagram = document.getElementById("mode-diagram");
     const btnModeLog = document.getElementById("mode-log");
     const btnModeRaw = document.getElementById("mode-raw");
-    const btnEditEntry = document.getElementById("btn-edit-entry");
-    const btnSelectionDelete = document.getElementById("btn-selection-delete");
     const btnRawCurrent = document.getElementById("raw-scope-current");
     const btnRawAll = document.getElementById("raw-scope-all");
 
@@ -552,6 +555,7 @@
       historyUi.init({
         refs: {
           elHistory,
+          elHistoryList,
           logTools,
           logEditGroup,
           rawToggle,
@@ -565,6 +569,13 @@
         getWallet: () => wallet,
         getSummary,
         getAllWallets,
+        // P4.4: the row actions; actionsCtx is set up further down, before
+        // any click can reach these.
+        onEditEntry: (root, values) =>
+          actionsApi ? actionsApi.editEntry(actionsCtx, root, values) : false,
+        onDeleteEntry: (root) =>
+          actionsApi ? actionsApi.deleteEntry(actionsCtx, root) : false,
+        limits: window.dbWalletActions ? window.dbWalletActions.LIMITS : undefined,
         onAfterRender: () => {
           if (syncUi && typeof syncUi.refresh === "function") {
             syncUi.refresh();
@@ -953,10 +964,24 @@
       return !!payOptions && payOptions.style.display === "flex";
     }
 
+    // P4.3: the credit form under the pay options (hidden by style.css, so
+    // an inline "" counts as closed).
+    function creditFormOpen() {
+      return !!creditForm && creditForm.style.display === "flex";
+    }
+
+    function setCreditForm(open) {
+      if (!creditForm) return;
+      creditForm.style.display = open ? "flex" : "none";
+      if (btnCredit) btnCredit.setAttribute("aria-expanded", open ? "true" : "false");
+      if (!open && creditAmount) creditAmount.value = CREDIT_DEFAULT;
+    }
+
     // Resets the payment UI centrally; when the options were open the focus
     // returns to "Bezahlen" (the options it was on disappear).
     function resetPayUi() {
       const wasOpen = payOptionsOpen();
+      setCreditForm(false);
       if (payOptions) {
         payOptions.style.display = "none";
       }
@@ -1052,30 +1077,19 @@
           getUserId: () => userId,
           getAmount,
           getSummary,
-          getDeleteRange: () =>
-            elDeleteRange ? elDeleteRange.value.trim() : "",
           resetAmount,
           resetPayUi,
           clearExport,
-          clearDeleteRange: () => {
-            if (elDeleteRange) elDeleteRange.value = "";
-          },
-          setHistoryEmpty: () => {
-            if (elHistory) {
-              elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-            }
-          },
           refreshActionCodesUi: () => {
             if (actionCodesUi) actionCodesUi.refresh();
           },
           updateHeaderUi,
           onStateChanged: handleWalletStateChange,
-          // Errors and notices go to the status line (P4.1); confirms and
-          // prompts stay native until P4.3.
+          // Errors and notices go to the status line (P4.1), questions to
+          // the shared dialog (P4.3; a Promise of the answer).
           dialogAlert: (msg) => helpers.notify(msg, { kind: "error" }),
           notify: (msg, opts) => helpers.notify(msg, opts),
-          dialogConfirm: (msg) => confirm(msg),
-          dialogPrompt: (msg, def) => prompt(msg, def),
+          dialogConfirm: (msg, opts) => helpers.confirmDialog(msg, opts),
         }
       : null;
 
@@ -1129,26 +1143,38 @@
       });
     }
 
-    if (btnCredit) {
+    if (btnCredit && creditForm) {
       btnCredit.addEventListener("click", () => {
-        if (actionsApi) actionsApi.bookCredit(actionsCtx);
+        if (creditFormOpen()) {
+          setCreditForm(false);
+          return;
+        }
+        setCreditForm(true);
+        focusEl(creditAmount);
+        if (creditAmount && typeof creditAmount.select === "function") creditAmount.select();
+      });
+      creditForm.addEventListener("submit", (e) => {
+        // CSP form-action 'none': never a real submit.
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+        if (!actionsApi || !creditAmount) return;
+        // On success bookCredit closes the pay UI (resetPayUi); on an error
+        // the form stays open with the message in the status line.
+        if (!actionsApi.bookCredit(actionsCtx, creditAmount.value)) focusEl(creditAmount);
+      });
+      const closeCreditForm = () => {
+        setCreditForm(false);
+        focusEl(btnCredit);
+      };
+      if (btnCreditCancel) btnCreditCancel.addEventListener("click", closeCreditForm);
+      creditForm.addEventListener("keydown", (e) => {
+        if (!e || e.key !== "Escape") return;
+        if (typeof e.preventDefault === "function") e.preventDefault();
+        closeCreditForm();
       });
     }
 
     btnReset.addEventListener("click", () => {
       if (actionsApi) actionsApi.resetWallet(actionsCtx);
     });
-
-    if (btnSelectionDelete) {
-      btnSelectionDelete.addEventListener("click", () => {
-        if (actionsApi) actionsApi.deleteSelection(actionsCtx);
-      });
-    }
-
-    if (btnEditEntry) {
-      btnEditEntry.addEventListener("click", () => {
-        if (actionsApi) actionsApi.editEntry(actionsCtx);
-      });
-    }
   });
 })();

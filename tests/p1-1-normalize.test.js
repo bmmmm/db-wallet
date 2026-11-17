@@ -128,8 +128,8 @@ test("bookCredit and editEntry refuse amounts beyond the limits", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const S = w.dbWalletStorage;
   const wallet = S.loadWallet("anna");
-  const c = makeActionsCtx(w, wallet, { prompts: ["5000000000"] });
-  w.dbWalletActions.bookCredit(c.ctx);
+  const c = makeActionsCtx(w, wallet);
+  assert.equal(w.dbWalletActions.bookCredit(c.ctx, "5000000000"), false);
   let evs = S.loadWallet("anna").events;
   assert.equal(evs.length, 0);
   assert.match(c.state.alerts.join(" "), /Höchstens 999/);
@@ -138,8 +138,8 @@ test("bookCredit and editEntry refuse amounts beyond the limits", () => {
   old.ts = Date.now() - 86400000;
   S.appendEvents(wallet, [old]);
   const date = w.dbWalletSummary.dateStrFromTimestamp(old.ts);
-  const e = makeActionsCtx(w, wallet, { deleteRange: "1", prompts: [date, "7000000000"] });
-  w.dbWalletActions.editEntry(e.ctx);
+  const e = makeActionsCtx(w, wallet);
+  assert.equal(w.dbWalletActions.editEntry(e.ctx, old.id, { date, amount: "7000000000" }), false);
   evs = S.loadWallet("anna").events;
   assert.equal(evs.find((x) => x.supersedes === old.id), undefined, "no replacement");
   assert.match(e.state.alerts.join(" "), /Höchstens 99\b/);
