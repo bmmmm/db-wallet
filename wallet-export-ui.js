@@ -254,17 +254,41 @@
     } catch (e) {}
   }
 
-  function renderQrCode(url) {
+  // Width (CSS px) the QR may take: the content box of #qr-box, measured
+  // while it is shown. The old estimate (innerWidth - 48) missed the panel
+  // padding, so on a 360 px phone `max-width: 100%` squeezed the canvas and
+  // the modules left the device-pixel grid (O3.5). 1 px of slack absorbs the
+  // rounding of clientWidth.
+  function qrAvailableCssWidth() {
+    const box = refs && refs.qrBox;
+    const cw = box ? Number(box.clientWidth) : 0;
+    if (Number.isFinite(cw) && cw > 0) {
+      let pad = 0;
+      try {
+        const cs = typeof window.getComputedStyle === "function" ? window.getComputedStyle(box) : null;
+        if (cs) pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      } catch (e) {
+        pad = 0;
+      }
+      const inner = Math.floor(cw - pad) - 1;
+      if (inner > 0) return Math.min(360, inner);
+    }
+    const vw = Number(window.innerWidth);
+    return Number.isFinite(vw) && vw > 0 ? Math.min(360, Math.max(220, vw - 48)) : 360;
+  }
+
+  // Draws the export QR for `url` into #qr-canvas: backing store at
+  // devicePixelRatio with an integer number of device pixels per module, and a
+  // CSS width of backing / dpr that fits the box, so the browser shows it 1:1
+  // instead of stretching it (blurry or uneven modules). Returns the QrCode.
+  function drawExportQr(url) {
     if (!window.qrcodegen || !window.qrcodegen.QrCode || !refs || !refs.qrCanvas) {
       throw new Error("QR library missing");
     }
     const ecc = window.qrcodegen.QrCode.Ecc.LOW;
     const qr = window.qrcodegen.QrCode.encodeText(url, ecc);
-    // CSS size of the code, and the backing store at devicePixelRatio with an
-    // integer number of device pixels per module: the browser then shows it
-    // 1:1 instead of stretching a small canvas (blurry or uneven modules).
-    const vw = Number(window.innerWidth);
-    const cssMax = Number.isFinite(vw) && vw > 0 ? Math.min(360, Math.max(220, vw - 48)) : 360;
+    if (refs.qrBox) refs.qrBox.style.display = "flex";
+    const cssMax = qrAvailableCssWidth();
     const dprRaw = Number(window.devicePixelRatio);
     const dpr = Number.isFinite(dprRaw) && dprRaw >= 1 ? Math.min(dprRaw, 4) : 1;
     const maxPx = Math.floor(cssMax * dpr);
@@ -278,7 +302,7 @@
       canvas.width = modules * scale;
       canvas.height = modules * scale;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      if (!ctx) return qr;
       ctx.imageSmoothingEnabled = false;
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -296,10 +320,31 @@
         }
       }
     }
-    // Only the width: height stays "auto" (style.css), so a narrower
-    // container (max-width) keeps the code square.
+    // Only the width: height stays "auto" (style.css), so the code stays
+    // square even if a container still clamps it.
     canvas.style.width = `${canvas.width / dpr}px`;
-    if (refs.qrBox) refs.qrBox.style.display = "flex";
+    return qr;
+  }
+
+  // Rotation / window resize changes the box width: redraw the shown QR
+  // (canvas only — no focus or status change).
+  let qrResizeTimer = null;
+  let qrResizeBound = false;
+  function onQrResize() {
+    if (qrResizeTimer) clearTimeout(qrResizeTimer);
+    qrResizeTimer = setTimeout(() => {
+      qrResizeTimer = null;
+      if (!lastQrUrl || !refs || !refs.qrBox || refs.qrBox.style.display !== "flex") return;
+      try {
+        drawExportQr(lastQrUrl);
+      } catch (e) {
+        // keep the old drawing
+      }
+    }, 150);
+  }
+
+  function renderQrCode(url) {
+    const qr = drawExportQr(url);
     if (refs.qrHint) {
       refs.qrHint.textContent = `QR antippen = als PNG speichern • QR v${qr.version} (L) • ${url.length} Zeichen`;
     }
@@ -606,6 +651,10 @@
         if (!lastQrUrl) return;
         downloadQrPng(lastQrUrl);
       });
+    }
+    if (!qrResizeBound && typeof window.addEventListener === "function") {
+      qrResizeBound = true;
+      window.addEventListener("resize", onQrResize);
     }
   }
 
