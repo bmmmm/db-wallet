@@ -234,7 +234,9 @@ Cache nicht vergiften.
 - **Invarianten:** Storage-Prefix `db-wallet:`, Registry `db-wallet:registry`;
   Event-Schema `{id,t,n?,ts,ref?,supersedes?}` mit Tombstones `t:"x"` + `ref`
   (= Root-ID) und Edit-Replacements via `supersedes` (= Root-ID); append-only
-  (Merge dedupt nach `id`); Order = `ts`, dann numerische base36-`seq`;
+  (Merge dedupt nach `id`); Order = Minute von `ts`, dann Root-ID, dann ID
+  (`compareEventsByTime`; IDs nach deviceKey, dann numerischer base36-`seq`),
+  von mehreren Edits einer Root gewinnt die höchste `seq` (`compareEdits`);
   Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm);
   gelöschte Codes stehen in `deletedActionCodes` (Löschen nur über
   `removeActionCode`, Reconcile und Import-Merge filtern sie); Reset = neue
@@ -247,7 +249,9 @@ Cache nicht vergiften.
   `dbWalletActions.LIMITS` (99/999, Rückfrage ab 20).
 - **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes), `gc`
   (globale Codes), `dc` (gelöschte Codes) und `ck` (Integritäts-Checksum) stehen
-  als Letztes, `ck` ganz zuletzt. Bei jeder
+  als Letztes, `ck` ganz zuletzt. Tombstones (`xt` v2: Minuten-Delta + Geräte-
+  index/`seq`) setzen den Header auf Codec 3, den eine ältere App als
+  „neuere App-Version“ ablehnt; ohne Tombstones bleibt der Export Codec 2. Bei jeder
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:
   `scripts/check-sw-version.sh`).
 - **Wo editieren:** Storage/Modell → `wallet-storage.js`; Summary/Tombstones →
