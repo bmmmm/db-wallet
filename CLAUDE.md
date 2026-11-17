@@ -196,6 +196,14 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   toggles must treat `""` as hidden (`tests/p3-3-csp.test.js` checks all of this).
   Newer UI toggles a class (`.is-visible`, `.is-expanded`) or the `hidden`
   attribute instead — `hidden` only works on elements whose CSS sets no `display`.
+- **Card look = `.panel` / `.card` (P5.3)** — border, radius, shadow and background
+  live only in `.panel, .card` in `style.css` (`.panel` on `--panel` for blocks on
+  the page, `.card` on `--bg` for boxes inside one, `.card--flat` without the
+  shadow). A new block or box gets the class (also from JS: `"wallet-card card
+  card--flat"`); component rules set only size and spacing, and nothing switches
+  the look off again (`tests/p5-3-css-panels.test.js`). Bare `section`/`pre` carry
+  no look. JS keeps colors out of inline styles: the SW update notice goes to the
+  status line (`sw-register.js`).
 - **`wallet.html` layout (P4.2/P4.7/P4.9)** — `<header id="wallet-header">` (title,
   "Start"/"Info" links, user, device picker), then `<main>`: the fixed three-stat row
   (never hide a stat — the booking buttons must not jump), the booking block, then

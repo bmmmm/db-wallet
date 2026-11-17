@@ -50,13 +50,30 @@ h2 {
     color: var(--muted);
 }
 
-section,
-#existing-users-section {
-    background: var(--panel);
+/* P5.3: the two surfaces, defined once. .panel is a raised block on the
+   page background, .card an inset box (page background) inside a panel;
+   .card--flat drops the shadow. Size and spacing stay with each component. */
+.panel,
+.card {
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 1rem;
     box-shadow: var(--shadow);
+}
+
+.panel {
+    background: var(--panel);
+}
+
+.card {
+    background: var(--bg);
+}
+
+.card--flat {
+    box-shadow: none;
+}
+
+section {
+    padding: 1rem;
     margin-top: 1rem;
 }
 
@@ -163,15 +180,11 @@ input[type="number"] {
 }
 
 pre {
-    background: var(--bg);
     padding: 0.75rem;
     min-height: 3rem;
     white-space: pre;
-    border-radius: 12px;
-    border: 1px solid var(--border);
     font-size: 0.9rem;
     color: var(--muted);
-    box-shadow: var(--shadow);
     max-height: 260px;
     overflow: auto;
 }
@@ -242,11 +255,6 @@ hr {
 }
 
 .wallet-header .top-row {
-    background: none;
-    border: 0;
-    box-shadow: none;
-    padding: 0;
-    border-radius: 0;
     gap: 0.25rem 0.75rem;
 }
 
@@ -389,11 +397,10 @@ hr {
     align-items: center;
     gap: 0.6rem;
     flex-wrap: wrap;
-    background: var(--panel);
-    border: 1px solid var(--border);
+}
+
+.top-row.panel {
     padding: 0.75rem 0.9rem;
-    border-radius: 12px;
-    box-shadow: var(--shadow);
 }
 
 .history-mode-label {
@@ -434,11 +441,7 @@ hr {
     flex-direction: column;
     gap: 0.1rem;
     min-width: 0;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
     padding: 0.55rem 0.7rem;
-    box-shadow: var(--shadow);
 }
 
 .stat-label {
@@ -461,10 +464,6 @@ hr {
 .action-codes-panel,
 .wallet-actions-panel,
 .theme-panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
     margin-top: 1rem;
     padding: 0;
     overflow: hidden;
@@ -555,9 +554,6 @@ hr {
 }
 
 .action-codes-notice {
-    border: 1px solid var(--border);
-    background: var(--bg);
-    border-radius: 12px;
     padding: 0.65rem 0.75rem;
     color: var(--muted);
     font-size: 0.92rem;
@@ -581,11 +577,7 @@ hr {
 }
 
 .action-code-card {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
     padding: 0.75rem;
-    box-shadow: var(--shadow);
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
@@ -660,9 +652,6 @@ hr {
     flex-direction: column;
     gap: 0.6rem;
     padding: 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--bg);
 }
 
 .action-code-form-fields {
@@ -702,9 +691,6 @@ hr {
 }
 
 .action-code-confirm {
-    border: 1px solid var(--border);
-    background: var(--bg);
-    border-radius: 12px;
     padding: 0.6rem;
     color: var(--muted);
     display: flex;
@@ -730,13 +716,8 @@ hr {
     color: var(--danger);
 }
 
-.wallet-actions,
-.wallet-export {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
+.wallet-actions {
     padding: 1rem;
-    box-shadow: var(--shadow);
     margin-top: 1rem;
 }
 
@@ -745,11 +726,7 @@ hr {
 }
 
 .wallet-actions-panel .wallet-actions {
-    background: transparent;
-    border: 0;
-    box-shadow: none;
     margin-top: 0;
-    border-radius: 0;
     padding: 0.9rem 1rem 1rem;
 }
 
@@ -758,11 +735,7 @@ hr {
 }
 
 .theme-panel #theme-section {
-    background: transparent;
-    border: 0;
-    box-shadow: none;
     margin-top: 0;
-    border-radius: 0;
     padding: 0.9rem 1rem 1rem;
 }
 
@@ -777,10 +750,6 @@ hr {
 .qr-box {
     margin-top: 0.8rem;
     padding: 0.75rem;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -897,10 +866,6 @@ hr {
     list-style: none;
     margin: 0;
     padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--bg);
-    box-shadow: var(--shadow);
 }
 
 .history-row,
@@ -1027,9 +992,6 @@ hr {
     flex-direction: column;
     gap: 0.25rem;
     min-width: 0;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
     padding: 0.7rem 0.8rem;
 }
 
@@ -1168,8 +1130,7 @@ input[aria-invalid="true"] {
         margin: 1.2rem 0 0.35rem;
     }
 
-    section,
-    #existing-users-section {
+    section {
         padding: 0.85rem;
     }
 
@@ -1202,8 +1163,7 @@ input[aria-invalid="true"] {
         max-width: 120px;
     }
 
-    .wallet-actions,
-    .wallet-export {
+    .wallet-actions {
         padding: 0.85rem;
     }
 

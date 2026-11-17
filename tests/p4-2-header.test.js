@@ -59,7 +59,7 @@ test("wallet.html: <header> and <main>, the dialog and status line outside", () 
 
 test("main: stats, then booking, then the rest; one h2 per block", () => {
   const main = HTML.slice(HTML.indexOf("<main"), HTML.indexOf("</main>"));
-  const order = ["stat-panel", 'id="booking"', 'id="history-panel"', 'id="action-codes-panel"', 'id="sync-status-line"', 'class="wallet-export"', 'id="theme-panel"'];
+  const order = ["stat-panel", 'id="booking"', 'id="history-panel"', 'id="action-codes-panel"', 'id="sync-status-line"', 'class="wallet-export', 'id="theme-panel"'];
   const pos = order.map((s) => main.indexOf(s));
   assert.ok(pos.every((p) => p >= 0), JSON.stringify(pos));
   assert.deepEqual(pos.slice().sort((a, b) => a - b), pos, "block order");

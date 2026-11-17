@@ -1,4 +1,4 @@
-const VERSION = "db-wallet-v2-2026-11-17m";
+const VERSION = "db-wallet-v2-2026-11-17n";
 const APP_SHELL = [
   "./",
   "./index.html",

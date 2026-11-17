@@ -160,7 +160,7 @@
   // supply the initial values plus the mode-specific persist logic.
   function buildCodeForm(ctx, config) {
     const form = document.createElement("div");
-    form.className = "action-code-form";
+    form.className = "action-code-form card card--flat";
 
     const amountInput = document.createElement("input");
     amountInput.type = "number";
@@ -340,7 +340,7 @@
 
   function buildDeleteConfirm(ctx, code, isGlobal) {
     const deleteBox = document.createElement("div");
-    deleteBox.className = "action-code-confirm";
+    deleteBox.className = "action-code-confirm card card--flat";
 
     const deleteText = document.createElement("div");
     deleteText.textContent = `Action Code "${code.label || `+${code.amount}`}" löschen?`;
@@ -440,7 +440,7 @@
   function buildActionCard(ctx, code, isSingle) {
     const isGlobal = normalizeScope(code && code.scope) === "global";
     const card = document.createElement("div");
-    card.className = "action-code-card";
+    card.className = "action-code-card card";
     if (isSingle) card.classList.add("action-code-card--featured");
 
     const head = document.createElement("div");
@@ -609,12 +609,12 @@
       "Diese QR-Codes buchen Drinks oder Guthaben auf dieses Wallet. Nach Änderungen bitte neu scannen/ausdrucken.";
 
     const notice = document.createElement("div");
-    notice.className = "action-codes-notice";
+    notice.className = "action-codes-notice card card--flat";
     notice.textContent =
       "Hinweis: Für Import/Export werden nur die 10 zuletzt aktiven Action Codes gespeichert. Ältere Codes wurden entfernt.";
 
     const softNotice = document.createElement("div");
-    softNotice.className = "action-codes-notice";
+    softNotice.className = "action-codes-notice card card--flat";
     softNotice.textContent =
       "Empfohlen: max. 6 Action Codes. Ab 10 werden automatisch nur die 10 zuletzt aktiven gespeichert (ältere werden entfernt).";
 

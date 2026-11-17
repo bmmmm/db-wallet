@@ -34,7 +34,7 @@
     if (!syncStatusLine && opts.topRow && opts.topRow.parentNode) {
       syncStatusLine = document.createElement("section");
       syncStatusLine.id = "sync-status-line";
-      syncStatusLine.className = "sync-line";
+      syncStatusLine.className = "sync-line panel";
       opts.topRow.insertAdjacentElement("afterend", syncStatusLine);
     }
     return syncStatusLine;

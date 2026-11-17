@@ -26,7 +26,7 @@
   }
 
   const CONTAINER_OPTIONS = {
-    className: "action-codes-notice global-action-panel",
+    className: "action-codes-notice card card--flat global-action-panel",
     // After the header (P4.2): a direct <body> child, so the no-wallet CSS
     // (body > :not(#global-action-message)) keeps it visible.
     anchors: ["#wallet-header", ".top-row", "h1"],

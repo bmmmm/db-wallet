@@ -52,7 +52,7 @@ async function openLog(opts) {
 
 test("wallet.html: a list instead of position numbers", () => {
   const html = fs.readFileSync(path.join(REPO, "wallet.html"), "utf8");
-  assert.match(html, /<ol id="history-list" class="history-list"/);
+  assert.match(html, /<ol id="history-list" class="history-list\b/);
   for (const gone of ["delete-range", "btn-edit-entry", "btn-selection-delete"]) {
     assert.doesNotMatch(html, new RegExp(`id="${gone}"`), gone);
   }

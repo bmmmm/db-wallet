@@ -52,7 +52,7 @@
     const api = window.dbWalletMessages;
     if (!api || typeof api.showGlobal !== "function") return null;
     return api.showGlobal(message, {
-      className: "action-codes-notice",
+      className: "action-codes-notice card card--flat",
       anchors: ["#index-header", "h1"],
     });
   }
@@ -189,7 +189,7 @@
       const wallet = wallets[userId];
 
       const card = document.createElement("li");
-      card.className = "wallet-card";
+      card.className = "wallet-card card card--flat";
 
       const name = document.createElement("strong");
       name.className = "wallet-card-name";

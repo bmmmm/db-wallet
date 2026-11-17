@@ -37,13 +37,13 @@
 
         <main id="index-main">
             <!-- P4.5: the existing wallets first (hidden while there are none). -->
-            <section id="existing-users-section" aria-labelledby="existing-users-title" hidden>
+            <section id="existing-users-section" class="panel" aria-labelledby="existing-users-title" hidden>
                 <h2 id="existing-users-title">Deine Wallets</h2>
                 <ul id="existing-users" class="wallet-list"></ul>
                 <button id="btn-search-users" type="button">Liste neu laden</button>
             </section>
 
-            <section id="new-user-section" aria-labelledby="new-user-title">
+            <section id="new-user-section" class="panel" aria-labelledby="new-user-title">
                 <h2 id="new-user-title">Wallet öffnen oder anlegen</h2>
                 <p class="field-note">
                     Ein vorhandener Name öffnet das Wallet, ein neuer legt es an.
@@ -65,7 +65,7 @@
             </section>
 
             <!-- P4.8: a link from another device; the hash goes to wallet.html's router. -->
-            <section id="paste-link-section" aria-labelledby="paste-link-title">
+            <section id="paste-link-section" class="panel" aria-labelledby="paste-link-title">
                 <h2 id="paste-link-title">Link einfügen</h2>
                 <p id="paste-link-note" class="field-note">
                     Export- oder Action-Code-Link von einem anderen Gerät, etwa wenn ein
@@ -88,7 +88,7 @@
                 </form>
             </section>
 
-            <section aria-labelledby="import-title">
+            <section class="panel" aria-labelledby="import-title">
                 <h2 id="import-title">Import &amp; Rohdaten</h2>
                 <button id="btn-import-json" type="button">JSON importieren 📄</button>
                 <input
@@ -103,10 +103,10 @@
                         Alle lokalen Nutzer:innen löschen 💣
                     </button>
                 </div>
-                <pre id="raw-output"></pre>
+                <pre id="raw-output" class="card"></pre>
             </section>
 
-            <section id="theme-section" aria-labelledby="theme-title">
+            <section id="theme-section" class="panel" aria-labelledby="theme-title">
                 <h2 id="theme-title">Theme auswählen</h2>
                 <p class="theme-note">
                     Fünf Pastell-Themes (3 dunkel, 2 hell), wähle per Name: Lilac

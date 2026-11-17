@@ -1,5 +1,5 @@
 (function () {
-  const DEFAULT_CLASS = "action-codes-notice";
+  const DEFAULT_CLASS = "action-codes-notice card card--flat";
   const DEFAULT_ID = "global-action-message";
 
   function findAnchor(selectors) {

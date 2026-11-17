@@ -50,21 +50,21 @@
             <!-- P4.2: fixed three-column stat row; no card hides at 0. -->
             <div class="stat-panel" role="group" aria-labelledby="stats-title">
                 <h2 id="stats-title" class="visually-hidden">Stand</h2>
-                <div class="stat">
+                <div class="stat panel">
                     <span class="stat-label">Getrunken</span>
                     <strong id="total">0</strong>
                 </div>
-                <div class="stat">
+                <div class="stat panel">
                     <span class="stat-label">Offen</span>
                     <strong id="unpaid">0</strong>
                 </div>
-                <div class="stat">
+                <div class="stat panel">
                     <span class="stat-label">Guthaben</span>
                     <strong id="credit">0</strong>
                 </div>
             </div>
 
-            <section id="booking" class="booking" aria-labelledby="booking-title">
+            <section id="booking" class="booking panel" aria-labelledby="booking-title">
                 <h2 id="booking-title" class="visually-hidden">Buchen</h2>
                 <div class="amount-row">
                     <label for="amount">Menge (Getränke):</label>
@@ -90,7 +90,7 @@
                 </form>
             </section>
 
-            <details id="history-panel" class="wallet-actions-panel" open>
+            <details id="history-panel" class="wallet-actions-panel panel" open>
                 <summary class="wallet-actions-summary">
                     <h2 class="panel-title">Verlauf</h2>
                 </summary>
@@ -132,22 +132,22 @@
                     </div>
 
                     <!-- P4.4: Historie = one row per visible entry (newest first). -->
-                    <ol id="history-list" class="history-list" aria-label="Historie" tabindex="-1"></ol>
-                    <pre id="history">Noch keine Drinks geloggt. ✨</pre>
+                    <ol id="history-list" class="history-list card" aria-label="Historie" tabindex="-1"></ol>
+                    <pre id="history" class="card">Noch keine Drinks geloggt. ✨</pre>
                 </div>
             </details>
 
-            <details id="action-codes-panel" class="action-codes-panel">
+            <details id="action-codes-panel" class="action-codes-panel panel">
                 <summary class="action-codes-summary"><h2 class="panel-title">Action Codes</h2></summary>
                 <div id="action-codes-body" class="action-codes-body"></div>
             </details>
 
             <!-- P4.7: shown only once there is a sync partner (wallet-sync-ui.js). -->
-            <section id="sync-status-line" class="sync-line" aria-labelledby="sync-title">
+            <section id="sync-status-line" class="sync-line panel" aria-labelledby="sync-title">
                 <h2 id="sync-title" class="visually-hidden">Sync</h2>
             </section>
 
-            <section class="wallet-export" aria-labelledby="export-title">
+            <section class="wallet-export panel" aria-labelledby="export-title">
                 <h2 id="export-title" class="visually-hidden">Export</h2>
                 <!-- Export-Bereich -->
                 <button id="btn-export">Export</button>
@@ -169,7 +169,7 @@
                     <button id="btn-share-export-url" type="button" hidden>Teilen 📤</button>
                     <span id="export-url-status" class="export-link-status" role="status" aria-live="polite"></span>
                 </div>
-                <div id="qr-box" class="qr-box">
+                <div id="qr-box" class="qr-box card">
                     <div class="qr-hint" id="qr-hint"></div>
                     <canvas id="qr-canvas" aria-label="QR-Code"></canvas>
                     <input
@@ -189,7 +189,7 @@
 
             <hr />
 
-            <details id="theme-panel" class="theme-panel">
+            <details id="theme-panel" class="theme-panel panel">
                 <summary class="theme-summary">
                     Theme: <span id="current-theme-name">Lilac Carbon</span>
                 </summary>

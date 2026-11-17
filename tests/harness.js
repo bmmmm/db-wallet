@@ -124,6 +124,12 @@ function makeNav(startUrl, win) {
     get pathname() {
       return new URL(entries[index]).pathname;
     },
+    get protocol() {
+      return new URL(entries[index]).protocol;
+    },
+    get hostname() {
+      return new URL(entries[index]).hostname;
+    },
     reload() {
       nav.pageLoads.push(entries[index]);
     },

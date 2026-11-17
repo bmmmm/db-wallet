@@ -688,6 +688,23 @@ Unabhängige Pakete, jeweils nur bei Bedarf.
   `el.style.x`-Zuweisungen in `wallet-sync-ui.js`, `wallet-device-ui.js` und
   `sw-register.js` umgehen Theme und Media-Queries. Klassen `.card` und `.panel`, die
   JS-Styles in Klassen überführen.
+
+  **Umgesetzt (2026-11-17).** Rahmen, Radius, Schatten und Hintergrund stehen einmal
+  in `.panel, .card` (`.panel` auf `--panel`, `.card` auf `--bg`, `.card--flat` ohne
+  Schatten). Vorher trugen dreizehn Regeln die Optik (`section`, `pre`, `.top-row`,
+  `.stat`, die drei `<details>`, `.wallet-actions`/`.wallet-export`, `.qr-box`,
+  `.history-list`, `.action-code-card` und vier flache Kästen), drei weitere schalteten
+  sie im Panel wieder ab (`.wallet-header .top-row`, `.wallet-actions-panel
+  .wallet-actions`, `.theme-panel #theme-section`); die drei Abschalter sind weg.
+  `sync-ui`/`device-ui` hatten seit P4.7 keine Inline-Styles mehr; `sw-register.js`
+  meldet die neue Version jetzt in der Statuszeile („Neu laden“, bleibt stehen), ohne
+  Statuszeile in einem eigenen Kasten mit deren Klassen. Der alte Toast lag über der
+  Statuszeile und verdeckte deren Meldungen. Übrig sind nur `style.display`-Schalter
+  und die berechnete Canvas-Breite, beide ohne Farben oder Maße aus dem Theme.
+  Beleg: berechnete Styles von 148 und 158 Elementen (`wallet.html` mit Diagramm
+  bzw. Verlauf, alle Panels offen, Export-QR sichtbar), 65 (`index.html`) und 19
+  (`preview.html`) vor und nach dem Umbau im Browser gleich, keine Abweichung;
+  `tests/p5-3-css-panels.test.js`.
 - **P5.4 Kanonische Reihenfolge über Geräte hinweg.** (Review, im Harness
   reproduziert, Fall A7.) Der QR-Export rundet Zeitstempel auf die Minute; importierte
   Events bekommen „Minute + Position“, eigene behalten Millisekunden. Buchen zwei

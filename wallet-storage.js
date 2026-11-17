@@ -619,7 +619,7 @@
           msgApi.showGlobal(
             message ||
               "⚠️ Speichern fehlgeschlagen — neue Änderungen sind nicht gesichert (Speicher voll oder blockiert).",
-            { id: "storage-error-banner", className: "action-codes-notice" },
+            { id: "storage-error-banner", className: "action-codes-notice card card--flat" },
           );
         } else {
           msgApi.clearGlobal({ id: "storage-error-banner" });
