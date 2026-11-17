@@ -430,9 +430,10 @@
     }
   }
 
-  // The data no longer fits a version-40 QR (roughly 590 events), but the
-  // compact i2: link is already built and works as a link — offer it instead
-  // of throwing it away (P2.5). Real QR scaling is P5.5.
+  // The data no longer fits a version-40 QR (roughly 560 entries, about 475
+  // with 10 % deletions since the compact tombstones of P5.5), but the compact
+  // i2: link is already built and works as a link — offer it instead of
+  // throwing it away (P2.5).
   function showCompactLinkInstead(url) {
     if (!refs || !refs.elExportUrl) return;
     setExportUrl(url);

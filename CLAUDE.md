@@ -109,7 +109,8 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   tombstone-of-a-tombstone as an un-delete for data/merge robustness.
 - **QR export is minute-resolution + a bearer credential** — `tsMs` is quantized to
   the minute on encode (balance-neutral: the order is by minute + ids anyway; events
-  are written in canonical order and decode at minute + position). The export
+  are written in canonical order and decode at minute + position; tombstones decode
+  at the full minute — their ts counts nowhere, P5.5). The export
   QR/link carries the full event log, userId, and action-code keys with no
   encryption — anyone who captures it can replay it.
 - **Codec extension blocks are order-sensitive** — they have no length prefix, so an
@@ -118,7 +119,12 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   carries `globalActionCodes` with an empty key field — global codes have no key
   (`normalizeGlobalActionCodes`: scope "global", no key, amount 1..100); decode drops
   the random key that pre-2026-11 exports wrote there, so old exports still import.
-  `dc` carries `deletedActionCodes` (`id → ts`).
+  `dc` carries `deletedActionCodes` (`id → ts`). A version bump of a block an old
+  decoder knows makes it stop there too: tombstones (`xt` v2 since P5.5: minute
+  delta + device index/seq, `writeIdRef`/`readIdRef`) would be lost silently, so a
+  payload with tombstones says codec 3 in the header (an old app refuses it as
+  "neuere App-Version"); without tombstones it stays codec 2, byte for byte. The
+  decoder still reads `xt` v1 (exact ms).
 - **Events are constructed and persisted only via `dbWalletStorage`** —
   `newEvent(wallet, type, n)` is the single event factory and
   `appendEvents(wallet, events)` the atomic append+save (rolls back and returns

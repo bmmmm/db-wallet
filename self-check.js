@@ -411,7 +411,7 @@
           // IV6: a newer codec version is rejected with a distinct error.
           let verErr = "";
           try {
-            importV2.decodeImportV2Bytes(new Uint8Array([100, 98, 119, 3, 0]));
+            importV2.decodeImportV2Bytes(new Uint8Array([100, 98, 119, 4, 0]));
           } catch (e) {
             verErr = (e && e.message) || "err";
           }

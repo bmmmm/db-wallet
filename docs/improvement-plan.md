@@ -51,8 +51,17 @@ Beim Abarbeiten hier abhaken und pro Paket den Commit notieren.
 - [x] P3.5 `self-check.js` bei Bedarf nachladen (d145c23)
 - [x] P3.6 Export: Kopieren, Teilen, scharfer QR (e2f7fb3)
 - [x] P3.7 Englische Reststrings eindeutschen (e07eaa0)
-- [ ] P4 Bedienung (erst nach Freigabe, siehe dort)
-- [ ] P5 Struktur und Skalierung (einzeln nach Bedarf)
+- [x] P4.1 Statuszeile statt `alert()`, P4.6 Bezahlen und Mengenfeld (975951b)
+- [x] P4.3 Formulare statt `prompt()`, P4.4 Historie mit Zeilenaktionen (3d0f2a0)
+- [x] P4.2 Kopfbereich, P4.7 Sync-Zeile und Gerätesymbol, P4.9 für diese Blöcke (9618deb)
+- [x] P4.5 Startseite, P4.8 Link einfügen (e6e907d)
+- [x] P5.1 `action-codes.js` teilen (45fe306)
+- [x] P5.2 Toter und doppelter Code (4761937)
+- [x] P5.3 CSS zusammenführen, Update-Hinweis in der Statuszeile (688b575)
+- [x] P5.4 Kanonische Reihenfolge über Geräte hinweg (05681b5)
+- [x] P5.5 QR-Kapazität: Tombstones kompakt (siehe dort)
+- [x] P5.6 `qrcodegen.js` bei Bedarf laden (928f6a3)
+- [x] P5.7 `colors.html` und `colors.css` aus dem Precache (mit P3.4, 9289d03)
 
 Was nach Phase 3 offen ist, samt Reihenfolge und Browser-Prüfliste, steht in
 [`open-points.md`](open-points.md).
@@ -754,6 +763,40 @@ Unabhängige Pakete, jeweils nur bei Bedarf.
   Event (zwei Volltext-IDs im `xt`-Block). Erst Tombstones kompakt kodieren
   (Geräteindex und `seq`), dann bei Bedarf Delta-Export je Peer oder mehrteiliger QR.
   Wire-Format-Änderung, eigener Entwurf.
+
+  **Entwurf (2026-11-17).** `xt` v1 schreibt je Tombstone `id` und `ref` als Text und
+  den Zeitstempel in Millisekunden: etwa 34 Byte, nach gzip 11 bis 13 (ein Event etwa 4).
+  1. *Format* (`xt` v2): die Minute als laufendes Delta (die erste absolut), dann `id`
+     und `ref` je als Geräteindex + 1 und `seq`, oder 0 und die ID als Text, wenn sie
+     nicht exakt über `parse`/`formatCompactEventId` läuft (Altdaten, migrierte IDs,
+     `dev.01`). Geräte, die nur in einem Tombstone vorkommen, kommen in die
+     Gerätetabelle des Kopfs (hinter die der Events). Geschrieben in der kanonischen
+     Ordnung aus P5.4, also sind die Deltas nie negativ.
+  2. *Minutenauflösung*: wie bei den Events. Der Zeitstempel eines Tombstones zählt
+     nirgends: `applyTombstones` faltet nach Mengen, die Reihenfolge innerhalb einer
+     Minute entscheidet die ID, „letzte Aktion“ fürs Undo ist die höchste eigene `seq`
+     (P5.4), und der Import behält bei gleicher ID die lokale Fassung.
+  3. *Verträglichkeit*: Ein Decoder, der nur `xt` v1 kennt, bricht am Block ab und
+     verliert still jeden Tombstone (gelöschte Einträge kämen zurück) und alle
+     späteren Blöcke. Deshalb trägt ein Export **mit** Tombstones Codec 3 im Kopf;
+     eine ältere App lehnt ihn mit „stammen aus einer neueren App-Version. Bitte
+     diese App aktualisieren.“ ab. Ohne Tombstones bleibt es Codec 2, byte-gleich wie
+     bisher. Der neue Decoder liest `xt` v1 weiter (exakte Millisekunden).
+  4. *Nicht jetzt*: Delta-Export je Peer und mehrteiliger QR. `se` (Edits, zwei IDs
+     als Text) ließe sich genauso verdichten; erst wenn Edits den QR füllen.
+
+  **Umgesetzt (2026-11-17).** Wie entworfen (`wallet-import-v2.js`: `writeIdRef`,
+  `readIdRef`, `xt` v2, Codec 3). Ein Tombstone kostet jetzt 6 bis 8 Byte, nach gzip
+  4 bis 7. Größte Eintragszahl in einem QR der Version 40 (ECC L, Link auf
+  `bmmmm.github.io`), Zeitabstände unregelmäßig (1 bis 720 Minuten), vorher → nachher:
+  nur Buchungen 561 → 561, 10 % Löschungen 422 → 476, dazu 5 % Edits 383 → 425,
+  25 % Löschungen 319 → 395. Bei gleichmäßigen Abständen (37 Minuten) 623 → 762 und
+  423 → 605. Beleg: `tests/p5-5-compact-tombstones.test.js` (ein Export des alten
+  Encoders als Fixture importiert weiter; sechs der acht Tests sind auf 928f6a3 rot,
+  die zwei Verträglichkeitstests grün); der alte Decoder lehnt einen neuen Export mit
+  `unsupported-version` ab (nachgestellt). Im Browser: Löschen aus der Historie und
+  „Rückgängig“, Export-QR (Codec 3, QR v12), derselbe Link über „Lokal importieren“
+  (keine neue ID, Stand gleich) und „Nur ansehen“ (gleicher Stand), Self-Check 80/80.
 - **P5.6 `qrcodegen.js` bei Bedarf laden.** 35 KB, gebraucht nur für Export und
   Action-Code-Karten. `renderActionList` zeichnet beim Start jede QR-Karte, obwohl das
   `<details>` zu ist; erst beim Öffnen zeichnen.

@@ -340,6 +340,34 @@
     return idx >= 0 && idx < THEME_NAMES.length ? THEME_NAMES[idx] : null;
   }
 
+  // P5.5: an event id as the tombstone block ("xt" v2) writes it — the device
+  // index + 1 and the seq when the id round-trips exactly through
+  // parse/formatCompactEventId and its device is in the header table, else 0
+  // and the id verbatim (legacy and migrated ids).
+  function compactIdParts(id) {
+    const p = parseCompactEventId(id);
+    return p && formatCompactEventId(p.deviceKey, p.seq) === id ? p : null;
+  }
+
+  function writeIdRef(id, deviceKeyToIndex, out) {
+    const p = compactIdParts(id);
+    if (p && deviceKeyToIndex.has(p.deviceKey)) {
+      writeVarUint(deviceKeyToIndex.get(p.deviceKey) + 1, out);
+      writeVarUint(p.seq, out);
+    } else {
+      writeVarUint(0, out);
+      writeString(id, out);
+    }
+  }
+
+  function readIdRef(bytes, offset, deviceKeys) {
+    const [k, next] = readVarUint(bytes, offset);
+    if (k === 0) return readString(bytes, next);
+    if (k > deviceKeys.length) throw importError("corrupt", "Invalid device index");
+    const [seq, end] = readVarUint(bytes, next);
+    return [formatCompactEventId(deviceKeys[k - 1], seq), end];
+  }
+
   // --- decodeImportV2Bytes internal helpers ---
 
   // Reads the fixed header fields up to (but not including) the events section.
@@ -454,7 +482,8 @@
 
   // Reads the optional trailing extension blocks ("ac", "gc", "sp", "dv", "xt",
   // "se", "dc") and mutates decoded in place. Tolerates parse errors for forward-compat.
-  function decodeV2Extensions(bytes, startOffset, decoded) {
+  // deviceKeys is the header's device table (the compact ids of "xt" v2).
+  function decodeV2Extensions(bytes, startOffset, decoded, deviceKeys) {
     let offset = startOffset;
     try {
       while (offset + 1 < bytes.length) {
@@ -561,16 +590,30 @@
           offset += 2;
           const [xtVersion, o8] = readVarUint(bytes, offset);
           offset = o8;
-          if (xtVersion !== 1) break;
+          if (xtVersion !== 1 && xtVersion !== 2) break;
           const [count, o9] = readVarUint(bytes, offset);
           offset = o9;
+          // v1: id and ref as strings, the exact ts in ms. v2 (P5.5): the minute
+          // as a running delta (the first one absolute), then id and ref via
+          // readIdRef; the ts decodes to the full minute.
+          let tsMin = 0;
           for (let i = 0; i < count; i++) {
-            let id, ref;
-            [id, offset] = readString(bytes, offset);
-            [ref, offset] = readString(bytes, offset);
-
-            const [tsMs, o12] = readVarUint(bytes, offset);
-            offset = o12;
+            let id, ref, tsMs;
+            if (xtVersion === 1) {
+              [id, offset] = readString(bytes, offset);
+              [ref, offset] = readString(bytes, offset);
+              [tsMs, offset] = readVarUint(bytes, offset);
+            } else {
+              let delta;
+              [delta, offset] = readVarUint(bytes, offset);
+              tsMin += delta;
+              tsMs = tsMin * 60000;
+              if (tsMs > Number.MAX_SAFE_INTEGER) {
+                throw importError("corrupt", "Timestamp out of range");
+              }
+              [id, offset] = readIdRef(bytes, offset, deviceKeys);
+              [ref, offset] = readIdRef(bytes, offset, deviceKeys);
+            }
 
             // Skip self-referential tombstones (a tombstone deleting itself is
             // meaningless) — cheap guard against malformed/crafted xt entries.
@@ -674,7 +717,10 @@
     ) {
       throw importError("corrupt", "Invalid v2 payload");
     }
-    if (bytes[3] !== 2) {
+    // Codec 3 (P5.5) is codec 2 with compact tombstones ("xt" v2); the encoder
+    // writes 3 only when there are tombstones, so a decoder that knows only 2
+    // refuses those exports cleanly instead of dropping every tombstone.
+    if (bytes[3] !== 2 && bytes[3] !== 3) {
       // Magic matches but the codec version is newer than this build understands.
       throw importError(
         "unsupported-version",
@@ -728,7 +774,7 @@
     };
 
     // optional extensions:
-    //  - tombstones ("xt", v1)
+    //  - tombstones ("xt", v1; v2 compact since P5.5)
     //  - action codes ("ac", v1/v2)
     //  - sync peer device id ("sp", v1)
     //  - device list ("dv", v1)
@@ -737,7 +783,7 @@
     //  - deleted action codes ("dc", v1)
     //  - integrity checksum ("ck", v1)
     if (evResult.offset < bytes.length) {
-      decodeV2Extensions(bytes, evResult.offset, decoded);
+      decodeV2Extensions(bytes, evResult.offset, decoded, deviceKeys);
     }
 
     return decoded;
@@ -746,7 +792,7 @@
   function encodeImportV2Bytes(wallet, themeName) {
     const out = [];
 
-    out.push(100, 98, 119, 2); // "dbw" + codec v2
+    out.push(100, 98, 119, 2); // "dbw" + codec v2 (3 with tombstones, below)
     out.push(themeIndexFromName(themeName));
     writeVarUint(wallet && wallet.v ? wallet.v : 1, out);
 
@@ -846,6 +892,18 @@
       ),
     );
 
+    // P5.5: tombstones write their ids compactly too, so a device that only
+    // appears in a tombstone id or ref joins the table (after the event devices).
+    for (const t of tombstones) {
+      for (const id of [t.id, t.ref]) {
+        const p = compactIdParts(id);
+        if (p && !deviceKeyToIndex.has(p.deviceKey)) {
+          deviceKeyToIndex.set(p.deviceKey, deviceKeys.length);
+          deviceKeys.push(p.deviceKey);
+        }
+      }
+    }
+
     writeVarUint(deviceKeys.length, out);
     for (const key of deviceKeys) {
       writeString(key, out);
@@ -882,20 +940,33 @@
       }
     }
 
-    // optional extension: tombstones ("xt", v1)
+    // optional extension: tombstones ("xt", v2 — P5.5)
     // Encoded FIRST among the extension blocks: blocks have no length prefix, so a
     // forward-compat version bump or a corrupt byte in a later block (ac/sp/dv)
     // stops the parse where it is. Putting tombstones first means that truncation
     // can't drop them — and a dropped tombstone resurrects a deleted event, the
     // worst failure mode of the lot.
+    // v2 writes them in canonical order: the minute as a running delta (the
+    // first one absolute; minute resolution like the events), then id and ref
+    // as device index + seq (writeIdRef) — about 6 bytes instead of about 34.
+    // A decoder that knows only "xt" v1 would stop here and silently lose every
+    // tombstone (and all later blocks), so such a payload says codec 3, which
+    // that decoder refuses as "from a newer app version".
     if (tombstones.length) {
+      out[3] = 3;
+      tombstones.sort((a, b) =>
+        helpers.compareEventsByTime({ ts: a.tsMs, id: a.id }, { ts: b.tsMs, id: b.id }),
+      );
       out.push(120, 116); // "xt"
-      writeVarUint(1, out);
+      writeVarUint(2, out);
       writeVarUint(tombstones.length, out);
+      let prevMin = 0;
       for (const t of tombstones) {
-        writeString(t.id, out);
-        writeString(t.ref, out);
-        writeVarUint(t.tsMs, out);
+        const tsMin = Math.floor(t.tsMs / 60000);
+        writeVarUint(tsMin - prevMin, out);
+        prevMin = tsMin;
+        writeIdRef(t.id, deviceKeyToIndex, out);
+        writeIdRef(t.ref, deviceKeyToIndex, out);
       }
     }
 
