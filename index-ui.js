@@ -260,13 +260,20 @@
           throw new Error("Ungültiges JSON-Format.");
         }
 
-        const built = buildImportedWallet(remote);
-        const userId =
-          built && typeof built.userId === "string" ? built.userId : "";
-        const wallet = built && built.wallet ? built.wallet : null;
-        if (!userId || !wallet) {
-          throw new Error("Ungültiges JSON-Format.");
-        }
+        // Built once for the dialog header, and again after the dialog: the
+        // stored state may change while it is open (another tab books or
+        // resets this wallet), and a wallet built before would then merge
+        // stale data or hit the P1.9 save lock.
+        const build = () => {
+          const built = buildImportedWallet(remote);
+          const id = built && typeof built.userId === "string" ? built.userId : "";
+          if (!id || !built.wallet) {
+            throw new Error("Ungültiges JSON-Format.");
+          }
+          return built;
+        };
+        let built = build();
+        let userId = built.userId;
 
         const importedTheme =
           remote && typeof remote.theme === "string" ? remote.theme : "";
@@ -288,6 +295,12 @@
           if (!mode) return;
         }
 
+        if (chooseMode) {
+          built = build();
+          userId = built.userId;
+        }
+        const wallet = built.wallet;
+
         if (mode === "preview" && openPreview) {
           openPreview({
             source: "json",
@@ -301,8 +314,9 @@
         if (!saveWallet(wallet, { quiet: true })) {
           const importApi = window.dbWalletImportV2 || null;
           alert(
-            (importApi && importApi.IMPORT_SAVE_FAILED_MESSAGE) ||
-              "Import fehlgeschlagen: Die Daten konnten nicht gespeichert werden.",
+            importApi && typeof importApi.importSaveFailedMessage === "function"
+              ? importApi.importSaveFailedMessage()
+              : "Import fehlgeschlagen: Die Daten konnten nicht gespeichert werden.",
           );
           return;
         }

@@ -724,6 +724,16 @@
     "Dieses Wallet wurde in einem anderen Tab zurückgesetzt oder ersetzt. Bitte Seite neu laden — diese Änderung wurde nicht gespeichert.";
   let hasShownWalletReplacedError = false;
 
+  // Why the last saveWallet call refused: "reserved" (userId collides with an
+  // internal key), "replaced" (walletId changed in another tab, P1.9), "quota"
+  // (the write itself failed), or null after a successful save. Callers that
+  // report the failure themselves (import) pick their message by it.
+  let lastSaveError = null;
+
+  function getLastSaveError() {
+    return lastSaveError;
+  }
+
   // opts.quiet: skip the generic one-time alert on failure (the banner/body
   // flag is still set). For callers that report the failure themselves, e.g.
   // the import, which must not claim success after a failed save.
@@ -734,11 +744,13 @@
   // elsewhere, and merging would resurrect the old events into the new wallet.
   function saveWallet(wallet, opts) {
     if (!wallet || !wallet.userId) return false;
+    lastSaveError = null;
     const quiet = !!(opts && opts.quiet);
     const allowWalletIdChange = !!(opts && opts.allowWalletIdChange);
 
     const storageKey = STORAGE_PREFIX + wallet.userId;
     if (isReservedStorageKey(storageKey)) {
+      lastSaveError = "reserved";
       markStorageFailed(
         true,
         "⚠️ Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
@@ -779,6 +791,7 @@
       walletIdChanged = false;
     }
     if (walletIdChanged && !allowWalletIdChange) {
+      lastSaveError = "replaced";
       markStorageFailed(true, "⚠️ " + WALLET_REPLACED_MESSAGE);
       if (!quiet && !hasShownWalletReplacedError) {
         hasShownWalletReplacedError = true;
@@ -882,6 +895,7 @@
 
     // Hauptspeicherort
     if (!safeLocalStorageSetItem(storageKey, json)) {
+      lastSaveError = "quota";
       markStorageFailed(true);
       if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
@@ -1044,6 +1058,7 @@
     isForbiddenMapKey,
     loadWallet,
     saveWallet,
+    getLastSaveError,
     getAllWallets,
     userIdExists,
     makeUniqueUserId,

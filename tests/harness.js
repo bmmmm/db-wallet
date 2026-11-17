@@ -158,6 +158,7 @@ function makeNav(startUrl, win) {
 //   storage    — reuse an existing storage (two tabs / two loads of one browser)
 //   document   — replace the document stub (e.g. tests/fake-dom.js)
 //   files      — module list, defaults to DEFAULT_FILES
+//   globals    — extra window properties, assigned before the modules load
 function makeEnv(opts = {}) {
   const alerts = [];
   const listeners = Object.create(null);
@@ -216,6 +217,9 @@ function makeEnv(opts = {}) {
   win.location = nav.location;
   win.history = nav.history;
   win._nav = nav;
+  // Extra globals a module reads once at load (e.g. dbWalletImportPreview,
+  // FileReader), set before the modules run.
+  if (opts.globals) Object.assign(win, opts.globals);
   const ctx = vm.createContext(win);
   for (const f of opts.files || DEFAULT_FILES) {
     vm.runInContext(fs.readFileSync(path.join(REPO, f), "utf8"), ctx, {

@@ -1291,6 +1291,16 @@
 
   const IMPORT_SAVE_FAILED_MESSAGE =
     "Import fehlgeschlagen: Die Daten konnten nicht gespeichert werden (Speicher voll oder blockiert). Nichts wurde importiert.";
+  const IMPORT_WALLET_REPLACED_MESSAGE =
+    "Import fehlgeschlagen: Dieses Wallet wurde inzwischen in einem anderen Tab zurückgesetzt oder ersetzt. Bitte Seite neu laden und den Import wiederholen. Nichts wurde importiert.";
+
+  // The import reports a failed save itself (saveWallet runs quiet): name the
+  // real reason, a wallet reset in another tab is not a full storage.
+  function importSaveFailedMessage() {
+    const reason =
+      typeof storage.getLastSaveError === "function" ? storage.getLastSaveError() : null;
+    return reason === "replaced" ? IMPORT_WALLET_REPLACED_MESSAGE : IMPORT_SAVE_FAILED_MESSAGE;
+  }
 
   function importRemoteWallet(remote, options) {
     const { userId, wallet } = buildImportedWallet(remote);
@@ -1300,7 +1310,7 @@
     // The import link is dropped from the address bar (back to the wallet that
     // was open, if any) — a reload must not replay the failing import.
     if (!saveWallet(wallet, { quiet: true })) {
-      alert(IMPORT_SAVE_FAILED_MESSAGE);
+      alert(importSaveFailedMessage());
       replaceHash(returnUserIdOf(options));
       return null;
     }
@@ -1657,6 +1667,7 @@
     buildImportedWallet,
     importRemoteWallet,
     IMPORT_SAVE_FAILED_MESSAGE,
+    importSaveFailedMessage,
     IMPORT_ERROR_MESSAGES,
     importErrorCode,
     parseImportHashPayload,
