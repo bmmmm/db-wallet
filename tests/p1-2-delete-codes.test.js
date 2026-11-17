@@ -78,12 +78,12 @@ test("deletion list is capped at the 50 newest entries", () => {
   assert.ok(keys.includes("c59"));
 });
 
-// UI flows through the real panel (action-codes.js initActionCodesUi).
+// UI flows through the real panel (action-codes-ui.js initActionCodesUi).
 function mountPanel(w, userId) {
   const S = w.dbWalletStorage;
   let wallet = S.loadWallet(userId);
   const container = w.document.createElement("div");
-  const ui = w.dbWalletActionCodes.initActionCodesUi({
+  const ui = w.dbWalletActionCodesUI.initActionCodesUi({
     container,
     getWallet: () => wallet,
     persistWallet: (next) => {
@@ -160,11 +160,11 @@ test("UI: deleting a local and a global code sticks after reload", () => {
   button(card(p.container, "Lok"), "Löschen").click();
   // the confirm box replaces the QR; its "Löschen" is the second one in the card
   const lok = card(p.container, "Lok");
-  const confirmBox = lok.children.find((ch) => ch.className === "action-code-confirm");
+  const confirmBox = lok.children.find((ch) => ch.classList.contains("action-code-confirm"));
   button(confirmBox, "Löschen").click();
   button(card(p.container, "Glob"), "Löschen").click();
   const glob = card(p.container, "Glob");
-  button(glob.children.find((ch) => ch.className === "action-code-confirm"), "Löschen").click();
+  button(glob.children.find((ch) => ch.classList.contains("action-code-confirm")), "Löschen").click();
 
   const loaded = S.loadWallet("anna");
   assert.equal(loaded.actionCodes.length, 0);

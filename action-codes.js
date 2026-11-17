@@ -73,6 +73,15 @@
     return out;
   }
 
+  // The booking an `acg:` payload asks for: the one reading of it (the confirm
+  // in wallet-ui.js, the wallet picker in wallet-hash-actions.js). null for an
+  // invalid payload.
+  function globalPayloadAction(payload) {
+    const p = normalizeGlobalPayload(payload);
+    if (!p) return null;
+    return { type: p.t, amount: p.n, label: p.l || "" };
+  }
+
   function defaultLabelForType(type, amount) {
     const amountValue = normalizeAmount(amount);
     const normalizedType = normalizeType(type);
@@ -199,7 +208,9 @@
     return aid.localeCompare(bid);
   }
 
-  function normalizeActionCodes(list, now = Date.now()) {
+  // `idPrefix` is for the global wrapper: an id minted here (missing or
+  // duplicate) gets the same "global:" prefix as buildGlobalCode.
+  function normalizeActionCodes(list, now = Date.now(), idPrefix = "") {
     const arr = Array.isArray(list) ? list : [];
     const out = [];
     const seen = new Set();
@@ -208,7 +219,7 @@
       const code = normalizeActionCode(raw, now);
       if (!code) continue;
 
-      if (!code.id) code.id = randomToken(10);
+      if (!code.id) code.id = idPrefix + randomToken(10);
       if (!code.key) code.key = randomToken(18);
       if (!code.updatedAt && !code.createdAt) {
         code.updatedAt = now;
@@ -225,7 +236,7 @@
 
       let id = code.id;
       while (seen.has(id)) {
-        id = randomToken(10);
+        id = idPrefix + randomToken(10);
       }
       code.id = id;
       seen.add(id);
@@ -248,7 +259,7 @@
   // (encode and decode), the import merge and the save reconcile, so a global
   // code keeps its scope across export -> import and two exports are identical.
   function normalizeGlobalActionCodes(list, now = Date.now()) {
-    const normalized = normalizeActionCodes(list, now);
+    const normalized = normalizeActionCodes(list, now, "global:");
     const out = normalized.map((c) => {
       delete c.key;
       c.scope = "global";
@@ -273,10 +284,14 @@
   // every import merges remote codes; both would otherwise resurrect a deleted
   // code (and its still-printed QR keeps booking). Deleting, converting
   // local <-> global, all record the old id here; reconcile and import skip
-  // listed ids. Local-only for now: the list does not travel in exports.
+  // listed ids. The list travels in exports (codec block "dc", JSON field) and
+  // an import unions it with the local one (E4), so a code deleted on one
+  // device is removed on the others too.
   const DELETED_LIMIT = 50;
 
-  function normalizeDeletedActionCodes(input) {
+  // Times are capped at `now`: a crafted far-future entry would otherwise
+  // stay in the newest-50 window forever.
+  function normalizeDeletedActionCodes(input, now = Date.now()) {
     const entries = [];
     if (input && typeof input === "object" && !Array.isArray(input)) {
       for (const id of Object.keys(input)) {
@@ -284,7 +299,7 @@
         const ts = input[id];
         const at =
           typeof ts === "number" && Number.isFinite(ts) && ts > 0
-            ? Math.floor(ts)
+            ? Math.min(Math.floor(ts), now)
             : 0;
         entries.push([id, at]);
       }
@@ -463,66 +478,6 @@
     return out;
   }
 
-  function canvasToPngDownload(canvas, filename) {
-    if (!canvas) return;
-    const saveBlob = (blob) => {
-      if (typeof helpers.downloadBlob === "function") helpers.downloadBlob(blob, filename);
-    };
-
-    if (canvas.toBlob) {
-      canvas.toBlob((blob) => {
-        if (blob) saveBlob(blob);
-      }, "image/png");
-      return;
-    }
-    const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
-
-  function renderQrToCanvas(canvas, url) {
-    if (!canvas) return;
-    if (typeof helpers.drawQrToCanvas === "function") {
-      helpers.drawQrToCanvas(canvas, String(url || ""), { scale: 6 });
-      return;
-    }
-    // Fallback: shared helper not loaded yet, render inline as before.
-    if (!window.qrcodegen || !window.qrcodegen.QrCode) {
-      throw new Error("QR library missing");
-    }
-
-    const ecc = window.qrcodegen.QrCode.Ecc.LOW;
-    const qr = window.qrcodegen.QrCode.encodeText(String(url || ""), ecc);
-    const border = 4;
-    const scale = 6;
-    const size = qr.size;
-    const dim = (size + border * 2) * scale;
-    canvas.width = dim;
-    canvas.height = dim;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, dim, dim);
-    ctx.fillStyle = "#000000";
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        if (qr.getModule(x, y)) {
-          ctx.fillRect(
-            (x + border) * scale,
-            (y + border) * scale,
-            scale,
-            scale,
-          );
-        }
-      }
-    }
-  }
-
   function ensureWalletActionCodes(wallet) {
     if (!wallet || typeof wallet !== "object") return false;
     const now = Date.now();
@@ -544,701 +499,123 @@
     };
   }
 
-  function persistIfChanged(ctx, wallet) {
-    const current = Array.isArray(wallet && wallet.actionCodes)
-      ? wallet.actionCodes
-      : [];
-    if (current.length > HARD_LIMIT) ctx.showTrimNotice = true;
-    const res = ensureWalletActionCodes(wallet);
-    if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
-    if (res && res.changed) ctx.persistWallet(wallet);
+  // --- Code changes as pure functions -----------------------------------
+  // (wallet, change) -> { wallet: next, code, trimmedCount } (delete:
+  // { wallet: next, removed, trimmedCount }), or null when there is nothing to
+  // change. `next` is a shallow copy of the wallet with fresh code lists; the
+  // input wallet and its codes stay untouched. The panel (action-codes-ui.js)
+  // saves `next` once, so a conversion (delete + create) is a single save and
+  // a refused save leaves the shown wallet as it was.
+  // `change`: { scope: "local" | "global", type: "d" | "g", amount, label }.
+  function copyCodeLists(wallet) {
+    const next = Object.assign({}, wallet);
+    next.actionCodes = (Array.isArray(wallet.actionCodes) ? wallet.actionCodes : []).map(
+      (c) => Object.assign({}, c),
+    );
+    if (Array.isArray(wallet.globalActionCodes)) {
+      next.globalActionCodes = wallet.globalActionCodes.map((c) => Object.assign({}, c));
+    }
+    return next;
   }
 
-  function actionUrlFor(ctx, code) {
-    const wallet = ctx.getWallet();
-    const scope = normalizeScope(code && code.scope);
-    if (scope === "global") {
-      const label =
-        code && typeof code.label === "string" ? code.label.trim() : "";
-      const amountRaw = clampGlobalAmount(code && code.amount);
-      const amount = amountRaw === null ? 1 : amountRaw;
+  // Re-applies the caps (10 per list) after a change; returns how many codes
+  // fell off. Wallets without global codes don't grow the field.
+  function settleCodeLists(next) {
+    const res = ensureWalletActionCodes(next);
+    let trimmed = res && res.trimmedCount > 0 ? res.trimmedCount : 0;
+    if (Array.isArray(next.globalActionCodes)) {
+      const globals = normalizeGlobalActionCodes(next.globalActionCodes);
+      if (typeof globals._dbwTrimmed === "number") trimmed += globals._dbwTrimmed;
+      next.globalActionCodes = globals;
+    }
+    return trimmed;
+  }
+
+  function addCodeOfScope(next, scope, change, now) {
+    if (normalizeScope(scope) === "global") {
+      const code = buildGlobalCode(change, now);
+      next.globalActionCodes = (next.globalActionCodes || []).concat([code]);
+      return code;
+    }
+    const code = buildActionCode(change, now);
+    next.actionCodes.push(code);
+    return code;
+  }
+
+  function createActionCode(wallet, change, now = Date.now()) {
+    if (!wallet || typeof wallet !== "object") return null;
+    const next = copyCodeLists(wallet);
+    const code = addCodeOfScope(next, change && change.scope, change, now);
+    const trimmedCount = settleCodeLists(next);
+    return { wallet: next, code, trimmedCount };
+  }
+
+  // Same scope: the code changes in place (a local edit rotates the key when
+  // label/amount/type change, see applyActionCodeEdits; a global code keeps
+  // amount 1..100). Other scope: conversion = delete the old code (its id is
+  // recorded, so a stale copy can't come back) + create one in the new scope.
+  function editActionCode(wallet, codeId, change, now = Date.now()) {
+    if (!wallet || typeof wallet !== "object" || !codeId) return null;
+    const next = copyCodeLists(wallet);
+    const local = next.actionCodes.find((c) => c && c.id === codeId) || null;
+    const global =
+      !local && Array.isArray(next.globalActionCodes)
+        ? next.globalActionCodes.find((c) => c && c.id === codeId) || null
+        : null;
+    const current = local || global;
+    if (!current) return null;
+    const fromScope = global ? "global" : "local";
+    const toScope = change && change.scope ? normalizeScope(change.scope) : fromScope;
+    let code = current;
+    if (toScope !== fromScope) {
+      removeActionCode(next, codeId, now);
+      code = addCodeOfScope(next, toScope, change, now);
+    } else if (fromScope === "local") {
+      applyActionCodeEdits(current, change, now);
+    } else {
+      current.type = normalizeType(change && change.type);
+      const amount = clampGlobalAmount(change && change.amount);
+      current.amount = amount === null ? 1 : amount;
+      const label = String((change && change.label) || "").trim();
+      current.label = label || defaultLabelForType(current.type, current.amount);
+      current.updatedAt = now;
+    }
+    const trimmedCount = settleCodeLists(next);
+    return { wallet: next, code, trimmedCount };
+  }
+
+  function deleteActionCode(wallet, codeId, now = Date.now()) {
+    if (!wallet || typeof wallet !== "object" || !codeId) return null;
+    const next = copyCodeLists(wallet);
+    const removed = removeActionCode(next, codeId, now);
+    const trimmedCount = settleCodeLists(next);
+    return { wallet: next, removed, trimmedCount };
+  }
+
+  // The link a code's QR carries: `#acg:` (self-describing, no key) for a
+  // global code, `#ac:` (walletId + codeId + key) for a local one.
+  function buildActionUrl(wallet, code, baseUrl) {
+    const base = String(baseUrl || "");
+    if (normalizeScope(code && code.scope) === "global") {
+      const label = code && typeof code.label === "string" ? code.label.trim() : "";
+      const amount = clampGlobalAmount(code && code.amount);
       const payload = {
         v: GLOBAL_ACTION_VERSION,
         t: normalizeType(code && code.type),
-        n: amount,
+        n: amount === null ? 1 : amount,
       };
       if (label) payload.l = label;
       const hash = encodeGlobalActionHash(payload);
-      return hash ? ctx.getBaseUrl() + "#" + hash : "";
+      return hash ? base + "#" + hash : "";
     }
-    const payload = buildActionPayload(wallet, code);
-    return ctx.getBaseUrl() + "#" + encodeActionHash(payload);
-  }
-
-  // Generic two-button toggle backing both the type toggle (Drink/Credit) and
-  // the scope toggle (Local/Global) — same DOM shape, classes, and
-  // aria-pressed behavior, just different option sets.
-  function buildToggle({ className, options, initial, normalize, onChange }) {
-    let current = normalize ? normalize(initial) : initial;
-    const wrapper = document.createElement("div");
-    wrapper.className = className;
-
-    const buttons = options.map((opt) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = opt.label;
-      btn.className = "mode-btn";
-      btn.setAttribute("aria-pressed", "false");
-      return btn;
-    });
-
-    function sync() {
-      current = normalize ? normalize(current) : current;
-      options.forEach((opt, i) => {
-        const active = opt.value === current;
-        buttons[i].classList.toggle("active", active);
-        buttons[i].setAttribute("aria-pressed", active ? "true" : "false");
-      });
-    }
-
-    options.forEach((opt, i) => {
-      buttons[i].addEventListener("click", () => {
-        current = opt.value;
-        sync();
-        if (onChange) onChange(current);
-      });
-    });
-
-    sync();
-    for (const btn of buttons) wrapper.appendChild(btn);
-
-    return {
-      el: wrapper,
-      getValue: () => current,
-      setValue: (value) => {
-        current = normalize ? normalize(value) : value;
-        sync();
-      },
-    };
-  }
-
-  function buildTypeToggle(initialType, onChange) {
-    const toggle = buildToggle({
-      className: "action-code-type-toggle",
-      options: [
-        { value: "d", label: "🥤 Trinken" },
-        { value: "g", label: "💰 Guthaben" },
-      ],
-      initial: initialType,
-      normalize: normalizeType,
-      onChange,
-    });
-    return { el: toggle.el, getType: toggle.getValue, setType: toggle.setValue };
-  }
-
-  function buildScopeToggle(initialScope, onChange) {
-    const toggle = buildToggle({
-      className: "action-code-scope-toggle",
-      options: [
-        { value: "local", label: "🔒 Lokal" },
-        { value: "global", label: "🌍 Global" },
-      ],
-      initial: initialScope,
-      normalize: normalizeScope,
-      onChange,
-    });
-    return { el: toggle.el, getScope: toggle.getValue, setScope: toggle.setValue };
-  }
-
-  // Shared scaffolding for the create and edit forms: amount/label inputs,
-  // scope+type toggles, amount clamping, and save/cancel wiring. Callers
-  // supply the initial values plus the mode-specific persist logic.
-  function buildCodeForm(ctx, config) {
-    const form = document.createElement("div");
-    form.className = "action-code-form";
-
-    const amountInput = document.createElement("input");
-    amountInput.type = "number";
-    amountInput.min = "1";
-    amountInput.value = config.amount;
-
-    const labelInput = document.createElement("input");
-    labelInput.type = "text";
-    labelInput.value = config.label;
-
-    let autoLabel = config.autoLabel ? config.label : null;
-
-    const amountField = document.createElement("label");
-    amountField.className = "action-code-form-field";
-    const amountText = document.createElement("span");
-    amountText.textContent = amountPromptForType(config.type);
-    amountField.appendChild(amountText);
-    amountField.appendChild(amountInput);
-
-    const labelField = document.createElement("label");
-    labelField.className = "action-code-form-field";
-    const labelText = document.createElement("span");
-    labelText.textContent = "Name für den Action Code:";
-    labelField.appendChild(labelText);
-    labelField.appendChild(labelInput);
-
-    const scopeToggle = buildScopeToggle(config.scope, (nextScope) => {
-      if (config.onScopeChange) config.onScopeChange(nextScope);
-      updateAmountLimit();
-    });
-    const typeToggle = buildTypeToggle(config.type, (nextType) => {
-      if (config.onTypeChange) config.onTypeChange(nextType);
-      if (config.autoLabel) updateDefaults(nextType);
-      amountText.textContent = amountPromptForType(nextType);
-    });
-
-    function updateDefaults(nextType) {
-      const nextDefault = defaultLabelForType(nextType, amountInput.value);
-      const current = labelInput.value.trim();
-      if (!current || current === autoLabel) {
-        labelInput.value = nextDefault;
-      }
-      autoLabel = nextDefault;
-    }
-
-    function updateAmountLimit() {
-      const scope = scopeToggle.getScope();
-      if (scope === "global") {
-        amountInput.max = String(GLOBAL_ACTION_MAX_AMOUNT);
-        const normalized = clampGlobalAmount(amountInput.value);
-        if (normalized !== null) {
-          amountInput.value = String(normalized);
-        }
-      } else {
-        amountInput.removeAttribute("max");
-      }
-    }
-
-    amountInput.addEventListener("input", () => {
-      if (config.autoLabel) updateDefaults(typeToggle.getType());
-      updateAmountLimit();
-    });
-
-    const fields = document.createElement("div");
-    fields.className = "action-code-form-fields";
-    fields.appendChild(amountField);
-    fields.appendChild(labelField);
-
-    const actions = document.createElement("div");
-    actions.className = "action-code-form-actions";
-
-    const btnSave = document.createElement("button");
-    btnSave.type = "button";
-    btnSave.textContent = "Speichern";
-    btnSave.addEventListener("click", () => {
-      config.onSave({ scopeToggle, typeToggle, amountInput, labelInput });
-    });
-
-    const btnCancel = document.createElement("button");
-    btnCancel.type = "button";
-    btnCancel.textContent = "Abbrechen";
-    btnCancel.addEventListener("click", () => {
-      config.onCancel();
-    });
-
-    actions.appendChild(btnSave);
-    actions.appendChild(btnCancel);
-
-    updateAmountLimit();
-    form.appendChild(scopeToggle.el);
-    form.appendChild(typeToggle.el);
-    form.appendChild(fields);
-    form.appendChild(actions);
-
-    return form;
-  }
-
-  function buildCreateForm(ctx) {
-    const initialAmount = "10";
-    const initialLabel = defaultLabelForType(ctx.selectedType, initialAmount);
-    return buildCodeForm(ctx, {
-      scope: ctx.selectedScope,
-      type: ctx.selectedType,
-      amount: initialAmount,
-      label: initialLabel,
-      autoLabel: true,
-      onScopeChange: (nextScope) => {
-        ctx.selectedScope = nextScope;
-      },
-      onTypeChange: (nextType) => {
-        ctx.selectedType = nextType;
-      },
-      onSave: ({ scopeToggle, typeToggle, amountInput, labelInput }) => {
-        const walletNow = ctx.getWallet();
-        if (!walletNow) return;
-        const scope = scopeToggle.getScope();
-        if (scope === "global") {
-          const created = buildGlobalCode({
-            type: typeToggle.getType(),
-            amount: amountInput.value,
-            label: labelInput.value,
-          });
-          persistGlobalCodes(
-            ctx,
-            walletNow,
-            getGlobalCodes(walletNow).concat([created]),
-          );
-        } else {
-          persistIfChanged(ctx, walletNow);
-          const currentCodes = Array.isArray(walletNow.actionCodes)
-            ? walletNow.actionCodes
-            : [];
-          const hadNoCodes = currentCodes.length === 0;
-          const created = buildActionCode({
-            type: typeToggle.getType(),
-            amount: amountInput.value,
-            label: labelInput.value,
-          });
-          if (!Array.isArray(walletNow.actionCodes))
-            walletNow.actionCodes = [];
-          walletNow.actionCodes.push(created);
-          const res = ensureWalletActionCodes(walletNow);
-          if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
-          ctx.persistWallet(walletNow);
-          if (hadNoCodes) {
-            const details =
-              typeof ctx.container.closest === "function"
-                ? ctx.container.closest("details")
-                : null;
-            if (details) details.open = true;
-          }
-        }
-        ctx.createOpen = false;
-        ctx.refresh();
-      },
-      onCancel: () => {
-        ctx.createOpen = false;
-        ctx.refresh();
-      },
-    });
-  }
-
-  function buildEditForm(ctx, code, isGlobal) {
-    const initialAmount = String(code.amount || 1);
-    const initialLabel =
-      code.label ||
-      defaultLabelForType(code.type, normalizeAmount(code.amount));
-    return buildCodeForm(ctx, {
-      scope: isGlobal ? "global" : "local",
-      type: code.type,
-      amount: initialAmount,
-      label: initialLabel,
-      autoLabel: false,
-      onSave: ({ scopeToggle, typeToggle, amountInput, labelInput }) => {
-        const walletNow = ctx.getWallet();
-        if (!walletNow) return;
-        const scope = scopeToggle.getScope();
-        if (scope === "global") {
-          if (!isGlobal) {
-            // Conversion = delete the local code (recorded, so the stale
-            // persisted copy can't come back) + create a new global one.
-            removeActionCode(walletNow, code.id);
-            const res = ensureWalletActionCodes(walletNow);
-            if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
-            ctx.persistWallet(walletNow);
-            const created = buildGlobalCode({
-              type: typeToggle.getType(),
-              amount: amountInput.value,
-              label: labelInput.value,
-            });
-            walletNow.globalActionCodes = getGlobalCodes(walletNow).concat([
-              created,
-            ]);
-          } else {
-            code.type = normalizeType(typeToggle.getType());
-            const amountRaw = clampGlobalAmount(amountInput.value);
-            code.amount = amountRaw === null ? 1 : amountRaw;
-            const labelRaw = String(labelInput.value || "").trim();
-            code.label =
-              labelRaw || defaultLabelForType(code.type, code.amount);
-            code.updatedAt = Date.now();
-          }
-          persistGlobalCodes(ctx, walletNow);
-        } else {
-          if (isGlobal) {
-            removeActionCode(walletNow, code.id);
-            persistGlobalCodes(ctx, walletNow);
-            const created = buildActionCode({
-              type: typeToggle.getType(),
-              amount: amountInput.value,
-              label: labelInput.value,
-            });
-            if (!Array.isArray(walletNow.actionCodes))
-              walletNow.actionCodes = [];
-            walletNow.actionCodes.push(created);
-          } else {
-            const codesNow = Array.isArray(walletNow.actionCodes)
-              ? walletNow.actionCodes
-              : [];
-            const target = codesNow.find((c) => c && c.id === code.id);
-            if (!target) return;
-            applyActionCodeEdits(target, {
-              label: labelInput.value,
-              amount: amountInput.value,
-              type: typeToggle.getType(),
-            });
-          }
-          const res = ensureWalletActionCodes(walletNow);
-          if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
-          ctx.persistWallet(walletNow);
-        }
-        ctx.editingId = "";
-        ctx.refresh();
-      },
-      onCancel: () => {
-        ctx.editingId = "";
-        ctx.refresh();
-      },
-    });
-  }
-
-  function buildDeleteConfirm(ctx, code, isGlobal) {
-    const deleteBox = document.createElement("div");
-    deleteBox.className = "action-code-confirm";
-
-    const deleteText = document.createElement("div");
-    deleteText.textContent = `Action Code "${code.label || `+${code.amount}`}" löschen?`;
-
-    const deleteActions = document.createElement("div");
-    deleteActions.className = "action-code-form-actions";
-
-    const btnConfirm = document.createElement("button");
-    btnConfirm.type = "button";
-    btnConfirm.textContent = "Löschen";
-    btnConfirm.addEventListener("click", () => {
-      const walletNow = ctx.getWallet();
-      if (!walletNow) return;
-      if (isGlobal) {
-        removeActionCode(walletNow, code.id);
-        persistGlobalCodes(ctx, walletNow);
-      } else {
-        removeActionCode(walletNow, code.id);
-        const res = ensureWalletActionCodes(walletNow);
-        if (res && res.trimmedCount > 0) ctx.showTrimNotice = true;
-        ctx.persistWallet(walletNow);
-      }
-      ctx.pendingDeleteId = "";
-      ctx.refresh();
-    });
-
-    const btnCancel = document.createElement("button");
-    btnCancel.type = "button";
-    btnCancel.textContent = "Abbrechen";
-    btnCancel.addEventListener("click", () => {
-      ctx.pendingDeleteId = "";
-      ctx.refresh();
-    });
-
-    deleteActions.appendChild(btnConfirm);
-    deleteActions.appendChild(btnCancel);
-
-    deleteBox.appendChild(deleteText);
-    deleteBox.appendChild(deleteActions);
-
-    return deleteBox;
-  }
-
-  function buildQrCard(ctx, code) {
-    const canvas = document.createElement("canvas");
-    canvas.className = "action-code-canvas";
-
-    const urlInput = document.createElement("input");
-    urlInput.type = "text";
-    urlInput.readOnly = true;
-    urlInput.inputMode = "none";
-    urlInput.className = "action-code-url";
-    urlInput.setAttribute("aria-label", "Action Code Link");
-
-    let url = "";
-    try {
-      url = actionUrlFor(ctx, code);
-      urlInput.value = url;
-      renderQrToCanvas(canvas, url);
-    } catch (e) {
-      const msg = String(e && e.message ? e.message : e || "");
-      const fallback = document.createElement("div");
-      fallback.className = "action-code-error";
-      fallback.textContent = msg.includes("QR library missing")
-        ? "QR-Code-Generator fehlt (qrcodegen.js)."
-        : "QR-Code konnte nicht erzeugt werden.";
-      return { error: fallback };
-    }
-
-    function selectUrl() {
-      try {
-        urlInput.focus({ preventScroll: true });
-      } catch (e) {
-        urlInput.focus();
-      }
-      urlInput.select();
-      try {
-        urlInput.setSelectionRange(0, urlInput.value.length);
-      } catch (e) {}
-    }
-
-    urlInput.addEventListener("focus", selectUrl);
-    urlInput.addEventListener("click", selectUrl);
-
-    const wallet = ctx.getWallet();
-    const safeUserId = String((wallet && wallet.userId) || "user").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    );
-
-    canvas.addEventListener("click", () => {
-      if (!url) return;
-      const safeCode = String(code.label || `+${code.amount}`)
-        .replace(/[^a-zA-Z0-9_-]/g, "_")
-        .slice(0, 20);
-      const filename = `db-wallet-${safeUserId}-action-${safeCode}.png`;
-      canvasToPngDownload(canvas, filename);
-    });
-
-    return { canvas, urlInput };
-  }
-
-  function buildActionCard(ctx, code, isSingle) {
-    const isGlobal = normalizeScope(code && code.scope) === "global";
-    const card = document.createElement("div");
-    card.className = "action-code-card";
-    if (isSingle) card.classList.add("action-code-card--featured");
-
-    const head = document.createElement("div");
-    head.className = "action-code-head";
-
-    const meta = document.createElement("div");
-    meta.className = "action-code-meta";
-
-    const badge = document.createElement("span");
-    badge.className = "action-code-badge";
-    badge.textContent = isGlobal ? "🌍 Global" : "🔒 Lokal";
-
-    const label = document.createElement("div");
-    label.className = "action-code-label";
-    label.textContent = code.label || `+${code.amount}`;
-
-    const amount = document.createElement("div");
-    amount.className = "action-code-amount";
-    const typeLabel = code.type === "d" ? "Drink" : "Guthaben";
-    amount.textContent = `+${normalizeAmount(code.amount)} Getränke (${typeLabel})`;
-
-    const labelRow = document.createElement("div");
-    labelRow.className = "action-code-label-row";
-    labelRow.appendChild(label);
-    labelRow.appendChild(badge);
-
-    meta.appendChild(labelRow);
-    meta.appendChild(amount);
-
-    const btns = document.createElement("div");
-    btns.className = "action-code-buttons";
-
-    const btnEdit = document.createElement("button");
-    btnEdit.type = "button";
-    btnEdit.textContent = "Bearbeiten";
-    btnEdit.addEventListener("click", () => {
-      ctx.editingId = code.id;
-      ctx.pendingDeleteId = "";
-      ctx.createOpen = false;
-      ctx.refresh();
-    });
-
-    const btnDelete = document.createElement("button");
-    btnDelete.type = "button";
-    btnDelete.textContent = "Löschen";
-    btnDelete.addEventListener("click", () => {
-      ctx.pendingDeleteId = ctx.pendingDeleteId === code.id ? "" : code.id;
-      ctx.editingId = "";
-      ctx.createOpen = false;
-      ctx.refresh();
-    });
-
-    btns.appendChild(btnEdit);
-    btns.appendChild(btnDelete);
-
-    head.appendChild(meta);
-    head.appendChild(btns);
-
-    card.appendChild(head);
-
-    if (ctx.editingId === code.id) {
-      card.appendChild(buildEditForm(ctx, code, isGlobal));
-    } else if (ctx.pendingDeleteId === code.id) {
-      card.appendChild(buildDeleteConfirm(ctx, code, isGlobal));
-    } else {
-      const qr = buildQrCard(ctx, code);
-      if (qr.error) {
-        card.appendChild(qr.error);
-      } else {
-        card.appendChild(qr.canvas);
-        card.appendChild(qr.urlInput);
-      }
-    }
-
-    return card;
-  }
-
-  function renderActionList(ctx) {
-    const wallet = ctx.getWallet();
-    if (!wallet) return;
-
-    persistIfChanged(ctx, wallet);
-
-    const localCodes = Array.isArray(wallet.actionCodes)
-      ? wallet.actionCodes
-      : [];
-    const codes = localCodes.concat(getGlobalCodes(wallet));
-    if (localCodes.length < SOFT_LIMIT) ctx.showSoftLimitNotice = false;
-    if (ctx.editingId && !codes.find((c) => c && c.id === ctx.editingId)) {
-      ctx.editingId = "";
-    }
-    if (
-      ctx.pendingDeleteId &&
-      !codes.find((c) => c && c.id === ctx.pendingDeleteId)
-    ) {
-      ctx.pendingDeleteId = "";
-    }
-
-    ctx.container.innerHTML = "";
-    ctx.container.classList.add("action-codes-body-inner");
-
-    const toolbar = document.createElement("div");
-    toolbar.className = "action-codes-toolbar";
-
-    const btnAdd = document.createElement("button");
-    btnAdd.type = "button";
-    btnAdd.textContent = "Neuer Action Code";
-    btnAdd.addEventListener("click", () => {
-      const walletNow = ctx.getWallet();
-      if (!walletNow) return;
-      persistIfChanged(ctx, walletNow);
-      const currentCodes = Array.isArray(walletNow.actionCodes)
-        ? walletNow.actionCodes
-        : [];
-      if (currentCodes.length >= SOFT_LIMIT) ctx.showSoftLimitNotice = true;
-      ctx.createOpen = !ctx.createOpen;
-      ctx.editingId = "";
-      ctx.pendingDeleteId = "";
-      ctx.refresh();
-    });
-
-    toolbar.appendChild(btnAdd);
-
-    const hint = document.createElement("div");
-    hint.className = "action-codes-hint";
-    hint.textContent =
-      "Diese QR-Codes buchen Drinks oder Guthaben auf dieses Wallet. Nach Änderungen bitte neu scannen/ausdrucken.";
-
-    const notice = document.createElement("div");
-    notice.className = "action-codes-notice";
-    notice.textContent =
-      "Hinweis: Für Import/Export werden nur die 10 zuletzt aktiven Action Codes gespeichert. Ältere Codes wurden entfernt.";
-
-    const softNotice = document.createElement("div");
-    softNotice.className = "action-codes-notice";
-    softNotice.textContent =
-      "Empfohlen: max. 6 Action Codes. Ab 10 werden automatisch nur die 10 zuletzt aktiven gespeichert (ältere werden entfernt).";
-
-    if (!codes.length) {
-      const empty = document.createElement("div");
-      empty.className = "action-codes-empty";
-      empty.textContent =
-        "Noch keine Action Codes – klicke auf „Neuer Action Code“.";
-      ctx.container.appendChild(toolbar);
-      ctx.container.appendChild(hint);
-      if (ctx.showSoftLimitNotice) {
-        ctx.container.appendChild(softNotice);
-        ctx.showSoftLimitNotice = false;
-      }
-      if (ctx.showTrimNotice) ctx.container.appendChild(notice);
-      if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
-      ctx.container.appendChild(empty);
-      return;
-    }
-
-    const grid = document.createElement("div");
-    grid.className = "action-codes-grid";
-    if (codes.length === 1) grid.classList.add("action-codes-grid--single");
-
-    for (const code of codes) {
-      grid.appendChild(buildActionCard(ctx, code, codes.length === 1));
-    }
-
-    ctx.container.appendChild(toolbar);
-    ctx.container.appendChild(hint);
-    if (ctx.showSoftLimitNotice) {
-      ctx.container.appendChild(softNotice);
-      ctx.showSoftLimitNotice = false;
-    }
-    if (ctx.showTrimNotice) ctx.container.appendChild(notice);
-    if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
-    ctx.container.appendChild(grid);
-  }
-
-  // Global ('🌍') codes live on the wallet (wallet.globalActionCodes) and only
-  // there: the panel reads them from ctx.getWallet() on every render and
-  // writes them back to that same wallet. No panel-level copy — a copy seeded
-  // once on init leaked wallet A's codes into wallet B after a wallet switch.
-  function getGlobalCodes(wallet) {
-    return wallet && Array.isArray(wallet.globalActionCodes)
-      ? wallet.globalActionCodes
-      : [];
-  }
-
-  // Persist the wallet's global codes; `nextList` (optional) replaces them.
-  function persistGlobalCodes(ctx, wallet, nextList) {
-    const w =
-      wallet ||
-      (ctx && typeof ctx.getWallet === "function" ? ctx.getWallet() : null);
-    if (!ctx || !w) return;
-    w.globalActionCodes = (
-      Array.isArray(nextList) ? nextList : getGlobalCodes(w)
-    ).slice();
-    if (typeof ctx.persistWallet === "function") ctx.persistWallet(w);
-  }
-
-  function initActionCodesUi(options) {
-    const container = options && options.container;
-    if (!container) return { refresh: () => {} };
-
-    const ctx = {
-      container,
-      getWallet:
-        options && typeof options.getWallet === "function"
-          ? options.getWallet
-          : () => null,
-      persistWallet:
-        options && typeof options.persistWallet === "function"
-          ? options.persistWallet
-          : () => {},
-      getBaseUrl:
-        options && typeof options.getBaseUrl === "function"
-          ? options.getBaseUrl
-          : () => String(window.location.href || "").split("#")[0],
-      showTrimNotice: false,
-      showSoftLimitNotice: false,
-      selectedType: "d",
-      selectedScope: "local",
-      createOpen: false,
-      editingId: "",
-      pendingDeleteId: "",
-      refresh: null,
-    };
-    ctx.refresh = () => renderActionList(ctx);
-
-    ctx.refresh();
-    return { refresh: ctx.refresh };
+    return base + "#" + encodeActionHash(buildActionPayload(wallet, code));
   }
 
   window.dbWalletActionCodes = {
     mergeActionCodes,
     mergeGlobalActionCodes,
     normalizeGlobalActionCodes,
+    globalPayloadAction,
     removeActionCode,
     recordDeletedActionCode,
     applyDeletedActionCodes,
@@ -1246,16 +623,24 @@
     normalizeDeletedActionCodes,
     normalizeActionCodes,
     buildActionCode,
+    buildGlobalCode,
     applyActionCodeEdits,
+    createActionCode,
+    editActionCode,
+    deleteActionCode,
+    buildActionUrl,
     buildActionPayload,
     encodeGlobalActionHash,
     decodeGlobalActionHash,
     decodeActionHash,
     encodeActionHash,
-    initActionCodesUi,
     ensureWalletActionCodes,
     normalizeAmount,
+    normalizeType,
+    normalizeScope,
+    clampGlobalAmount,
     defaultLabelForType,
+    amountPromptForType,
     HARD_LIMIT,
     SOFT_LIMIT,
     GLOBAL_ACTION_MAX_AMOUNT,

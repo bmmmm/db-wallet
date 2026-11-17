@@ -3,7 +3,7 @@
 // the open wallet and never leaves the import link in the address bar.
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { makeEnv } = require("./harness");
+const { makeEnv, plain } = require("./harness");
 const { bootWalletPage, flushHashChanges } = require("./wallet-page");
 
 function exportBytes(w) {
@@ -92,7 +92,10 @@ test("a failed import in an open wallet returns to it, link removed", async () =
   });
   w.location.hash = "#i2:AAAA";
   await flushHashChanges(w);
-  assert.equal(w._alerts.length, 1, JSON.stringify(w._alerts));
+  // The page stays, so the error goes to the status line, not an alert.
+  assert.deepEqual(plain(w._alerts), []);
+  assert.match(w.document.getElementById("status-text").textContent, /\S/);
+  assert.ok(w.document.getElementById("status-line").classList.contains("is-error"));
   assert.equal(w.location.hash, "#anna");
   assert.equal(w.dbWalletUi.getCurrentUserId(), "anna");
   assert.deepEqual(w._nav.pageLoads, []);

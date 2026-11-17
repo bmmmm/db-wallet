@@ -7,6 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bootWalletPage, flushHashChanges } = require("./wallet-page");
 const { findAll } = require("./fake-dom");
+const { plain, REPO } = require("./harness");
 
 function seedTwo(e) {
   const S = e.dbWalletStorage;
@@ -42,7 +43,10 @@ test("no hash and no wallets: still a link to the start page", async () => {
 test("broken #i2: link on a cold start ends in the no-wallet state", async () => {
   const w = await bootWalletPage({ seed: seedTwo, hash: "i2:AAAA" });
   await flushHashChanges(w);
-  assert.ok(w._alerts.length >= 1, "the import error is reported");
+  // Reported in the status line, which the no-wallet CSS leaves visible.
+  assert.match(w.document.getElementById("status-text").textContent, /\S/, "the import error is reported");
+  assert.ok(w.document.getElementById("status-line").classList.contains("is-error"));
+  assert.deepEqual(plain(w._alerts), []);
   assert.equal(w.document.body.dataset.noWallet, "1");
   assert.ok(links(w).includes("wallet.html#anna"), links(w).join(" "));
 });
@@ -53,4 +57,12 @@ test("a hash set after the no-wallet state opens that wallet", async () => {
   await flushHashChanges(w);
   // The no-wallet boot has no wallet UI wired; it reloads into the full boot.
   assert.deepEqual(w._nav.pageLoads, ["https://example.invalid/wallet.html#anna"]);
+});
+
+test("the no-wallet CSS keeps the status line visible", () => {
+  const css = require("fs").readFileSync(require("path").join(REPO, "style.css"), "utf8");
+  const rule = css.match(/body\[data-no-wallet="1"\] > ([^{]+)\{/);
+  assert.ok(rule, "no-wallet rule present");
+  assert.match(rule[1], /:not\(#global-action-message\)/);
+  assert.match(rule[1], /:not\(#status-line\)/);
 });

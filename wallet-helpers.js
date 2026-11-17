@@ -264,15 +264,62 @@
     return cmpStr(idA, idB);
   }
 
-  // Canonical full-event comparator: primary key timestamp, tie-broken by
-  // cmpEventId. Used wherever an event list is sorted before folding the balance.
+  function eventMinute(e) {
+    const ts = e && typeof e.ts === "number" && Number.isFinite(e.ts) ? e.ts : 0;
+    return Math.floor(ts / 60000);
+  }
+
+  function eventRootId(e) {
+    if (e && typeof e.supersedes === "string" && e.supersedes) return e.supersedes;
+    return e && typeof e.id === "string" ? e.id : "";
+  }
+
+  // Canonical full-event comparator (P5.4), the same on every device: the
+  // minute, then the entry's root id, then the event's own id. The QR export
+  // keeps only the minute (an imported event's sub-minute time is its payload
+  // position), so milliseconds must not decide the order — within a minute the
+  // ids do: on one device the seq is the booking order, between devices the
+  // deviceKey decides. Sorting by the root id keeps an edit that kept its ts at
+  // the original's place (before a later pay of that minute). Used wherever an
+  // event list is sorted before folding the balance, and by the encoder.
   function compareEventsByTime(a, b) {
-    const aTs = a && typeof a.ts === "number" && Number.isFinite(a.ts) ? a.ts : 0;
-    const bTs = b && typeof b.ts === "number" && Number.isFinite(b.ts) ? b.ts : 0;
-    if (aTs !== bTs) return aTs - bTs;
+    const aMin = eventMinute(a);
+    const bMin = eventMinute(b);
+    if (aMin !== bMin) return aMin - bMin;
+    const byRoot = cmpEventId(eventRootId(a), eventRootId(b));
+    if (byRoot !== 0) return byRoot;
     const aId = a && typeof a.id === "string" ? a.id : "";
     const bId = b && typeof b.id === "string" ? b.id : "";
     return cmpEventId(aId, bId);
+  }
+
+  // Seq values from 2^40 up are not a booking count (a crafted import); an
+  // edit does not lift its device counter above them (newEvent).
+  const EDIT_SEQ_LIMIT = 2 ** 40;
+
+  // The edit order of one id: its parsed compact id, or null for a migrated
+  // event (`oid`, its seq is a hash of the v1 id) or a non-compact id.
+  function editOrderOf(e) {
+    if (!e || (typeof e.oid === "string" && e.oid)) return null;
+    return parseCompactEventId(typeof e.id === "string" ? e.id : "");
+  }
+
+  // Which replacement of one entry is the later edit (> 0: a). Not by time —
+  // an edit may move an entry further back: the higher seq wins, a tie the
+  // larger deviceKey. newEvent lifts an edit's seq above every replacement of
+  // the entry the device has seen, so an edit beats what it replaced, on every
+  // device; concurrent edits converge on one winner. Migrated and non-compact
+  // ids rank below, among themselves in canonical order.
+  function compareEdits(a, b) {
+    const pa = editOrderOf(a);
+    const pb = editOrderOf(b);
+    if (pa && pb) {
+      if (pa.seq !== pb.seq) return pa.seq - pb.seq;
+      return cmpStr(pa.deviceKey, pb.deviceKey);
+    }
+    if (pa) return 1;
+    if (pb) return -1;
+    return compareEventsByTime(a, b);
   }
 
   function fnv1a64(bytes) {
@@ -322,14 +369,33 @@
     return `${datePart} ${hh}:${mm}`;
   }
 
+  // Hash prefixes the router reads as an action or an import — never a user
+  // id. The one list (hash-router.js and wallet-storage.js use it).
+  const RESERVED_HASH_PREFIXES = Object.freeze(["ac:", "acg:", "import:", "i2u:", "i2:"]);
+
+  function isReservedHashPrefix(raw) {
+    const s = String(raw || "");
+    return RESERVED_HASH_PREFIXES.some((p) => s.startsWith(p));
+  }
+
+  // German letters spelled out (P4.5: "Jörg" became "jrg"); other accents
+  // lose their mark below ("é" → "e").
+  const TRANSLITERATE = { "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss" };
+
   // Sanitizes a raw user-supplied string into a safe user id: lowercase,
-  // spaces collapsed to hyphens, anything outside [a-z0-9_-] stripped, capped
-  // at 64 chars. Returns "" if nothing usable remains (caller decides the
-  // fallback — e.g. generating a random id).
+  // umlauts transliterated and accents dropped, spaces collapsed to hyphens,
+  // anything outside [a-z0-9_-] stripped, capped at 64 chars. Returns "" if
+  // nothing usable remains (caller decides the fallback — e.g. generating a
+  // random id).
   function normalizeUserId(raw) {
-    return String(raw || "")
+    let s = String(raw || "")
       .trim()
       .toLowerCase()
+      // NFC first, so a decomposed "o" + U+0308 is the "ö" the table knows.
+      .normalize("NFC")
+      .replace(/[äöüß]/g, (c) => TRANSLITERATE[c]);
+    s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return s
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9_-]/g, "")
       .slice(0, 64);
@@ -359,6 +425,43 @@
       }
     }
     return false;
+  }
+
+  // qrcodegen.js (35 KB) is loaded on first use (P5.6), not by the page: only
+  // the export QR and an open action-code panel need it. Resolves with
+  // window.qrcodegen; a failed load rejects with "QR library missing" and a
+  // later call tries again. The file stays in the SW precache (offline).
+  const QR_LIBRARY_SRC = "qrcodegen.js";
+  let qrLibraryLoading = null;
+
+  function qrLibrary() {
+    const lib = window.qrcodegen;
+    return lib && lib.QrCode ? lib : null;
+  }
+
+  function loadQrLibrary() {
+    const ready = qrLibrary();
+    if (ready) return Promise.resolve(ready);
+    if (qrLibraryLoading) return qrLibraryLoading;
+    const missing = () => new Error("QR library missing");
+    if (typeof document === "undefined" || !document || typeof document.createElement !== "function") {
+      return Promise.reject(missing());
+    }
+    qrLibraryLoading = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = QR_LIBRARY_SRC;
+      script.onload = () => {
+        const lib = qrLibrary();
+        if (lib) resolve(lib);
+        else reject(missing());
+      };
+      script.onerror = () => reject(missing());
+      (document.head || document.body).appendChild(script);
+    }).catch((err) => {
+      qrLibraryLoading = null;
+      throw err;
+    });
+    return qrLibraryLoading;
   }
 
   function drawQrToCanvas(canvas, text, opts) {
@@ -421,6 +524,220 @@
     return true;
   }
 
+  // A JSON file download (wallet backups), pretty-printed. Goes through the
+  // namespace's downloadBlob, so a stub of it (tests) sees this download too.
+  function downloadJson(data, filename) {
+    if (typeof Blob === "undefined") return false;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const api = window.dbWalletHelpers;
+    const save = api && typeof api.downloadBlob === "function" ? api.downloadBlob : downloadBlob;
+    return save(blob, filename);
+  }
+
+  // --- Status line (P4.1) ----------------------------------------------------
+  // One line per page (#status-line; #status-text is the role="status" live
+  // region) takes the success and error notices that used to be alert()s.
+  // opts: kind "ok" | "error", action { label, run } (one button), sticky
+  // (stays until the next notice or ×). Others clear themselves after a while,
+  // errors later than successes. Without the line (a page that has none) the
+  // notice falls back to alert(); a notice right before leaving the page must
+  // call alert() itself, the line would vanish with the page.
+  const STATUS_CLEAR_MS = { ok: 6000, action: 10000, error: 15000 };
+  let statusTimer = null;
+  let statusAction = null;
+
+  function statusRefs() {
+    if (typeof document === "undefined" || !document || typeof document.getElementById !== "function") {
+      return null;
+    }
+    const line = document.getElementById("status-line");
+    const text = document.getElementById("status-text");
+    if (!line || !text) return null;
+    const refs = {
+      line,
+      text,
+      action: document.getElementById("status-action"),
+      close: document.getElementById("status-close"),
+    };
+    if (!line.dataset.statusBound) {
+      line.dataset.statusBound = "1";
+      if (refs.action) {
+        refs.action.addEventListener("click", () => {
+          const action = statusAction;
+          clearStatus();
+          if (action) action.run();
+        });
+      }
+      if (refs.close) refs.close.addEventListener("click", () => clearStatus());
+    }
+    return refs;
+  }
+
+  function clearStatus() {
+    if (statusTimer) clearTimeout(statusTimer);
+    statusTimer = null;
+    statusAction = null;
+    const refs = statusRefs();
+    if (!refs) return;
+    refs.text.textContent = "";
+    refs.line.classList.remove("is-visible");
+    refs.line.classList.remove("is-error");
+    if (refs.action) {
+      refs.action.textContent = "";
+      refs.action.hidden = true;
+    }
+    if (refs.close) refs.close.hidden = true;
+  }
+
+  // The line is fixed at the bottom of the viewport; an error usually puts
+  // the focus on the field it is about, which on a small phone may sit right
+  // behind the line. Scroll that element clear of it (WCAG 2.4.11).
+  function keepFocusClearOf(line) {
+    try {
+      const el = typeof document !== "undefined" ? document.activeElement : null;
+      if (!el || el === document.body || typeof el.getBoundingClientRect !== "function") return;
+      if (typeof line.getBoundingClientRect !== "function" || typeof window.scrollBy !== "function") return;
+      const lineTop = line.getBoundingClientRect().top;
+      const r = el.getBoundingClientRect();
+      if (!(lineTop > 0) || r.bottom <= lineTop || r.top >= window.innerHeight) return;
+      window.scrollBy(0, Math.ceil(r.bottom - lineTop + 12));
+    } catch (e) {
+      // ignore — no layout (tests) or an exotic element
+    }
+  }
+
+  function notify(message, opts) {
+    const text = String(message == null ? "" : message).trim();
+    if (!text) return false;
+    const o = opts || {};
+    const refs = statusRefs();
+    if (!refs) {
+      if (typeof alert === "function") alert(text);
+      return false;
+    }
+    const isError = o.kind === "error";
+    const action =
+      o.action && typeof o.action.run === "function" && o.action.label ? o.action : null;
+    if (statusTimer) clearTimeout(statusTimer);
+    statusTimer = null;
+    statusAction = action;
+    refs.text.textContent = text;
+    refs.line.classList.add("is-visible");
+    refs.line.classList.toggle("is-error", isError);
+    if (refs.action) {
+      refs.action.textContent = action ? String(action.label) : "";
+      refs.action.hidden = !action;
+    }
+    if (refs.close) refs.close.hidden = false;
+    keepFocusClearOf(refs.line);
+    if (!o.sticky) {
+      const ms = isError ? STATUS_CLEAR_MS.error : action ? STATUS_CLEAR_MS.action : STATUS_CLEAR_MS.ok;
+      statusTimer = setTimeout(clearStatus, ms);
+    }
+    return true;
+  }
+
+  // P4.3: the one confirmation dialog (#confirm-dialog on wallet.html) —
+  // resolves true for the OK button, false for Abbrechen or Escape (the
+  // browser's "cancel", then "close"). The focus goes back to where it was.
+  // Without the dialog (or without showModal) it asks window.confirm.
+  // opts: okLabel (default "OK"), cancelLabel ("Abbrechen"), danger (red OK,
+  // the focus starts on Abbrechen), extra {label, run} (P4.5: a third button,
+  // #confirm-extra, that runs `run` and keeps the question open — e.g. "save
+  // a backup first"; a string returned by `run` becomes its new label).
+  let confirmPending = null;
+
+  function confirmDialog(message, opts) {
+    const text = String(message == null ? "" : message);
+    const o = opts || {};
+    const dlg = typeof document !== "undefined" && document.getElementById
+      ? document.getElementById("confirm-dialog")
+      : null;
+    const textEl = dlg ? document.getElementById("confirm-text") : null;
+    const ok = dlg ? document.getElementById("confirm-ok") : null;
+    const cancel = dlg ? document.getElementById("confirm-cancel") : null;
+    const extraBtn = dlg ? document.getElementById("confirm-extra") : null;
+    if (!dlg || typeof dlg.showModal !== "function" || !textEl || !ok || !cancel) {
+      return Promise.resolve(typeof confirm === "function" ? !!confirm(text) : false);
+    }
+    // A second question while one is open: the first one counts as declined.
+    if (confirmPending) confirmPending(false);
+    const opener = document.activeElement || null;
+    textEl.textContent = text;
+    ok.textContent = o.okLabel ? String(o.okLabel) : "OK";
+    cancel.textContent = o.cancelLabel ? String(o.cancelLabel) : "Abbrechen";
+    dlg.classList.toggle("is-danger", !!o.danger);
+    const extra =
+      extraBtn && o.extra && typeof o.extra.run === "function" ? o.extra : null;
+    if (extraBtn) {
+      extraBtn.hidden = !extra;
+      extraBtn.textContent = extra ? String(extra.label || "") : "";
+    }
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (answer) => {
+        if (done) return;
+        done = true;
+        confirmPending = null;
+        ok.removeEventListener("click", onOk);
+        cancel.removeEventListener("click", onCancel);
+        if (extraBtn) {
+          extraBtn.removeEventListener("click", onExtra);
+          extraBtn.hidden = true;
+        }
+        dlg.removeEventListener("close", onClose);
+        if (dlg.open) {
+          try {
+            dlg.close();
+          } catch (e) {
+            // ignore
+          }
+        }
+        if (opener && typeof opener.focus === "function") {
+          try {
+            opener.focus();
+          } catch (e) {
+            // ignore
+          }
+        }
+        resolve(answer);
+      };
+      const onOk = () => finish(true);
+      const onCancel = () => finish(false);
+      const onExtra = () => {
+        let label;
+        try {
+          label = extra.run();
+        } catch (e) {
+          label = undefined;
+        }
+        if (typeof label === "string" && label) extraBtn.textContent = label;
+      };
+      // dialog.close() queues its "close" event as a task: when a new
+      // question already re-opened the dialog, that event is stale.
+      const onClose = () => {
+        if (!dlg.open) finish(false);
+      };
+      ok.addEventListener("click", onOk);
+      cancel.addEventListener("click", onCancel);
+      if (extra) extraBtn.addEventListener("click", onExtra);
+      dlg.addEventListener("close", onClose);
+      confirmPending = finish;
+      dlg.showModal();
+      const first = o.danger ? cancel : ok;
+      if (typeof first.focus === "function") first.focus();
+    });
+  }
+
+  // Runs onYes/onNo for an answer that is a boolean or a promise of one (a
+  // ctx stub answers at once, the dialog later). Returns what they return,
+  // or a promise of it.
+  function whenConfirmed(answer, onYes, onNo) {
+    const pick = (yes) => (yes ? onYes() : typeof onNo === "function" ? onNo() : undefined);
+    if (answer && typeof answer.then === "function") return answer.then(pick);
+    return pick(!!answer);
+  }
+
   window.dbWalletHelpers = {
     STORAGE_PREFIX,
     REGISTRY_KEY,
@@ -446,15 +763,26 @@
     cmpStr,
     cmpEventId,
     compareEventsByTime,
+    compareEdits,
+    editOrderOf,
+    EDIT_SEQ_LIMIT,
     fnv1a64,
     hash53,
     extractLegacyDeviceKey,
     formatDate,
     formatDateTime,
     normalizeUserId,
+    RESERVED_HASH_PREFIXES,
+    isReservedHashPrefix,
     replaceHashSilently,
     drawQrToCanvas,
+    loadQrLibrary,
     BLOB_URL_REVOKE_MS,
     downloadBlob,
+    downloadJson,
+    notify,
+    clearStatus,
+    confirmDialog,
+    whenConfirmed,
   };
 })();

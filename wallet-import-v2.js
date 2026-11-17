@@ -23,7 +23,6 @@
     safeParse,
     hash53,
     extractLegacyDeviceKey,
-    cmpEventId,
     formatCompactEventId,
     normalizeUserId,
   } = helpers;
@@ -162,7 +161,7 @@
       addEvent(e);
     }
 
-    // Return in canonical order (ts, then cmpEventId) so the persisted log
+    // Return in canonical order (compareEventsByTime) so the persisted log
     // matches the balance fold — consumers re-sort anyway, but this removes the
     // latent trap and satisfies the ordering invariant.
     if (helpers && typeof helpers.compareEventsByTime === "function") {
@@ -341,6 +340,34 @@
     return idx >= 0 && idx < THEME_NAMES.length ? THEME_NAMES[idx] : null;
   }
 
+  // P5.5: an event id as the tombstone block ("xt" v2) writes it — the device
+  // index + 1 and the seq when the id round-trips exactly through
+  // parse/formatCompactEventId and its device is in the header table, else 0
+  // and the id verbatim (legacy and migrated ids).
+  function compactIdParts(id) {
+    const p = parseCompactEventId(id);
+    return p && formatCompactEventId(p.deviceKey, p.seq) === id ? p : null;
+  }
+
+  function writeIdRef(id, deviceKeyToIndex, out) {
+    const p = compactIdParts(id);
+    if (p && deviceKeyToIndex.has(p.deviceKey)) {
+      writeVarUint(deviceKeyToIndex.get(p.deviceKey) + 1, out);
+      writeVarUint(p.seq, out);
+    } else {
+      writeVarUint(0, out);
+      writeString(id, out);
+    }
+  }
+
+  function readIdRef(bytes, offset, deviceKeys) {
+    const [k, next] = readVarUint(bytes, offset);
+    if (k === 0) return readString(bytes, next);
+    if (k > deviceKeys.length) throw importError("corrupt", "Invalid device index");
+    const [seq, end] = readVarUint(bytes, next);
+    return [formatCompactEventId(deviceKeys[k - 1], seq), end];
+  }
+
   // --- decodeImportV2Bytes internal helpers ---
 
   // Reads the fixed header fields up to (but not including) the events section.
@@ -454,8 +481,9 @@
   }
 
   // Reads the optional trailing extension blocks ("ac", "gc", "sp", "dv", "xt",
-  // "se") and mutates decoded in place. Tolerates parse errors for forward-compat.
-  function decodeV2Extensions(bytes, startOffset, decoded) {
+  // "se", "dc") and mutates decoded in place. Tolerates parse errors for forward-compat.
+  // deviceKeys is the header's device table (the compact ids of "xt" v2).
+  function decodeV2Extensions(bytes, startOffset, decoded, deviceKeys) {
     let offset = startOffset;
     try {
       while (offset + 1 < bytes.length) {
@@ -562,16 +590,30 @@
           offset += 2;
           const [xtVersion, o8] = readVarUint(bytes, offset);
           offset = o8;
-          if (xtVersion !== 1) break;
+          if (xtVersion !== 1 && xtVersion !== 2) break;
           const [count, o9] = readVarUint(bytes, offset);
           offset = o9;
+          // v1: id and ref as strings, the exact ts in ms. v2 (P5.5): the minute
+          // as a running delta (the first one absolute), then id and ref via
+          // readIdRef; the ts decodes to the full minute.
+          let tsMin = 0;
           for (let i = 0; i < count; i++) {
-            let id, ref;
-            [id, offset] = readString(bytes, offset);
-            [ref, offset] = readString(bytes, offset);
-
-            const [tsMs, o12] = readVarUint(bytes, offset);
-            offset = o12;
+            let id, ref, tsMs;
+            if (xtVersion === 1) {
+              [id, offset] = readString(bytes, offset);
+              [ref, offset] = readString(bytes, offset);
+              [tsMs, offset] = readVarUint(bytes, offset);
+            } else {
+              let delta;
+              [delta, offset] = readVarUint(bytes, offset);
+              tsMin += delta;
+              tsMs = tsMin * 60000;
+              if (tsMs > Number.MAX_SAFE_INTEGER) {
+                throw importError("corrupt", "Timestamp out of range");
+              }
+              [id, offset] = readIdRef(bytes, offset, deviceKeys);
+              [ref, offset] = readIdRef(bytes, offset, deviceKeys);
+            }
 
             // Skip self-referential tombstones (a tombstone deleting itself is
             // meaningless) — cheap guard against malformed/crafted xt entries.
@@ -616,6 +658,29 @@
         }
 
         if (
+          bytes[offset] === 100 && // "d"
+          bytes[offset + 1] === 99 // "c"
+        ) {
+          offset += 2;
+          const [dcVersion, o8] = readVarUint(bytes, offset);
+          offset = o8;
+          if (dcVersion !== 1) break;
+          const [count, o9] = readVarUint(bytes, offset);
+          offset = o9;
+          // null-prototype: the ids become keys.
+          const deleted = Object.create(null);
+          for (let i = 0; i < count; i++) {
+            let id;
+            [id, offset] = readString(bytes, offset);
+            const [at, o11] = readVarUint(bytes, offset);
+            offset = o11;
+            if (id) deleted[id] = Math.max(deleted[id] || 0, at);
+          }
+          decoded.deletedActionCodes = deleted;
+          continue;
+        }
+
+        if (
           bytes[offset] === 99 && // "c"
           bytes[offset + 1] === 107 // "k"
         ) {
@@ -652,7 +717,10 @@
     ) {
       throw importError("corrupt", "Invalid v2 payload");
     }
-    if (bytes[3] !== 2) {
+    // Codec 3 (P5.5) is codec 2 with compact tombstones ("xt" v2); the encoder
+    // writes 3 only when there are tombstones, so a decoder that knows only 2
+    // refuses those exports cleanly instead of dropping every tombstone.
+    if (bytes[3] !== 2 && bytes[3] !== 3) {
       // Magic matches but the codec version is newer than this build understands.
       throw importError(
         "unsupported-version",
@@ -706,15 +774,16 @@
     };
 
     // optional extensions:
-    //  - tombstones ("xt", v1)
+    //  - tombstones ("xt", v1; v2 compact since P5.5)
     //  - action codes ("ac", v1/v2)
     //  - sync peer device id ("sp", v1)
     //  - device list ("dv", v1)
     //  - supersedes links ("se", v1)
     //  - global action codes ("gc", v1)
+    //  - deleted action codes ("dc", v1)
     //  - integrity checksum ("ck", v1)
     if (evResult.offset < bytes.length) {
-      decodeV2Extensions(bytes, evResult.offset, decoded);
+      decodeV2Extensions(bytes, evResult.offset, decoded, deviceKeys);
     }
 
     return decoded;
@@ -723,7 +792,7 @@
   function encodeImportV2Bytes(wallet, themeName) {
     const out = [];
 
-    out.push(100, 98, 119, 2); // "dbw" + codec v2
+    out.push(100, 98, 119, 2); // "dbw" + codec v2 (3 with tombstones, below)
     out.push(themeIndexFromName(themeName));
     writeVarUint(wallet && wallet.v ? wallet.v : 1, out);
 
@@ -810,15 +879,30 @@
       });
     }
 
-    // Order events exactly as the balance fold does (computeSummary: ts then
-    // canonical id). The decoder rebuilds sub-minute order from payload position,
-    // so any divergence here would silently reorder same-minute events on import
-    // and could flip paid/unpaid. (Sorting by tsMs keeps tsMin non-decreasing, so
-    // the minute deltas written below stay >= 0.)
-    events.sort((a, b) => {
-      if (a.tsMs !== b.tsMs) return a.tsMs - b.tsMs;
-      return cmpEventId(a.id, b.id);
-    });
+    // Order events exactly as the balance fold does (compareEventsByTime: the
+    // minute, the root id, the id — P5.4), on the clamped tsMs the payload
+    // carries. The order inside a minute no longer rests on the payload
+    // position, but writing it canonically keeps the decoded sub-minute times in
+    // that order. (Minute first keeps tsMin non-decreasing, so the minute
+    // deltas written below stay >= 0.)
+    events.sort((a, b) =>
+      helpers.compareEventsByTime(
+        { ts: a.tsMs, id: a.id, supersedes: a.supersedes },
+        { ts: b.tsMs, id: b.id, supersedes: b.supersedes },
+      ),
+    );
+
+    // P5.5: tombstones write their ids compactly too, so a device that only
+    // appears in a tombstone id or ref joins the table (after the event devices).
+    for (const t of tombstones) {
+      for (const id of [t.id, t.ref]) {
+        const p = compactIdParts(id);
+        if (p && !deviceKeyToIndex.has(p.deviceKey)) {
+          deviceKeyToIndex.set(p.deviceKey, deviceKeys.length);
+          deviceKeys.push(p.deviceKey);
+        }
+      }
+    }
 
     writeVarUint(deviceKeys.length, out);
     for (const key of deviceKeys) {
@@ -856,20 +940,33 @@
       }
     }
 
-    // optional extension: tombstones ("xt", v1)
+    // optional extension: tombstones ("xt", v2 — P5.5)
     // Encoded FIRST among the extension blocks: blocks have no length prefix, so a
     // forward-compat version bump or a corrupt byte in a later block (ac/sp/dv)
     // stops the parse where it is. Putting tombstones first means that truncation
     // can't drop them — and a dropped tombstone resurrects a deleted event, the
     // worst failure mode of the lot.
+    // v2 writes them in canonical order: the minute as a running delta (the
+    // first one absolute; minute resolution like the events), then id and ref
+    // as device index + seq (writeIdRef) — about 6 bytes instead of about 34.
+    // A decoder that knows only "xt" v1 would stop here and silently lose every
+    // tombstone (and all later blocks), so such a payload says codec 3, which
+    // that decoder refuses as "from a newer app version".
     if (tombstones.length) {
+      out[3] = 3;
+      tombstones.sort((a, b) =>
+        helpers.compareEventsByTime({ ts: a.tsMs, id: a.id }, { ts: b.tsMs, id: b.id }),
+      );
       out.push(120, 116); // "xt"
-      writeVarUint(1, out);
+      writeVarUint(2, out);
       writeVarUint(tombstones.length, out);
+      let prevMin = 0;
       for (const t of tombstones) {
-        writeString(t.id, out);
-        writeString(t.ref, out);
-        writeVarUint(t.tsMs, out);
+        const tsMin = Math.floor(t.tsMs / 60000);
+        writeVarUint(tsMin - prevMin, out);
+        prevMin = tsMin;
+        writeIdRef(t.id, deviceKeyToIndex, out);
+        writeIdRef(t.ref, deviceKeyToIndex, out);
       }
     }
 
@@ -991,6 +1088,36 @@
       }
     }
 
+    // optional extension: deleted action codes ("dc", v1) — the deletion list
+    // (wallet.deletedActionCodes: id -> deletedAt ms, newest 50), so an import
+    // on another device removes a code deleted here (E4). Written AFTER "gc"
+    // and BEFORE "ck" (covered by the checksum); an OLD decoder stops here and
+    // only misses the deletions.
+    let deletedCodes = null;
+    try {
+      const api = window.dbWalletActionCodes || null;
+      if (
+        wallet &&
+        wallet.deletedActionCodes &&
+        api &&
+        typeof api.normalizeDeletedActionCodes === "function"
+      ) {
+        deletedCodes = api.normalizeDeletedActionCodes(wallet.deletedActionCodes);
+      }
+    } catch (e) {
+      console.warn("db-wallet: encode-v2 deleted action codes failed", e);
+    }
+    const deletedIds = deletedCodes ? Object.keys(deletedCodes) : [];
+    if (deletedIds.length) {
+      out.push(100, 99); // "dc"
+      writeVarUint(1, out);
+      writeVarUint(deletedIds.length, out);
+      for (const id of deletedIds) {
+        writeString(id, out);
+        writeVarUint(deletedCodes[id], out);
+      }
+    }
+
     // optional extension: integrity checksum ("ck", v1) — fnv1a64 truncated to
     // 32 bits over every preceding byte. Written ABSOLUTELY LAST so it covers all
     // other blocks. Hardens the uncompressed i2u: and legacy import: paths that
@@ -1107,13 +1234,30 @@
       local.events,
       sanitizeImportedEvents(remote && remote.events),
     );
+    // Deletion lists first (E4): union the local and the remote one, then both
+    // code merges below skip every listed id — a code deleted on the exporting
+    // device is removed here, and one deleted here stays deleted.
+    let deleted = local.deletedActionCodes;
+    try {
+      const api = window.dbWalletActionCodes || null;
+      const remoteDeleted =
+        remote && remote.deletedActionCodes && typeof remote.deletedActionCodes === "object"
+          ? remote.deletedActionCodes
+          : null;
+      if (remoteDeleted && api && typeof api.mergeDeletedActionCodes === "function") {
+        deleted = api.mergeDeletedActionCodes(local.deletedActionCodes, remoteDeleted);
+        if (Object.keys(deleted).length) local.deletedActionCodes = deleted;
+      }
+    } catch (e) {
+      console.warn("db-wallet: import deleted action codes merge failed", e);
+    }
     try {
       const api = window.dbWalletActionCodes || null;
       if (api && typeof api.mergeActionCodes === "function") {
         local.actionCodes = api.mergeActionCodes(
           local.actionCodes,
           remote && remote.actionCodes,
-          local.deletedActionCodes,
+          deleted,
         );
       } else if (remote && Array.isArray(remote.actionCodes)) {
         local.actionCodes = remote.actionCodes;
@@ -1140,7 +1284,7 @@
           local.globalActionCodes = api.mergeGlobalActionCodes(
             localGlobal,
             remoteGlobal,
-            local.deletedActionCodes,
+            deleted,
           );
         } else if (remoteGlobal.length) {
           local.globalActionCodes = remoteGlobal;
@@ -1291,6 +1435,16 @@
 
   const IMPORT_SAVE_FAILED_MESSAGE =
     "Import fehlgeschlagen: Die Daten konnten nicht gespeichert werden (Speicher voll oder blockiert). Nichts wurde importiert.";
+  const IMPORT_WALLET_REPLACED_MESSAGE =
+    "Import fehlgeschlagen: Dieses Wallet wurde inzwischen in einem anderen Tab zurückgesetzt oder ersetzt. Bitte Seite neu laden und den Import wiederholen. Nichts wurde importiert.";
+
+  // The import reports a failed save itself (saveWallet runs quiet): name the
+  // real reason, a wallet reset in another tab is not a full storage.
+  function importSaveFailedMessage() {
+    const reason =
+      typeof storage.getLastSaveError === "function" ? storage.getLastSaveError() : null;
+    return reason === "replaced" ? IMPORT_WALLET_REPLACED_MESSAGE : IMPORT_SAVE_FAILED_MESSAGE;
+  }
 
   function importRemoteWallet(remote, options) {
     const { userId, wallet } = buildImportedWallet(remote);
@@ -1300,16 +1454,17 @@
     // The import link is dropped from the address bar (back to the wallet that
     // was open, if any) — a reload must not replay the failing import.
     if (!saveWallet(wallet, { quiet: true })) {
-      alert(IMPORT_SAVE_FAILED_MESSAGE);
+      helpers.notify(importSaveFailedMessage(), { kind: "error" });
       replaceHash(returnUserIdOf(options));
       return null;
     }
     applyImportedTheme(remote, options);
     replaceHash(userId);
-    alert(
+    helpers.notify(
       remote && remote._extWarning
         ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Daten (Zusatzdaten oder Einträge ohne gültige ID) konnte nicht vollständig importiert und wurde übersprungen."
         : "Getränkedaten importiert ✅",
+      remote && remote._extWarning ? { sticky: true } : undefined,
     );
     return userId;
   }
@@ -1381,9 +1536,6 @@
         throw importError("corrupt", "Invalid import payload");
       }
       return { kind: "import", remote, label: "Import-Link erkannt" };
-    }
-    if (hash.startsWith("ac:")) {
-      return { kind: "ac" };
     }
     return null;
   }
@@ -1468,22 +1620,34 @@
     const key = typeof payload.key === "string" ? payload.key : "";
 
     if (!payloadWalletId) {
-      alert("Action Code ungültig: Ziel-Wallet fehlt.\nBuchung verweigert.");
-      return { done: redirectAfterActionError(activeUserId) };
+      return {
+        done: redirectAfterActionError(
+          activeUserId,
+          "Action Code ungültig: Ziel-Wallet fehlt.\nBuchung verweigert.",
+        ),
+      };
     }
     if (!codeId || !key) {
-      alert("Action Code ungültig (Daten fehlen).\nBuchung verweigert.");
-      return { done: redirectAfterActionError(activeUserId) };
+      return {
+        done: redirectAfterActionError(
+          activeUserId,
+          "Action Code ungültig (Daten fehlen).\nBuchung verweigert.",
+        ),
+      };
     }
 
     return { api, payload, payloadWalletId, codeId, key, activeUserId };
   }
 
-  function redirectAfterActionError(activeUserId) {
+  // With a wallet open the page stays and the message goes to the status line;
+  // without one the page leaves for index.html, so the message must block.
+  function redirectAfterActionError(activeUserId, message) {
     if (activeUserId) {
+      helpers.notify(message, { kind: "error" });
       replaceHash(activeUserId);
       return { userId: activeUserId, redirectedToPreview: false };
     }
+    alert(message);
     window.location.href = "index.html";
     return { userId: null, redirectedToPreview: true };
   }
@@ -1506,16 +1670,6 @@
           };
         }
         return { done: { userId: null, redirectedToPreview: false } };
-      }
-      try {
-        if (typeof sessionStorage !== "undefined" && sessionStorage) {
-          sessionStorage.setItem(
-            "db-wallet:pending-walletId",
-            payloadWalletId,
-          );
-        }
-      } catch (e) {
-        // ignore
       }
       window.location.href = "index.html";
       return { done: { userId: null, redirectedToPreview: true } };
@@ -1553,8 +1707,9 @@
     const codes = Array.isArray(wallet.actionCodes) ? wallet.actionCodes : [];
     const match = codeId && codes.find((c) => c && c.id === codeId);
     if (!match) {
-      alert(
+      helpers.notify(
         "Action Code ist unbekannt oder nicht mehr vorhanden.\nBuchung verweigert.",
+        { kind: "error" },
       );
       replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
@@ -1562,8 +1717,9 @@
 
     const matchKey = match && typeof match.key === "string" ? match.key : "";
     if (!matchKey || matchKey !== key) {
-      alert(
+      helpers.notify(
         "Action Code wurde erneuert.\nBitte den neuen QR-Code nutzen.\nBuchung verweigert.",
+        { kind: "error" },
       );
       replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
@@ -1587,17 +1743,31 @@
 
     const event = newEvent(wallet, type === "d" ? "d" : "g", amount);
     if (!appendEvents(wallet, [event])) {
-      alert(
-        "Speichern fehlgeschlagen — Buchung verworfen (Speicher voll oder blockiert).",
-      );
+      if (storage.getLastSaveError() === "replaced") {
+        storage.notifyWalletReplaced();
+      } else {
+        helpers.notify(
+          "Speichern fehlgeschlagen — Buchung verworfen (Speicher voll oder blockiert).",
+          { kind: "error" },
+        );
+      }
       replaceHash(targetUserId);
       return { userId: targetUserId, redirectedToPreview: false };
     }
     replaceHash(targetUserId);
-    alert(
-      type === "d"
-        ? `${amount} Getränk(e) getrunken gebucht ✅`
-        : `Guthaben +${amount} Getränke gebucht ✅`,
+    const summaryApi = window.dbWalletSummary || null;
+    const summary =
+      summaryApi && typeof summaryApi.computeSummarySafe === "function"
+        ? summaryApi.computeSummarySafe(wallet)
+        : null;
+    const balance = !summary
+      ? ""
+      : summary.credit > 0
+        ? ` · Guthaben: ${summary.credit}`
+        : ` · Offen: ${summary.unpaid}`;
+    const label = match.label ? ` „${match.label}“` : "";
+    helpers.notify(
+      `Action Code${label}: ${type === "d" ? `+${amount}` : `Guthaben +${amount}`} gebucht${balance}`,
     );
     return { userId: targetUserId, redirectedToPreview: false };
   }
@@ -1619,7 +1789,7 @@
         return handleActionCodeHash(hash, options);
       }
       const parsed = await parseImportHashPayload(hash);
-      if (parsed && parsed.kind !== "ac") {
+      if (parsed) {
         return await handleImportChoice(
           parsed.remote,
           parsed.label,
@@ -1629,7 +1799,7 @@
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
-      alert(IMPORT_ERROR_MESSAGES[importErrorCode(e)]);
+      helpers.notify(IMPORT_ERROR_MESSAGES[importErrorCode(e)], { kind: "error" });
       // Drop the failed link from the address bar without a history entry:
       // back to the open wallet's hash, or no hash on a cold start (wallet-ui
       // then shows the no-wallet state).
@@ -1657,6 +1827,7 @@
     buildImportedWallet,
     importRemoteWallet,
     IMPORT_SAVE_FAILED_MESSAGE,
+    importSaveFailedMessage,
     IMPORT_ERROR_MESSAGES,
     importErrorCode,
     parseImportHashPayload,

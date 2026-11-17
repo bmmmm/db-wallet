@@ -71,11 +71,12 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-storage.js` | localStorage, Event-IDs, Tombstones, Wallet-Registry |
 | `wallet-summary.js` | Zusammenfassung / Balance-Berechnung |
 | `wallet-import-v2.js` | Binär-QR-Codec (encode/decode), Import-Merge |
-| `action-codes.js` | QR-Action-Codes (lokal/global) |
+| `action-codes.js` | QR-Action-Codes (lokal/global): Normalisierung, Merge, Hash-Codec, Löschliste und die Änderungen als reine Funktionen (`createActionCode`/`editActionCode`/`deleteActionCode`, `(wallet, change) → {wallet}`) |
+| `action-codes-ui.js` | Action-Code-Panel (DOM, nur `wallet.html`): Karten, QR, Formulare; speichert jede Änderung einmal |
 | `wallet-sync.js` | Wallet-Sync-Logik |
-| `wallet-history-ui.js` | Verlaufs-UI |
+| `wallet-history-ui.js` | Verlaufs-UI: Diagramm/Raw im `<pre>`, „Historie" als Zeilen (`#history-list`, 200 je Schritt) mit Bearbeiten (Inline-Formular) / Löschen pro Eintrag |
 | `wallet-device-ui.js` | Geräte-UI |
-| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas`, `downloadBlob` = the one Blob-download path, revokes late); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
+| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas` + `loadQrLibrary` (injects `qrcodegen.js` on first use — no page loads it; the action-code panel draws its QRs only while `#action-codes-panel` is open), `downloadBlob` = the one Blob-download path, revokes late (`downloadJson` builds on it); `notify`/`confirmDialog`/`whenConfirmed`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
 | `hash-router.js` | Client-seitiges Routing via URL-Hash |
 | `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |
@@ -89,26 +90,41 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   merge dedups strictly by `id`). Operations:
   - drink/credit/pay → append a new event.
   - delete/undo → append a tombstone (`t:"x"`, `ref` = the entry's **root** id).
-  - edit → append a replacement carrying `supersedes` = root id (no tombstone). The
-    summary fold (`applyTombstones`) collapses every replacement of one root to the
-    canonical-last winner, so concurrent edits on two devices converge instead of
-    double-counting; a delete of the root wins over a concurrent edit. The
-    `supersedes` link round-trips via the `se` codec extension block.
-  - Order: sort by `ts`, tie-break by numeric base36 seq (not lexical).
+  - edit → append a replacement carrying `supersedes` = root id (no tombstone),
+    minted by `newEvent(wallet, t, n, { supersedes: root })`. The summary fold
+    (`applyTombstones`) collapses every replacement of one root to the latest edit
+    (`helpers.compareEdits`: the highest seq, tie the larger deviceKey — not the
+    latest `ts`, an edit may move an entry back); `newEvent` lifts the device
+    counter above every seq of the chain, so an edit beats what it replaced on
+    every device and concurrent edits converge. A delete of the root wins over a
+    concurrent edit. The `supersedes` link round-trips via the `se` codec block.
+  - Order (`compareEventsByTime`, P5.4): the **minute** of `ts`, then the root id,
+    then the id (`cmpEventId`: deviceKey, then numeric base36 seq — not lexical).
+    Milliseconds never decide (an imported event's sub-minute time is made up), so
+    every device sorts alike; an edit with the same `ts` keeps the original's place.
 - **Undo is monotonic** — it removes the last *visible* entry (tombstoning its root);
   it does not revert a deletion (that would ping-pong with its own tombstones). It
-  confirms when the previous action was a deletion. `applyTombstones` still treats a
+  confirms when the previous action was a deletion (this device's newest event, the
+  highest own seq, is a delete tombstone). `applyTombstones` still treats a
   tombstone-of-a-tombstone as an un-delete for data/merge robustness.
 - **QR export is minute-resolution + a bearer credential** — `tsMs` is quantized to
-  the minute on encode (order-preserving, balance-neutral; sub-minute order is rebuilt
-  from payload position). The export QR/link carries the full event log, userId, and
-  action-code keys with no encryption — anyone who captures it can replay it.
+  the minute on encode (balance-neutral: the order is by minute + ids anyway; events
+  are written in canonical order and decode at minute + position; tombstones decode
+  at the full minute — their ts counts nowhere, P5.5). The export
+  QR/link carries the full event log, userId, and action-code keys with no
+  encryption — anyone who captures it can replay it.
 - **Codec extension blocks are order-sensitive** — they have no length prefix, so an
-  old decoder stops at the first unknown block. New blocks (`se`, `gc`, `ck`) are written
-  LAST and `ck` (integrity checksum) is absolutely last so it covers everything. `gc`
+  old decoder stops at the first unknown block. New blocks (`se`, `gc`, `dc`, `ck`) are
+  written LAST and `ck` (integrity checksum) is absolutely last so it covers everything. `gc`
   carries `globalActionCodes` with an empty key field — global codes have no key
   (`normalizeGlobalActionCodes`: scope "global", no key, amount 1..100); decode drops
   the random key that pre-2026-11 exports wrote there, so old exports still import.
+  `dc` carries `deletedActionCodes` (`id → ts`). A version bump of a block an old
+  decoder knows makes it stop there too: tombstones (`xt` v2 since P5.5: minute
+  delta + device index/seq, `writeIdRef`/`readIdRef`) would be lost silently, so a
+  payload with tombstones says codec 3 in the header (an old app refuses it as
+  "neuere App-Version"); without tombstones it stays codec 2, byte for byte. The
+  decoder still reads `xt` v1 (exact ms).
 - **Events are constructed and persisted only via `dbWalletStorage`** —
   `newEvent(wallet, type, n)` is the single event factory and
   `appendEvents(wallet, events)` the atomic append+save (rolls back and returns
@@ -125,14 +141,16 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   local key (key rotation is local-only). A global `acg:` apply asks for confirmation.
   Deleting a code (local or global, also the old half of a local↔global conversion)
   goes through `dbWalletActionCodes.removeActionCode`, which records `id → ts` in
-  `wallet.deletedActionCodes` (local-only, newest 50, not exported). `saveWallet`'s
-  reconcile and the import merge filter those ids, so a stale tab or an old export
-  can't resurrect a deleted code. Don't splice `actionCodes` by hand.
+  `wallet.deletedActionCodes` (newest 50, times capped at now). The list travels in
+  exports (codec block `dc`, JSON field) and an import unions it with the local one
+  before merging codes, so a code deleted on one device disappears on the others.
+  `saveWallet`'s reconcile and the import merge filter those ids, so a stale tab or an
+  old export can't resurrect a deleted code. Don't splice `actionCodes` by hand.
 - **Reset = a new wallet under the same name** — `resetWallet` assigns a fresh
   `walletId` (a pre-reset export imports as a separate wallet) and carries `seq`
   over after `ensureDeviceSeq`, so an event id is never re-issued. Don't reset `seq`.
   `saveWallet` refuses (returns `false`, one-time "in einem anderen Tab
-  zurückgesetzt" alert) when the in-memory and persisted `walletId` differ (both
+  zurückgesetzt" notice with a "Neu laden" button, `notifyWalletReplaced`) when the in-memory and persisted `walletId` differ (both
   non-empty) — a stale tab must not merge old events into the reset wallet. Only a
   save that intentionally switches the `walletId` (today: `resetWallet`) passes
   `{ allowWalletIdChange: true }`, which overwrites without reconciling. Exception:
@@ -141,11 +159,79 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   still holds every event it was loaded with (two tabs opening a new wallet). A reset
   replaces the stored record (never removes it first); if that save fails, the tab
   and the store keep the old wallet and the user gets "Zurücksetzen fehlgeschlagen".
+- **Notices go to the status line, not `alert()`** — `dbWalletHelpers.notify(text,
+  {kind:"error", sticky, action:{label, run}})` writes `#status-line` (on
+  `wallet.html` and `index.html`; `#status-text` is the page's one `role="status"`,
+  always in the DOM, shown via `.is-visible`, so the no-wallet CSS must keep it).
+  Without the line it falls back to `alert()`. Showing a notice scrolls the
+  focused element clear of the fixed line, so focus the field an error is
+  about *before* calling `notify`. Keep `alert()` only for a message
+  right before a navigation away (`redirectAfterActionError` without an open wallet).
+  A booking's notice offers "Rückgängig" for exactly that booking (`undoBooking`,
+  root id), not "the last one" — another tab may have booked in between. A save
+  failure caused by a reset elsewhere goes through `storage.notifyWalletReplaced`,
+  never "Speicher voll". Booking limits (E5, `dbWalletActions.LIMITS`): at most 99
+  drinks per booking (confirm from 20), credit at most 999, edits the same — refused,
+  not clamped. The first "Teilen" on a device shows the bearer-link hint and shares
+  only from its button (`localStorage` flag `db-wallet.share-hint-seen`).
+- **Questions go to the shared dialog, not `confirm()`/`prompt()`** —
+  `dbWalletHelpers.confirmDialog(text, {okLabel, danger, extra})` shows
+  `#confirm-dialog` (on `wallet.html` and `index.html`) and resolves `true`/`false`
+  (Escape = no; the focus goes back); without the dialog it falls back to
+  `window.confirm`. `extra: {label, run}` shows `#confirm-extra` (only
+  `index.html` has it) — a side action that keeps the question open; a string
+  returned by `run()` becomes its new label (the start page's "Vorher Backup
+  herunterladen"). `ctx.dialogConfirm` may
+  answer a boolean or a Promise (`whenConfirmed`), so every action re-reads
+  `ctx.getWallet()` after the answer — another tab may have changed it meanwhile:
+  undo re-resolves its target and refuses if it moved, a row delete re-checks its
+  entry, reset checks the open user. Credit comes from the inline `#credit-form`
+  (`bookCredit(ctx, value)`, whole numbers only). History entries are edited and
+  deleted from their row by **root id** (`editEntry(ctx, rootId, {date, amount})`,
+  `deleteEntry(ctx, rootId)`) — no position numbers; the open edit form survives
+  a re-render. An edit on the same day keeps the `ts`; another day keeps the time
+  of day (today but later than now → now); a later day or a move across a pay is
+  refused. Still native (synchronous boot/hash path): the `acg:` apply confirm in
+  `wallet-ui.js`, the `ac:` target confirms in `wallet-import-v2.js`, and the v1
+  migration prompt. The import choice (`import-preview.js` `chooseImportMode`) is
+  its own native `<dialog>` (Escape/backdrop = cancel, the focus goes back).
 - **CSP has no `'unsafe-inline'`** (index/wallet/preview) — no `style="…"`, no
   `<style>`, no `setAttribute("style")`/`.cssText`/HTML strings with `style=`; single
   `el.style.x = …` assignments are fine. Initially hidden elements get `display: none`
   from an `#id` rule in `style.css`, so their inline `style.display` starts as `""` —
   toggles must treat `""` as hidden (`tests/p3-3-csp.test.js` checks all of this).
+  Newer UI toggles a class (`.is-visible`, `.is-expanded`) or the `hidden`
+  attribute instead — `hidden` only works on elements whose CSS sets no `display`.
+- **Card look = `.panel` / `.card` (P5.3)** — border, radius, shadow and background
+  live only in `.panel, .card` in `style.css` (`.panel` on `--panel` for blocks on
+  the page, `.card` on `--bg` for boxes inside one, `.card--flat` without the
+  shadow). A new block or box gets the class (also from JS: `"wallet-card card
+  card--flat"`); component rules set only size and spacing, and nothing switches
+  the look off again (`tests/p5-3-css-panels.test.js`). Bare `section`/`pre` carry
+  no look. JS keeps colors out of inline styles: the SW update notice goes to the
+  status line (`sw-register.js`).
+- **`wallet.html` layout (P4.2/P4.7/P4.9)** — `<header id="wallet-header">` (title,
+  "Start"/"Info" links, user, device picker), then `<main>`: the fixed three-stat row
+  (never hide a stat — the booking buttons must not jump), the booking block, then
+  history, action codes, sync line, export, theme. One `h2` per block; headings that
+  would only repeat what is visible use `.visually-hidden`. `#confirm-dialog` and
+  `#status-line` stay direct `<body>` children, and so does the no-wallet notice
+  (inserted after `#wallet-header`): the no-wallet CSS hides every other body child.
+  The device picker is one labelled button ("Gerät: wählen") that expands to visible
+  text + six `aria-pressed` symbols, no `title` tooltips. The sync line
+  (`#sync-status-line`) shows only with a sync partner (`pickActivePeer`, i.e. after
+  an import from another device); red adds a visible "Zum Export" button.
+- **Start page (P4.5/P4.8)** — `index.html`: `<header id="index-header">`, then
+  `<main>`: wallet list (`#existing-users-section`, hidden while empty; cards with
+  "Öffnen" and a separate `.btn-danger` "Löschen"), "Wallet öffnen oder anlegen",
+  "Link einfügen", import/raw (with "Alle löschen" in `.danger-zone`), theme.
+  An existing name **opens** that wallet (never `makeUniqueUserId` here);
+  `normalizeUserId` spells out ä/ö/ü/ß and strips other accents, everywhere
+  (imports too). "Link einfügen" (`dbWalletIndexUI.openPastedLink`) takes only
+  the part after `#`/`%23` and hands import/`ac:`/`acg:` hashes to `wallet.html`;
+  a bare name opens only an existing wallet (the data is not in it). Backups
+  use `storage.walletBackupData` + `walletBackupFileName` + `helpers.downloadJson`
+  — the same JSON as `wallet.html`'s export.
 - **Load order is load-bearing** — every module is a `window.dbWalletX` IIFE that
   early-returns if a dependency namespace is missing; keep the `<script>` order in `wallet.html`.
 - **Deploy allowlist** — Pages copies only the files on the `cp` line of

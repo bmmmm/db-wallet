@@ -60,13 +60,7 @@
     if (!raw) {
       return makeUniqueUserId("user-" + randomId());
     }
-    if (
-      raw.startsWith("import:") ||
-      raw.startsWith("i2:") ||
-      raw.startsWith("i2u:") ||
-      raw.startsWith("ac:") ||
-      raw.startsWith("acg:")
-    ) {
+    if (helpers.isReservedHashPrefix(raw)) {
       return makeUniqueUserId("user-" + raw);
     }
     if (!isReservedStorageKey(STORAGE_PREFIX + raw)) {
@@ -309,6 +303,22 @@
     return ev;
   }
 
+  // This device's newest event: the one with the highest seq on its deviceKey
+  // (ids are minted in increasing seq order), or null.
+  function lastOwnEvent(events) {
+    const deviceKey = getDeviceKey();
+    let best = null;
+    let bestSeq = 0;
+    for (const e of events || []) {
+      const parsed = e && helpers.parseCompactEventId(e.id);
+      if (parsed && parsed.deviceKey === deviceKey && parsed.seq > bestSeq) {
+        best = e;
+        bestSeq = parsed.seq;
+      }
+    }
+    return best;
+  }
+
   // Pure resolution of what an undo would act on — shared by undoLastEvent and
   // the UI's pre-undo confirm so the confirm always matches the actual outcome.
   // Returns { type: "undo", id, event, afterDeletion } or null if nothing to
@@ -340,7 +350,11 @@
     // afterDeletion = the last appended event was a real DELETE: a tombstone
     // that is neither itself neutralized nor a neutralizer (a tombstone-of-a-
     // tombstone, i.e. an undo-of-delete — its ref names a neutralized tombstone).
-    const lastAppended = sorted[sorted.length - 1];
+    // "Last appended" is this device's newest event (the highest own seq), not
+    // the end of the canonical order: since P5.4 another device's event of the
+    // same minute may sort after a local tombstone. Without an own event, the
+    // end of the order.
+    const lastAppended = lastOwnEvent(sorted) || sorted[sorted.length - 1];
     const lastRef =
       lastAppended && typeof lastAppended.ref === "string"
         ? lastAppended.ref.trim()
@@ -402,15 +416,41 @@
     return `${deviceKey}.${seq.toString(36)}`;
   }
 
+  // An edit must be the later edit (helpers.compareEdits: the higher seq) than
+  // every replacement of its entry this device has seen, a foreign one too:
+  // lift the device counter above the highest seq of the chain (a Lamport
+  // clock per entry). Migrated ids (a hash as seq) and seqs from
+  // EDIT_SEQ_LIMIT up (a crafted import) do not count.
+  function liftSeqAboveEdits(wallet, rootId) {
+    const deviceKey = getDeviceKey();
+    let max = 0;
+    for (const e of wallet.events || []) {
+      if (!e || e.supersedes !== rootId) continue;
+      const order = helpers.editOrderOf(e);
+      if (order && order.seq < helpers.EDIT_SEQ_LIMIT && order.seq > max) max = order.seq;
+    }
+    if (!wallet.seq || typeof wallet.seq !== "object") wallet.seq = {};
+    if (typeof wallet.seq[deviceKey] !== "number") {
+      wallet.seq[deviceKey] = maxSeqForDevice(wallet, deviceKey) + 1;
+    }
+    if (wallet.seq[deviceKey] <= max) wallet.seq[deviceKey] = max + 1;
+  }
+
   // Canonical event factory — a fresh id + timestamp for a drink/pay/credit.
   // Shared so callers (wallet-actions, sync, UI) all mint identical shapes.
-  function newEvent(wallet, type, n) {
-    return {
+  // `opts.supersedes` (a root id) makes it an edit replacement of that entry.
+  function newEvent(wallet, type, n, opts) {
+    const supersedes =
+      opts && typeof opts.supersedes === "string" && opts.supersedes ? opts.supersedes : "";
+    if (supersedes) liftSeqAboveEdits(wallet, supersedes);
+    const ev = {
       id: nextEventId(wallet),
       t: type,
       n: typeof n === "number" ? n : undefined,
       ts: Date.now(),
     };
+    if (supersedes) ev.supersedes = supersedes;
+    return ev;
   }
 
   // Append events and persist, rolling back the optimistic in-memory append when
@@ -579,7 +619,7 @@
           msgApi.showGlobal(
             message ||
               "⚠️ Speichern fehlgeschlagen — neue Änderungen sind nicht gesichert (Speicher voll oder blockiert).",
-            { id: "storage-error-banner", className: "action-codes-notice" },
+            { id: "storage-error-banner", className: "action-codes-notice card card--flat" },
           );
         } else {
           msgApi.clearGlobal({ id: "storage-error-banner" });
@@ -667,6 +707,9 @@
     if (codesApi && typeof codesApi.applyDeletedActionCodes === "function") {
       codesApi.applyDeletedActionCodes(wallet);
     }
+    const count = (list) => (Array.isArray(list) ? list.length : 0);
+    const codesBefore = count(wallet.actionCodes) + count(wallet.globalActionCodes);
+    const devicesBefore = count(wallet.devices);
     // Re-apply the caps after the union (max 10 codes, max 6 devices) — a union
     // of two capped lists can exceed them.
     if (codesApi && typeof codesApi.ensureWalletActionCodes === "function") {
@@ -684,6 +727,10 @@
       );
     }
     ensureWalletDevices(wallet);
+    const trimmed = {
+      codes: Math.max(0, codesBefore - count(wallet.actionCodes) - count(wallet.globalActionCodes)),
+      devices: Math.max(0, devicesBefore - count(wallet.devices)),
+    };
     // syncPeers is a map keyed by peer key — union keys, local wins.
     if (
       persisted.syncPeers &&
@@ -695,6 +742,7 @@
       for (const k of Object.keys(localPeers)) merged[k] = localPeers[k];
       wallet.syncPeers = merged;
     }
+    return trimmed;
   }
 
   // syncPeers is a map keyed by peer key, and peer keys come from imported data
@@ -724,6 +772,40 @@
     "Dieses Wallet wurde in einem anderen Tab zurückgesetzt oder ersetzt. Bitte Seite neu laden — diese Änderung wurde nicht gespeichert.";
   let hasShownWalletReplacedError = false;
 
+  // Why the last saveWallet call refused: "reserved" (userId collides with an
+  // internal key), "replaced" (walletId changed in another tab, P1.9), "quota"
+  // (the write itself failed), or null after a successful save. Callers that
+  // report the failure themselves (import) pick their message by it.
+  let lastSaveError = null;
+
+  function getLastSaveError() {
+    return lastSaveError;
+  }
+
+  // P1.9 in the status line: the stale tab can only reload, so offer that.
+  function notifyWalletReplaced() {
+    helpers.notify(WALLET_REPLACED_MESSAGE, {
+      kind: "error",
+      sticky: true,
+      action: { label: "Neu laden", run: () => window.location.reload() },
+    });
+  }
+
+  // O3.3: the reconcile with another tab's copy re-applies the caps (10 codes
+  // per list, 6 devices); what that drops is reported once per save.
+  function trimNotice(trimmed) {
+    const parts = [];
+    if (trimmed.codes > 0) {
+      parts.push(`${trimmed.codes} Action Code${trimmed.codes === 1 ? "" : "s"} (höchstens 10 je Liste)`);
+    }
+    if (trimmed.devices > 0) {
+      parts.push(`${trimmed.devices} ${trimmed.devices === 1 ? "Gerät" : "Geräte"} (höchstens 6)`);
+    }
+    return parts.length
+      ? `Abgleich mit einem anderen Tab: ${parts.join(" und ")} über der Obergrenze entfernt, die ältesten zuerst.`
+      : "";
+  }
+
   // opts.quiet: skip the generic one-time alert on failure (the banner/body
   // flag is still set). For callers that report the failure themselves, e.g.
   // the import, which must not claim success after a failed save.
@@ -734,19 +816,22 @@
   // elsewhere, and merging would resurrect the old events into the new wallet.
   function saveWallet(wallet, opts) {
     if (!wallet || !wallet.userId) return false;
+    lastSaveError = null;
     const quiet = !!(opts && opts.quiet);
     const allowWalletIdChange = !!(opts && opts.allowWalletIdChange);
 
     const storageKey = STORAGE_PREFIX + wallet.userId;
     if (isReservedStorageKey(storageKey)) {
+      lastSaveError = "reserved";
       markStorageFailed(
         true,
         "⚠️ Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
       );
       if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
-        alert(
+        helpers.notify(
           "Ungültige Nutzer-ID (kollidiert mit internen Storage-Keys). Speichern verweigert.",
+          { kind: "error" },
         );
       }
       return false;
@@ -779,14 +864,16 @@
       walletIdChanged = false;
     }
     if (walletIdChanged && !allowWalletIdChange) {
+      lastSaveError = "replaced";
       markStorageFailed(true, "⚠️ " + WALLET_REPLACED_MESSAGE);
       if (!quiet && !hasShownWalletReplacedError) {
         hasShownWalletReplacedError = true;
-        alert(WALLET_REPLACED_MESSAGE);
+        notifyWalletReplaced();
       }
       return false;
     }
 
+    let reconciledTrim = null;
     try {
       // An intentional replacement (reset) overwrites without reconciling —
       // also over a legacy record that has no walletId at all.
@@ -871,7 +958,7 @@
           ensureDeviceSeq(wallet);
           // Reconcile the remaining fields too — otherwise a concurrent tab's
           // action codes / devices / sync peers get clobbered by our stale copy.
-          reconcilePersistedFields(wallet, persisted);
+          reconciledTrim = reconcilePersistedFields(wallet, persisted);
         }
       }
     } catch (e) {
@@ -882,11 +969,13 @@
 
     // Hauptspeicherort
     if (!safeLocalStorageSetItem(storageKey, json)) {
+      lastSaveError = "quota";
       markStorageFailed(true);
       if (!quiet && !hasShownStorageWriteError) {
         hasShownStorageWriteError = true;
-        alert(
+        helpers.notify(
           "Konnte nicht speichern (Storage voll oder blockiert). Änderungen sind nicht gesichert.",
+          { kind: "error" },
         );
       }
       return false;
@@ -903,6 +992,8 @@
 
     unsavedWalletIds.delete(wallet);
     markStorageFailed(false);
+    const notice = !quiet && reconciledTrim ? trimNotice(reconciledTrim) : "";
+    if (notice) helpers.notify(notice);
     return true;
   }
 
@@ -970,6 +1061,31 @@
     }
 
     return all;
+  }
+
+  // The JSON backup (wallet.html "Als JSON herunterladen", the backup that
+  // index.html offers before a delete). buildImportedWallet reads it back.
+  function walletBackupData(wallet, theme) {
+    const w = wallet && typeof wallet === "object" ? wallet : {};
+    return {
+      userId: w.userId,
+      walletId: w.walletId,
+      deviceId: w.deviceId,
+      v: w.v,
+      seq: w.seq,
+      events: w.events,
+      actionCodes: w.actionCodes,
+      globalActionCodes: w.globalActionCodes,
+      deletedActionCodes: w.deletedActionCodes,
+      devices: w.devices,
+      theme: theme || null,
+    };
+  }
+
+  // "db-wallet-<user>-<YYYY-MM-DD>[-<tag>].json"
+  function walletBackupFileName(userId, dateStr, tag) {
+    const safe = String(userId || "user").replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `db-wallet-${safe}-${dateStr}${tag ? "-" + tag : ""}.json`;
   }
 
   function findUserIdByWalletId(walletId) {
@@ -1044,7 +1160,11 @@
     isForbiddenMapKey,
     loadWallet,
     saveWallet,
+    getLastSaveError,
+    notifyWalletReplaced,
     getAllWallets,
+    walletBackupData,
+    walletBackupFileName,
     userIdExists,
     makeUniqueUserId,
     findUserIdByWalletId,

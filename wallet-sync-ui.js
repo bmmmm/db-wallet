@@ -10,6 +10,7 @@
   let syncLineDelta = null;
   let syncLineLegend = null;
   let btnSyncReset = null;
+  let btnGoExport = null;
 
   // Canonical list lives in dbWalletHelpers; the literal is only a fallback for
   // the (never-in-practice) case where helpers failed to load.
@@ -26,18 +27,30 @@
   }
 
   function ensureLine() {
-    if (!opts || !opts.topRow) return null;
+    if (!opts) return null;
     if (syncStatusLine && syncStatusLine.isConnected) return syncStatusLine;
 
     syncStatusLine = document.getElementById("sync-status-line");
     if (!syncStatusLine && opts.topRow && opts.topRow.parentNode) {
-      syncStatusLine = document.createElement("div");
+      syncStatusLine = document.createElement("section");
       syncStatusLine.id = "sync-status-line";
-      syncStatusLine.className = "top-row";
-      syncStatusLine.style.marginTop = "0.75rem";
+      syncStatusLine.className = "sync-line panel";
       opts.topRow.insertAdjacentElement("afterend", syncStatusLine);
     }
     return syncStatusLine;
+  }
+
+  // P4.7: the line is only shown once there is something to show — a sync
+  // partner, i.e. after the first import from another device. A fresh wallet
+  // (or one that was only exported) has no partner and no line.
+  function setVisible(line, visible) {
+    if (line && line.classList) line.classList.toggle("is-visible", !!visible);
+  }
+
+  function makeEl(tag, className) {
+    const el = document.createElement(tag);
+    el.className = className;
+    return el;
   }
 
   function init(nextOpts) {
@@ -48,55 +61,58 @@
     const line = ensureLine();
     if (!line) return;
 
-    syncLineText = document.createElement("div");
-    syncLineTimeline = document.createElement("div");
-    syncLineDelta = document.createElement("div");
-    syncLineLegend = document.createElement("div");
-    btnSyncReset = document.createElement("button");
+    // Not a live region (P4.1): it is rebuilt on every render, which would
+    // re-announce the whole timeline; the status line (#status-text) speaks.
+    // The block's heading (#sync-title) stays; only the body is rebuilt.
+    const old = line.querySelector ? line.querySelector(".sync-body") : null;
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    setVisible(line, false);
 
-    line.innerHTML = "";
-    line.setAttribute("role", "status");
-    line.setAttribute("aria-live", "polite");
+    const body = makeEl("div", "sync-body");
+    const syncLeft = makeEl("div", "sync-main");
+    syncLineText = makeEl("div", "sync-text");
+    syncLineTimeline = makeEl("div", "sync-timeline");
+    syncLineDelta = makeEl("div", "sync-delta");
+    syncLineDelta.hidden = true;
+    syncLineLegend = makeEl("div", "sync-legend");
+    syncLineLegend.hidden = true;
 
-    const syncLeft = document.createElement("div");
-    syncLeft.style.flex = "1";
-    syncLeft.style.minWidth = "220px";
-
-    syncLineText.style.marginBottom = "0.2rem";
-
-    syncLineTimeline.style.fontFamily =
-      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
-    syncLineTimeline.style.whiteSpace = "pre";
-    syncLineTimeline.style.overflow = "hidden";
-
-    syncLineDelta.style.marginTop = "0.15rem";
-    syncLineDelta.style.fontSize = "0.85rem";
-    syncLineDelta.style.color = "var(--muted)";
-    syncLineDelta.style.display = "none";
-
-    syncLineLegend.style.marginTop = "0.25rem";
-    syncLineLegend.style.fontSize = "0.85rem";
-    syncLineLegend.style.color = "var(--muted)";
-    syncLineLegend.style.display = "none";
-
+    const buttons = makeEl("div", "sync-buttons");
+    btnGoExport = makeEl("button", "sync-go-export");
+    btnGoExport.type = "button";
+    btnGoExport.textContent = "Zum Export";
+    btnGoExport.hidden = true;
+    btnSyncReset = makeEl("button", "sync-reset");
+    btnSyncReset.type = "button";
     btnSyncReset.textContent = "✅ passt";
-    btnSyncReset.style.padding = "0.25rem 0.6rem";
-    btnSyncReset.style.fontSize = "0.85rem";
-    btnSyncReset.title = "Manuell bestätigen, dass Geräte gleich sind";
+    btnSyncReset.setAttribute("aria-label", "passt: Geräte als gleich bestätigen");
 
     syncLeft.appendChild(syncLineText);
     syncLeft.appendChild(syncLineTimeline);
     syncLeft.appendChild(syncLineDelta);
     syncLeft.appendChild(syncLineLegend);
-    line.appendChild(syncLeft);
-    line.appendChild(btnSyncReset);
+    buttons.appendChild(btnGoExport);
+    buttons.appendChild(btnSyncReset);
+    body.appendChild(syncLeft);
+    body.appendChild(buttons);
+    line.appendChild(body);
 
-    line.addEventListener("click", (e) => {
-      if (e && e.target && btnSyncReset && btnSyncReset.contains(e.target)) return;
-      if (syncLineLevel !== "red") return;
+    const openExport = () => {
       if (opts && typeof opts.openExportSection === "function") {
         opts.openExportSection();
       }
+    };
+
+    line.addEventListener("click", (e) => {
+      if (e && e.target && btnSyncReset && btnSyncReset.contains(e.target)) return;
+      if (e && e.target && btnGoExport && btnGoExport.contains(e.target)) return;
+      if (syncLineLevel !== "red") return;
+      openExport();
+    });
+
+    btnGoExport.addEventListener("click", (e) => {
+      if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+      openExport();
     });
 
     btnSyncReset.addEventListener("click", (e) => {
@@ -134,24 +150,31 @@
     });
   }
 
+  function showUnknown(line) {
+    syncLineLevel = "unknown";
+    syncLinePeerKey = "";
+    syncLineText.textContent = "❔ Sync-Status: unbekannt";
+    syncLineTimeline.textContent = "Sync: ?";
+    syncLineDelta.textContent = "";
+    syncLineDelta.hidden = true;
+    syncLineLegend.textContent = "";
+    syncLineLegend.hidden = true;
+    btnGoExport.hidden = true;
+    line.title = "";
+    line.classList.remove("is-red");
+    setVisible(line, false);
+  }
+
   function refresh() {
     const line = ensureLine();
     if (!line || !opts || typeof opts.getWallet !== "function") return;
+    if (!syncLineText) return; // init() did not run
 
     const wallet = opts.getWallet();
     const syncApi = opts.syncApi || null;
 
     if (!syncApi) {
-      syncLineLevel = "unknown";
-      syncLinePeerKey = "";
-      syncLineText.textContent = "❔ Sync-Status: unbekannt";
-      syncLineTimeline.textContent = "Sync: ?";
-      syncLineDelta.textContent = "";
-      syncLineDelta.style.display = "none";
-      syncLineLegend.textContent = "";
-      syncLineLegend.style.display = "none";
-      line.title = "";
-      line.style.cursor = "default";
+      showUnknown(line);
       return;
     }
 
@@ -169,19 +192,11 @@
         : null;
 
     if (!active) {
-      syncLineLevel = "unknown";
-      syncLinePeerKey = "";
-      syncLineText.textContent = "❔ Sync-Status: unbekannt";
-      syncLineTimeline.textContent = "Sync: ?";
-      syncLineDelta.textContent = "";
-      syncLineDelta.style.display = "none";
-      syncLineLegend.textContent = "";
-      syncLineLegend.style.display = "none";
-      line.title = "";
-      line.style.cursor = "default";
+      showUnknown(line);
       return;
     }
 
+    setVisible(line, true);
     syncLinePeerKey = active.peerKey;
     const peer = active.peer;
     const labelRaw = peer && typeof peer.label === "string" ? peer.label.trim() : "";
@@ -231,10 +246,10 @@
       const deltaL = Math.max(0, localCount - Math.min(common, localCount));
       if (deltaL > 0) {
         syncLineDelta.textContent = `Δ: +${deltaL} Events`;
-        syncLineDelta.style.display = "block";
+        syncLineDelta.hidden = false;
       } else {
         syncLineDelta.textContent = "";
-        syncLineDelta.style.display = "none";
+        syncLineDelta.hidden = true;
       }
 
       const devices = wallet && Array.isArray(wallet.devices) ? wallet.devices : [];
@@ -246,7 +261,7 @@
       const ordered = DEVICE_SYMBOLS.map((s) => bySymbol.get(s)).filter(Boolean);
       if (!ordered.length) {
         syncLineLegend.textContent = "";
-        syncLineLegend.style.display = "none";
+        syncLineLegend.hidden = true;
       } else {
         syncLineLegend.innerHTML = "";
         const labelEl = document.createElement("span");
@@ -262,22 +277,21 @@
           span.title = `Geräte-ID: ${d.deviceKey}${ts ? `\nZuletzt gesehen: ${ts}` : ""}`;
           syncLineLegend.appendChild(span);
         });
-        syncLineLegend.style.display = "block";
+        syncLineLegend.hidden = false;
       }
     } catch (e) {
       syncLineDelta.textContent = "";
-      syncLineDelta.style.display = "none";
+      syncLineDelta.hidden = true;
       syncLineLegend.textContent = "";
-      syncLineLegend.style.display = "none";
+      syncLineLegend.hidden = true;
     }
 
-    if (syncLineLevel === "red") {
-      line.title = "Klicken, um zum Export zu springen (für Synchronisierung)";
-      line.style.cursor = "pointer";
-    } else {
-      line.title = "";
-      line.style.cursor = "default";
-    }
+    // Red = stale: the whole line jumps to the export, and "Zum Export" says
+    // so visibly (a title tooltip never shows on touch devices).
+    const red = syncLineLevel === "red";
+    line.classList.toggle("is-red", red);
+    btnGoExport.hidden = !red;
+    line.title = red ? "Klicken, um zum Export zu springen (für Synchronisierung)" : "";
   }
 
   window.dbWalletSyncUI = {

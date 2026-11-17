@@ -64,11 +64,8 @@ test("editEntry appends a supersedes replacement, no in-place change", () => {
   ev.ts = Date.now() - 3 * 86400000;
   S.appendEvents(wallet, [ev]);
   const date = w.dbWalletSummary.dateStrFromTimestamp(ev.ts);
-  const { ctx } = makeActionsCtx(w, wallet, {
-    deleteRange: "1",
-    prompts: [date, "5"],
-  });
-  w.dbWalletActions.editEntry(ctx);
+  const { ctx } = makeActionsCtx(w, wallet);
+  assert.equal(w.dbWalletActions.editEntry(ctx, ev.id, { date, amount: "5" }), true);
   const reloaded = S.loadWallet("anna");
   assert.equal(reloaded.events.length, 2);
   const orig = reloaded.events.find((e) => e.id === ev.id);
@@ -76,6 +73,7 @@ test("editEntry appends a supersedes replacement, no in-place change", () => {
   const repl = reloaded.events.find((e) => e.id !== ev.id);
   assert.equal(repl.supersedes, ev.id);
   assert.equal(repl.n, 5);
+  assert.equal(repl.ts, ev.ts, "same date: same timestamp");
   assert.equal(summary(w, reloaded).total, 5);
 });
 

@@ -1,5 +1,5 @@
 (function () {
-  const DEFAULT_CLASS = "action-codes-notice";
+  const DEFAULT_CLASS = "action-codes-notice card card--flat";
   const DEFAULT_ID = "global-action-message";
 
   function findAnchor(selectors) {
@@ -17,7 +17,7 @@
     const className = opts.className || DEFAULT_CLASS;
     const anchors = Array.isArray(opts.anchors) && opts.anchors.length
       ? opts.anchors
-      : [".top-row", "h1"];
+      : ["#wallet-header", ".top-row", "h1"];
 
     let el = document.getElementById(id);
     if (!el) {

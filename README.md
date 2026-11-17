@@ -12,26 +12,81 @@ ohne Cloud.
 
 ## Schnellstart
 
-1. `index.html` öffnen, Namen eingeben (oder leer lassen für Zufall) →
-   `wallet.html#<name>`.
+1. `index.html` öffnen: oben stehen die Wallets dieses Geräts (Öffnen/Löschen);
+   darunter einen Namen eingeben (oder leer lassen für Zufall) →
+   `wallet.html#<name>`. Ein vorhandener Name öffnet dieses Wallet, Umlaute
+   werden ausgeschrieben („Jörg“ → `joerg`); die Zeile unter dem Feld sagt
+   vorher, was „Weiter“ tut.
 2. Getränke buchen, bezahlen, Guthaben aufladen.
 3. Zum Übertragen: auf einem Gerät **Export → „QR-Code (kurz)"**, auf dem anderen
    scannen — der Merge passiert automatisch.
 
 > Theme lässt sich am Seitenende wählen und wird gespeichert.
 
+## Update
+
+Neue Versionen kommen von selbst, sobald die App mit Internet geöffnet wird. Die
+Daten bleiben dabei im Browser, ein Update löscht nichts. Was sich geändert hat,
+steht in [CHANGELOG.md](CHANGELOG.md).
+
+1. App (oder die Seite im Browser) mit Internet öffnen.
+2. Nach ein paar Sekunden erscheint unten **„Neue Version verfügbar.“**. Dort
+   auf **„Aktualisieren“** tippen (bei späteren Updates heißt der Knopf
+   „Neu laden“).
+3. Erscheint kein Hinweis: die App ganz schließen (auch aus der App-Übersicht
+   wegwischen) und wieder öffnen; im Browser die Seite neu laden.
+
+Erkennen lässt sich die neue Version daran, dass nach „+ Trinken“ unten eine
+Zeile „+1 gebucht · Offen: …“ mit „Rückgängig“ erscheint.
+
+Bis zum Tippen auf „Aktualisieren“ ist die Seite ein Mischstand aus alt und neu:
+
+- Sie sieht halb fertig aus, das Guthaben-Formular steht offen.
+- Export- und Action-Code-QRs werden nicht gezeichnet („QR-Code konnte nicht
+  erzeugt werden“).
+
+Buchen geht, die Zahlen stimmen, aber besser erst aktualisieren.
+
+**Mehrere Geräte:** erst **alle** Geräte aktualisieren, dann Links oder QR-Codes
+austauschen.
+
+- **Import scheitert:** Zeigt ein Gerät „Import fehlgeschlagen ❌ — die Daten
+  stammen aus einer neueren App-Version“, dieses Gerät aktualisieren und den
+  Link oder QR danach noch einmal öffnen. Es wurde nichts importiert und nichts
+  geht verloren. Das passiert bei jedem Export, der gelöschte Einträge enthält.
+- **Gelöschte Action Codes:** Die Löschung reist erst zwischen zwei
+  aktualisierten Geräten mit. Ein vorher gelöschter Code muss auf dem anderen
+  Gerät einmal von Hand gelöscht werden.
+- **Reihenfolge:** Solange noch ein altes Gerät im Spiel ist, können Einträge
+  aus derselben Minute dort in anderer Reihenfolge stehen. Die Summen sind
+  gleich.
+
+Gemessen ist das mit `scripts/upgrade-check.js`, Ergebnis und Einzelheiten in
+[`docs/upgrade-compat.md`](docs/upgrade-compat.md).
+
 ## Features
 
-- **Buchen & Korrigieren** — Drinks zählen, letzte Buchung rückgängig (als
-  syncbarer Löschmarker), Tagesstatistik mit Diagramm/Log/Raw.
-- **Bezahlen & Guthaben** — offene Drinks ausgleichen, Guthaben wie Vorrat
-  auf- und abbauen.
-- **Verwaltung** — Einträge bearbeiten/löschen, Nutzer:innen einzeln oder
-  gesammelt entfernen. Zurücksetzen macht daraus ein neues Wallet mit gleichem
+- **Buchen & Korrigieren** — Drinks zählen (höchstens 99 je Buchung, ab 20 mit
+  Rückfrage; Enter im Mengenfeld bucht), letzte Buchung rückgängig (als
+  syncbarer Löschmarker), Tagesstatistik mit Diagramm/Log/Raw. Jede Buchung
+  meldet sich in der Statuszeile am unteren Rand („+1 gebucht · Offen: 4“) mit
+  „Rückgängig“ für genau diese Buchung; Fehler stehen dort ebenfalls.
+- **Bezahlen & Guthaben** — „Alle N offenen bezahlen“ gleicht die offenen Drinks
+  aus, Guthaben (höchstens 999 auf einmal, im Formular unter „Guthaben
+  aufladen“) wird wie ein Vorrat auf- und abgebaut.
+- **Verwaltung** — in der „Historie“ steht jeder Eintrag in einer eigenen Zeile;
+  mit „Einträge bearbeiten oder löschen“ bekommt jede Zeile „Bearbeiten“ (Datum
+  und Menge im Formular) und „Löschen“. Rückfragen kommen in einem Dialog.
+  Nutzer:innen einzeln oder gesammelt entfernen — die Rückfrage bietet vorher
+  ein JSON-Backup an (über „JSON importieren“ zurückholbar). Zurücksetzen macht daraus ein neues Wallet mit gleichem
   Namen (neue Wallet-ID): ein vorher gemachter Export landet beim Import als
   eigenes Wallet, lokale Action-Code-QRs des alten Wallets gelten nicht mehr.
 - **Import/Export** — Link (auto-merge), kompakter QR-Code oder JSON; inklusive
-  Theme und Wallet-ID gegen Namens-Kollisionen.
+  Theme und Wallet-ID gegen Namens-Kollisionen. Der Link ist ein Schlüssel zum
+  ganzen Wallet: das erste „Teilen“ auf einem Gerät sagt das, bevor es teilt.
+  Öffnet ein gescannter Link im Browser statt in der installierten App, lässt
+  er sich auf deren Startseite unter „Link einfügen“ übernehmen (Export-Links
+  und Action Codes; der Host darf abweichen).
 - **Offline-fähig** — als PWA installierbar, läuft ohne Netz.
 
 ## Action Codes (QR)
@@ -56,9 +111,10 @@ Gut zu wissen:
   aber **nie den lokalen Key** überschreiben.
 - Codes **laufen nicht ab** — Widerruf = Bearbeiten (Key-Rotation) oder Löschen;
   der Key ist das einzige Geheimnis.
-- Löschen merkt sich die Code-ID lokal (`deletedActionCodes`, die 50 neuesten).
+- Löschen merkt sich die Code-ID (`deletedActionCodes`, die 50 neuesten).
   Ein anderer Tab oder ein Import eines älteren Exports holt den Code nicht zurück.
-  Die Liste wird nicht exportiert: ein anderes Gerät behält seine Kopie.
+  Die Liste reist im Export mit (QR/Link und JSON): importiert ein anderes Gerät
+  den Export, verschwindet der Code auch dort.
 - Max. 6 Codes pro Wallet empfohlen; ab 10 bleiben die 10 zuletzt **bearbeiteten**
   (nicht „benutzten").
 - Globale Codes validieren Typ (`d`/`g`) und Menge (`1`–`100`).
@@ -71,13 +127,15 @@ Gut zu wissen:
 
 Rein lokale Anzeige, **kein Hintergrund-Sync** — synchronisiert wird
 ausschließlich über Export/Import. Gezählt werden **Events**: 1 Event = 1 Schritt,
-egal ob `+1` oder `+10`.
+egal ob `+1` oder `+10`. Die Sync-Zeile erscheint erst, wenn es einen Sync-Partner
+gibt, also nach dem ersten Import von einem anderen Gerät; ein frisches Wallet
+(oder eins, das nur exportiert wurde) zeigt sie nicht.
 
 | Ampel | Bedeutung |
 |-------|-----------|
 | ✅ Grün | aktuell (≤ 5 Tage) |
 | ⚠️ Gelb | älter (6–10 Tage) |
-| 🛑 Rot | veraltet (≥ 11 Tage) — Klick springt zum Export |
+| 🛑 Rot | veraltet (≥ 11 Tage) — „Zum Export“ (oder ein Klick auf die Zeile) springt zum Export |
 
 Der Button **„✅ passt"** setzt den Sync-Stand manuell auf „gleich" (Vertrauens-
 Reset auf diesem Gerät, ohne Export/Import).
@@ -85,7 +143,8 @@ Reset auf diesem Gerät, ohne Export/Import).
 Pro Wallet gibt es zudem eine synchronisierte **Geräte-Liste** (Symbol
 `L/M/D/K/T/*`, `lastSeenAt`), die bei Export/Import deterministisch gemerged wird:
 max. 6 Geräte (älteste fallen raus), jedes Symbol pro Wallet eindeutig, gesetzt
-per Button in der Top-Row.
+im Kopfbereich über „Gerät: wählen“ (die Auswahl erklärt, wofür das Zeichen steht,
+und zeigt die Geräte-ID).
 
 <details>
 <summary>ASCII-Timeline lesen</summary>
@@ -161,7 +220,8 @@ rückwärtskompatibel.
 | `wallet-import-v2.js` | Binär-Codec v2 (encode/decode), Import-Merge, Action-Code-Einlösung |
 | `wallet-summary.js` | Total / Offen / Guthaben / Diagramm (pure) |
 | `wallet-sync.js` | Sync-Ampel + ASCII-Timeline (lokal) |
-| `action-codes.js` | Action Codes: Normalisierung, Merge, Hash-Codec, UI |
+| `action-codes.js` | Action Codes: Normalisierung, Merge, Hash-Codec, Löschliste, Änderungen als reine Funktionen |
+| `action-codes-ui.js` | Action-Code-Panel (DOM, nur `wallet.html`) |
 | `hash-router.js` | Hash-Parsing (`#<name>`, `ac` / `acg` / `import` / `i2` / `i2u`) |
 | `migration.js` | Migration v1 → v2 (für robusten QR-Export) |
 
@@ -169,12 +229,12 @@ rückwärtskompatibel.
 
 | Datei | Rolle |
 |-------|-------|
-| `index-ui.js` | Startseite (Liste, Anlegen, Import) |
+| `index-ui.js` | Startseite (Wallet-Liste, Öffnen/Anlegen, Link einfügen, Import, Löschen mit Backup) |
 | `wallet-ui.js` | Wallet-Composer (DOM-Wiring, Hash-Routing, Module initialisieren) |
 | `wallet-actions.js` | Buchungen (Drink/Undo/Pay/Credit/Reset/Delete/Edit) |
-| `wallet-history-ui.js` | Verlauf (Diagramm/Log/Raw) |
-| `wallet-device-ui.js` | Geräte-Symbol-Picker (Top-Row) |
-| `wallet-sync-ui.js` | Sync-Zeile (Ampel, Timeline, „✅ passt") |
+| `wallet-history-ui.js` | Verlauf (Diagramm, Historie als Zeilen mit Bearbeiten/Löschen, Raw) |
+| `wallet-device-ui.js` | Geräte-Symbol-Picker (Kopfbereich, beschriftet) |
+| `wallet-sync-ui.js` | Sync-Zeile (Ampel, Timeline, „✅ passt", „Zum Export"; nur mit Sync-Partner) |
 | `wallet-export-ui.js` | Export (Link/QR/JSON, PNG-Download) |
 | `wallet-hash-actions.js` | Wallet-Auswahl bei globalen Action Codes |
 | `wallet-messages.js` | Zentrale UI-Message-API |
@@ -183,7 +243,7 @@ rückwärtskompatibel.
 
 **PWA:** `manifest.json`, `service-worker.js`, `sw-register.js` &nbsp;·&nbsp;
 **Tools:** `self-check.js` (+ `self-check-loader.js`), `colors.html` (Theme-Vorschau, nicht im Precache) &nbsp;·&nbsp;
-**QR:** `qrcodegen.js` (Nayuki)
+**QR:** `qrcodegen.js` (Nayuki), erst beim ersten QR nachgeladen (Export, offenes Action-Code-Panel)
 
 **Ladereihenfolge ist load-bearing:** jedes Modul ist ein
 `window.dbWalletX`-IIFE, das früh aussteigt, wenn eine Abhängigkeit fehlt — die
@@ -204,6 +264,7 @@ jedem Static-Host:
 alte Caches werden beim nächsten Besuch aufgeräumt. Der SW schreibt nur
 `200`/`basic`-Responses in die App-Shell, damit Fehler- oder Redirect-Seiten den
 Cache nicht vergiften.
+Vor dem Push auf `main`: `node scripts/upgrade-check.js <veröffentlichter Commit>` (siehe `docs/upgrade-compat.md`).
 </details>
 
 <details>
@@ -215,7 +276,9 @@ Cache nicht vergiften.
 - **Invarianten:** Storage-Prefix `db-wallet:`, Registry `db-wallet:registry`;
   Event-Schema `{id,t,n?,ts,ref?,supersedes?}` mit Tombstones `t:"x"` + `ref`
   (= Root-ID) und Edit-Replacements via `supersedes` (= Root-ID); append-only
-  (Merge dedupt nach `id`); Order = `ts`, dann numerische base36-`seq`;
+  (Merge dedupt nach `id`); Order = Minute von `ts`, dann Root-ID, dann ID
+  (`compareEventsByTime`; IDs nach deviceKey, dann numerischer base36-`seq`),
+  von mehreren Edits einer Root gewinnt die höchste `seq` (`compareEdits`);
   Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm);
   gelöschte Codes stehen in `deletedActionCodes` (Löschen nur über
   `removeActionCode`, Reconcile und Import-Merge filtern sie); Reset = neue
@@ -223,12 +286,19 @@ Cache nicht vergiften.
   ein veralteter Tab mit der alten `walletId` speichert danach nicht mehr
   (`saveWallet` lehnt abweichende `walletId` ab, nur der Reset darf sie wechseln;
   eine frisch vergebene, nie gespeicherte `walletId` übernimmt die gespeicherte).
-- **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes) und `ck`
-  (Integritäts-Checksum) stehen als Letztes, `ck` ganz zuletzt. Bei jeder
+  Meldungen laufen über `dbWalletHelpers.notify` in die Statuszeile, `alert()`
+  nur direkt vor einem Seitenwechsel; Buchungsgrenzen in
+  `dbWalletActions.LIMITS` (99/999, Rückfrage ab 20).
+- **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes), `gc`
+  (globale Codes), `dc` (gelöschte Codes) und `ck` (Integritäts-Checksum) stehen
+  als Letztes, `ck` ganz zuletzt. Tombstones (`xt` v2: Minuten-Delta + Geräte-
+  index/`seq`) setzen den Header auf Codec 3, den eine ältere App als
+  „neuere App-Version“ ablehnt; ohne Tombstones bleibt der Export Codec 2. Bei jeder
   APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:
   `scripts/check-sw-version.sh`).
 - **Wo editieren:** Storage/Modell → `wallet-storage.js`; Summary/Tombstones →
-  `wallet-summary.js`; Action-Codes → `action-codes.js`; Hash-Parsing →
+  `wallet-summary.js`; Action-Codes → `action-codes.js` (Panel:
+  `action-codes-ui.js`); Hash-Parsing →
   `hash-router.js`; Buchungen → `wallet-actions.js`.
 - **Smoke-Test:** Wallet anlegen → Drinks/Pay → Undo → Export/Import v2 →
   lokale/globale Action Codes → `dbWalletSelfCheck.run()`.

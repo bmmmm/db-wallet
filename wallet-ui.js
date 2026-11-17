@@ -165,18 +165,15 @@
     const qrUrl = document.getElementById("qr-url");
     const exportUrlActions = document.getElementById("export-url-actions");
     const topRow = document.querySelector(".top-row");
-    let syncStatusLine = document.getElementById("sync-status-line");
     const actionCodesPanel = document.getElementById("action-codes-panel");
     const actionCodesBody = document.getElementById("action-codes-body");
     const elHistory = document.getElementById("history");
-    const elDeleteRange = document.getElementById("delete-range");
+    const elHistoryList = document.getElementById("history-list");
     const logTools = document.getElementById("log-tools");
     const logEditGroup = document.getElementById("log-edit-group");
     const rawToggle = document.querySelector(".raw-toggle");
     const logEditToggle = document.getElementById("log-edit-toggle");
 
-    const btnHome = document.getElementById("btn-home");
-    const btnInfo = document.getElementById("btn-info");
     const btnMigrate = document.getElementById("btn-migrate");
     const btnDrink = document.getElementById("btn-drink");
     const btnUndo = document.getElementById("btn-undo");
@@ -184,6 +181,11 @@
     const payOptions = document.getElementById("pay-options");
     const btnPayToday = document.getElementById("btn-pay-today");
     const btnCredit = document.getElementById("btn-credit");
+    const creditForm = document.getElementById("credit-form");
+    const creditAmount = document.getElementById("credit-amount");
+    const btnCreditCancel = document.getElementById("btn-credit-cancel");
+    // The credit form's default amount (wallet.html value="10").
+    const CREDIT_DEFAULT = "10";
     const btnPayCancel = document.getElementById("btn-pay-cancel");
     const btnExport = document.getElementById("btn-export");
     const exportOptions = document.getElementById("export-options");
@@ -194,8 +196,6 @@
     const btnModeDiagram = document.getElementById("mode-diagram");
     const btnModeLog = document.getElementById("mode-log");
     const btnModeRaw = document.getElementById("mode-raw");
-    const btnEditEntry = document.getElementById("btn-edit-entry");
-    const btnSelectionDelete = document.getElementById("btn-selection-delete");
     const btnRawCurrent = document.getElementById("raw-scope-current");
     const btnRawAll = document.getElementById("raw-scope-all");
 
@@ -370,10 +370,6 @@
       });
     }
 
-    if (!syncStatusLine && topRow && topRow.parentNode) {
-      // created by wallet-sync-ui.js
-    }
-
     const deviceUi = window.dbWalletDeviceUI || null;
     const syncUi = window.dbWalletSyncUI || null;
     const exportUi = window.dbWalletExportUI || null;
@@ -417,14 +413,17 @@
     let summaryCache = null;
     let actionCodesUi = null;
     try {
-      const actionApi = window.dbWalletActionCodes || null;
-      if (actionApi && typeof actionApi.initActionCodesUi === "function") {
-        actionCodesUi = actionApi.initActionCodesUi({
+      const codesUiApi = window.dbWalletActionCodesUI || null;
+      if (codesUiApi && typeof codesUiApi.initActionCodesUi === "function") {
+        actionCodesUi = codesUiApi.initActionCodesUi({
           container: actionCodesBody,
+          panel: actionCodesPanel,
           getWallet: () => wallet,
+          // The panel hands over a changed copy (action-codes.js pure
+          // functions); adopt it only when it was saved, so a refused save
+          // leaves the shown wallet matching the stored one.
           persistWallet: (next) => {
-            wallet = next;
-            saveWallet(wallet);
+            if (saveWallet(next)) wallet = next;
           },
           getBaseUrl,
         });
@@ -550,6 +549,7 @@
       historyUi.init({
         refs: {
           elHistory,
+          elHistoryList,
           logTools,
           logEditGroup,
           rawToggle,
@@ -563,6 +563,13 @@
         getWallet: () => wallet,
         getSummary,
         getAllWallets,
+        // P4.4: the row actions; actionsCtx is set up further down, before
+        // any click can reach these.
+        onEditEntry: (root, values) =>
+          actionsApi ? actionsApi.editEntry(actionsCtx, root, values) : false,
+        onDeleteEntry: (root) =>
+          actionsApi ? actionsApi.deleteEntry(actionsCtx, root) : false,
+        limits: window.dbWalletActions ? window.dbWalletActions.LIMITS : undefined,
         onAfterRender: () => {
           if (syncUi && typeof syncUi.refresh === "function") {
             syncUi.refresh();
@@ -641,18 +648,7 @@
       } catch (e) {
         // ignore
       }
-      return {
-        userId: wallet.userId,
-        walletId: wallet.walletId,
-        deviceId: wallet.deviceId,
-        v: wallet.v,
-        seq: wallet.seq,
-        events: wallet.events,
-        actionCodes: wallet.actionCodes,
-        globalActionCodes: wallet.globalActionCodes,
-        devices: wallet.devices,
-        theme,
-      };
+      return storage.walletBackupData(wallet, theme);
     }
 
     async function switchToUser(nextUserId) {
@@ -717,20 +713,14 @@
       }
       if (!Array.isArray(targetWallet.events)) targetWallet.events = [];
 
-      const type = payload.t === "d" ? "d" : "g";
-      const amount =
-        typeof payload.n === "number" && Number.isFinite(payload.n)
-          ? Math.max(1, Math.round(payload.n))
-          : 1;
+      const { type, amount, label: payloadLabel } =
+        actionApi.globalPayloadAction(payload);
 
       // Confirm before applying: a global ('acg:') QR books onto the wallet with
       // no key/auth check, so make the inflation explicit instead of silently
       // pushing it (on every path — boot, hashchange, and after wallet select).
       if (!options.skipConfirm && typeof confirm === "function") {
-        const label =
-          payload && typeof payload.l === "string" && payload.l
-            ? ` „${payload.l}“`
-            : "";
+        const label = payloadLabel ? ` „${payloadLabel}“` : "";
         const what =
           type === "d"
             ? `${amount} Getränk(e) trinken`
@@ -766,15 +756,25 @@
         // silently. Surface the failure — wording mirrors wallet-actions.js's
         // persistMutation alert — instead of pretending the booking happened.
         if (!appendEvents(wallet, [event])) {
-          alert(
-            "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
-          );
+          if (storage.getLastSaveError() === "replaced") {
+            storage.notifyWalletReplaced();
+          } else {
+            helpers.notify(
+              "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
+              { kind: "error" },
+            );
+          }
           return { handled: true, applied: false, reason: "save-failed" };
         }
         invalidateCaches();
         resetAmount();
         clearExport();
         refreshSummary();
+        const summary = getSummary();
+        const balance =
+          summary.credit > 0 ? `Guthaben: ${summary.credit}` : `Offen: ${summary.unpaid}`;
+        const what = type === "d" ? `+${amount} gebucht` : `Guthaben +${amount} gebucht`;
+        helpers.notify(`${payloadLabel ? `„${payloadLabel}“: ` : ""}${what} · ${balance}`);
       } else {
         // Non-persisting path: the boot pre-apply (skipPersist — the caller
         // saves later) or a non-active/programmatic wallet. Stage the append in
@@ -840,33 +840,22 @@
         handlingHash = false;
       }
     }
-    window.addEventListener("hashchange", () => {
-      handleHashChange();
-    });
-
-    function downloadJsonFile(data, filename) {
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
-        type: "application/json",
-      });
-      helpers.downloadBlob(blob, filename);
-    }
+    // Returns the handler's promise: the browser ignores it, the Node test
+    // harness awaits it (tests/wallet-page.js flushHashChanges).
+    window.addEventListener("hashchange", () => handleHashChange());
 
     function downloadCurrentWalletBackup(tag) {
-      const date = todayDateStr();
-      const safeUserId = String(wallet.userId || "user").replace(
-        /[^a-zA-Z0-9_-]/g,
-        "_",
-      );
-      const suffix = tag ? `-${tag}` : "";
-      downloadJsonFile(
+      helpers.downloadJson(
         exportJsonData(),
-        `db-wallet-${safeUserId}-${date}${suffix}.json`,
+        storage.walletBackupFileName(wallet.userId, todayDateStr(), tag),
       );
     }
 
     function migrateWalletNow() {
       if (typeof window.dbWalletMigrateV1toV2 !== "function") {
-        alert("Migration ist nicht verfügbar (migration.js fehlt).");
+        helpers.notify("Migration ist nicht verfügbar (migration.js fehlt).", {
+          kind: "error",
+        });
         return false;
       }
       wallet = window.dbWalletMigrateV1toV2(wallet);
@@ -921,13 +910,49 @@
       return Math.min(n, helpers.MAX_EVENT_AMOUNT);
     }
 
-    // Resets the payment UI centrally
+    // Moves the keyboard focus without letting a missing element throw.
+    function focusEl(el) {
+      if (!el || typeof el.focus !== "function") return;
+      try {
+        el.focus();
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // P4.6: the pay button settles every open drink, so it says how many;
+    // nothing open, nothing to pay.
+    function updatePayButton(unpaid) {
+      if (!btnPayToday) return;
+      const n = Number.isFinite(unpaid) ? unpaid : 0;
+      btnPayToday.textContent = `Alle ${n} offenen bezahlen 💰`;
+      btnPayToday.disabled = n <= 0;
+    }
+
+    function payOptionsOpen() {
+      return !!payOptions && payOptions.style.display === "flex";
+    }
+
+    // P4.3: the credit form under the pay options (hidden by style.css, so
+    // an inline "" counts as closed).
+    function creditFormOpen() {
+      return !!creditForm && creditForm.style.display === "flex";
+    }
+
+    function setCreditForm(open) {
+      if (!creditForm) return;
+      creditForm.style.display = open ? "flex" : "none";
+      if (btnCredit) btnCredit.setAttribute("aria-expanded", open ? "true" : "false");
+      if (!open && creditAmount) creditAmount.value = CREDIT_DEFAULT;
+    }
+
+    // Resets the payment UI centrally; when the options were open the focus
+    // returns to "Bezahlen" (the options it was on disappear).
     function resetPayUi() {
+      const wasOpen = payOptionsOpen();
+      setCreditForm(false);
       if (payOptions) {
         payOptions.style.display = "none";
-      }
-      if (btnPayToday) {
-        btnPayToday.textContent = "heute bezahlen 💰";
       }
       if (btnPay) {
         btnPay.style.display = "inline-block";
@@ -938,32 +963,17 @@
       if (btnDrink) {
         btnDrink.style.display = "inline-block";
       }
-    }
-
-    function toggleStatVisibility(el, value) {
-      if (!el) return;
-      const parent =
-        typeof el.closest === "function" ? el.closest(".stat") : el.parentNode;
-      if (!parent) return;
-      const parsed =
-        typeof value === "number"
-          ? value
-          : typeof value === "string"
-            ? parseInt(value, 10)
-            : 0;
-      const n = Number.isFinite(parsed) ? parsed : 0;
-      parent.hidden = n === 0;
+      if (wasOpen) focusEl(btnPay);
     }
 
     function refreshSummary() {
       const summary = getSummary();
       elTotal.textContent = summary.total;
       elUnpaid.textContent = summary.unpaid;
-      toggleStatVisibility(elUnpaid, summary.unpaid);
-      if (elCredit) {
-        elCredit.textContent = summary.credit;
-        toggleStatVisibility(elCredit, summary.credit);
-      }
+      updatePayButton(summary.unpaid);
+      // P4.2: all three stats always show (a card hiding at 0 made the
+      // booking buttons jump after the first booking).
+      if (elCredit) elCredit.textContent = summary.credit;
 
       // syncUi.refresh() runs via historyUi.render()'s onAfterRender callback
       // (see historyUi.init), which also fires on the mode/raw-scope toggles that
@@ -998,17 +1008,6 @@
       }
     });
 
-    if (btnHome) {
-      btnHome.addEventListener("click", () => {
-        window.location.href = "index.html";
-      });
-    }
-    if (btnInfo) {
-      btnInfo.addEventListener("click", () => {
-        window.open("https://github.com/bmmmm/db-wallet", "_blank");
-      });
-    }
-
     const actionsApi = window.dbWalletActions || null;
     const actionsCtx = actionsApi
       ? {
@@ -1019,31 +1018,32 @@
           getUserId: () => userId,
           getAmount,
           getSummary,
-          getDeleteRange: () =>
-            elDeleteRange ? elDeleteRange.value.trim() : "",
           resetAmount,
           resetPayUi,
           clearExport,
-          clearDeleteRange: () => {
-            if (elDeleteRange) elDeleteRange.value = "";
-          },
-          setHistoryEmpty: () => {
-            if (elHistory) {
-              elHistory.textContent = "Noch keine Drinks geloggt. ✨";
-            }
-          },
           refreshActionCodesUi: () => {
             if (actionCodesUi) actionCodesUi.refresh();
           },
           updateHeaderUi,
           onStateChanged: handleWalletStateChange,
-          dialogAlert: (msg) => alert(msg),
-          dialogConfirm: (msg) => confirm(msg),
-          dialogPrompt: (msg, def) => prompt(msg, def),
+          // Errors and notices go to the status line (P4.1), questions to
+          // the shared dialog (P4.3; a Promise of the answer).
+          dialogAlert: (msg) => helpers.notify(msg, { kind: "error" }),
+          notify: (msg, opts) => helpers.notify(msg, opts),
+          dialogConfirm: (msg, opts) => helpers.confirmDialog(msg, opts),
         }
       : null;
 
     btnDrink.addEventListener("click", () => {
+      if (actionsApi) actionsApi.bookDrink(actionsCtx);
+    });
+
+    // Enter in the amount field books, like "+ Trinken" (not while the pay
+    // options replace the booking buttons).
+    elAmount.addEventListener("keydown", (e) => {
+      if (!e || e.key !== "Enter") return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      if (payOptionsOpen()) return;
       if (actionsApi) actionsApi.bookDrink(actionsCtx);
     });
 
@@ -1063,6 +1063,8 @@
         if (btnPay) btnPay.style.display = "none";
         if (btnUndo) btnUndo.style.display = "none";
         if (btnDrink) btnDrink.style.display = "none";
+        // The focus was on "Bezahlen", which just disappeared (P4.9).
+        focusEl(btnPayToday && !btnPayToday.disabled ? btnPayToday : btnCredit);
       } else {
         // Cancel/collapse the payment flow -> reset the UI
         resetPayUi();
@@ -1082,26 +1084,38 @@
       });
     }
 
-    if (btnCredit) {
+    if (btnCredit && creditForm) {
       btnCredit.addEventListener("click", () => {
-        if (actionsApi) actionsApi.bookCredit(actionsCtx);
+        if (creditFormOpen()) {
+          setCreditForm(false);
+          return;
+        }
+        setCreditForm(true);
+        focusEl(creditAmount);
+        if (creditAmount && typeof creditAmount.select === "function") creditAmount.select();
+      });
+      creditForm.addEventListener("submit", (e) => {
+        // CSP form-action 'none': never a real submit.
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+        if (!actionsApi || !creditAmount) return;
+        // On success bookCredit closes the pay UI (resetPayUi); on an error
+        // the form stays open with the message in the status line.
+        if (!actionsApi.bookCredit(actionsCtx, creditAmount.value)) focusEl(creditAmount);
+      });
+      const closeCreditForm = () => {
+        setCreditForm(false);
+        focusEl(btnCredit);
+      };
+      if (btnCreditCancel) btnCreditCancel.addEventListener("click", closeCreditForm);
+      creditForm.addEventListener("keydown", (e) => {
+        if (!e || e.key !== "Escape") return;
+        if (typeof e.preventDefault === "function") e.preventDefault();
+        closeCreditForm();
       });
     }
 
     btnReset.addEventListener("click", () => {
       if (actionsApi) actionsApi.resetWallet(actionsCtx);
     });
-
-    if (btnSelectionDelete) {
-      btnSelectionDelete.addEventListener("click", () => {
-        if (actionsApi) actionsApi.deleteSelection(actionsCtx);
-      });
-    }
-
-    if (btnEditEntry) {
-      btnEditEntry.addEventListener("click", () => {
-        if (actionsApi) actionsApi.editEntry(actionsCtx);
-      });
-    }
   });
 })();

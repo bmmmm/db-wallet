@@ -1,4 +1,4 @@
-// Just enough DOM to drive the action-code panel (action-codes.js
+// Just enough DOM to drive the action-code panel (action-codes-ui.js
 // initActionCodesUi) from Node: createElement, a children tree, listeners and
 // click(). No layout, no selectors — tests walk the tree with find()/findAll().
 class FakeElement {

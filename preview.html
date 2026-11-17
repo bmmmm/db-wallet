@@ -27,7 +27,7 @@
     <body data-page="preview">
         <h1>Vorschau (Read-Only)</h1>
 
-        <div class="top-row">
+        <div class="top-row panel">
             <div>
                 <span id="wallet-version">v–</span> Nutzer:in:
                 <strong id="uid">–</strong>
@@ -37,19 +37,22 @@
         </div>
 
         <div class="stat-panel">
-            <div class="stat">
-                Gesamt getrunken:<br /><strong id="total">0</strong>
+            <div class="stat panel">
+                <span class="stat-label">Getrunken</span>
+                <strong id="total">0</strong>
             </div>
-            <div class="stat">
-                Offen seit letzter Zahlung:<br /><strong id="unpaid">0</strong>
+            <div class="stat panel">
+                <span class="stat-label">Offen</span>
+                <strong id="unpaid">0</strong>
             </div>
-            <div class="stat">
-                Guthaben:<br /><strong id="credit">0</strong>
+            <div class="stat panel">
+                <span class="stat-label">Guthaben</span>
+                <strong id="credit">0</strong>
             </div>
         </div>
 
-        <div class="wallet-actions">
-            <pre id="history">Lade Vorschau…</pre>
+        <div class="wallet-actions panel">
+            <pre id="history" class="card">Lade Vorschau…</pre>
         </div>
 
         <script src="wallet-helpers.js" defer></script>

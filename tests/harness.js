@@ -17,6 +17,7 @@ const DEFAULT_FILES = [
   "hash-router.js",
   "migration.js",
   "action-codes.js",
+  "action-codes-ui.js",
   "wallet-storage.js",
   "wallet-import-v2.js",
   "wallet-summary.js",
@@ -59,7 +60,8 @@ function makeStorage(quota) {
 // fragment changes, like the browser); history.replaceState rewrites the
 // current entry and fires nothing; location.href to another page is recorded
 // in `nav.pageLoads` (the vm page never actually unloads). `nav.flush()`
-// delivers queued hashchange events to the window listeners.
+// delivers queued hashchange events to the window listeners and returns what
+// the listeners returned (wallet-ui.js returns its handler's promise).
 function makeNav(startUrl, win) {
   const entries = [new URL(startUrl).href];
   let index = 0;
@@ -75,11 +77,13 @@ function makeNav(startUrl, win) {
       return entries[index];
     },
     flush() {
+      const results = [];
       while (queue.length) {
         const ev = queue.shift();
         nav.hashchanges++;
-        win._dispatch("hashchange", ev);
+        results.push(...win._dispatch("hashchange", ev));
       }
+      return results;
     },
   };
   const fragment = (href) => {
@@ -120,6 +124,12 @@ function makeNav(startUrl, win) {
     get pathname() {
       return new URL(entries[index]).pathname;
     },
+    get protocol() {
+      return new URL(entries[index]).protocol;
+    },
+    get hostname() {
+      return new URL(entries[index]).hostname;
+    },
     reload() {
       nav.pageLoads.push(entries[index]);
     },
@@ -158,6 +168,9 @@ function makeNav(startUrl, win) {
 //   storage    — reuse an existing storage (two tabs / two loads of one browser)
 //   document   — replace the document stub (e.g. tests/fake-dom.js)
 //   files      — module list, defaults to DEFAULT_FILES
+//   root       — directory the `files` are read from, default REPO (e.g. an
+//                unpacked older release for scripts/upgrade-check.js)
+//   globals    — extra window properties, assigned before the modules load
 function makeEnv(opts = {}) {
   const alerts = [];
   const listeners = Object.create(null);
@@ -174,7 +187,13 @@ function makeEnv(opts = {}) {
     Response,
     CompressionStream,
     DecompressionStream,
-    setTimeout,
+    // Long timers (status line auto-clear, late Blob URL revoke) must not keep
+    // the test process alive; short ones behave as usual.
+    setTimeout: (fn, ms, ...args) => {
+      const t = setTimeout(fn, ms, ...args);
+      if (ms > 1000 && t && typeof t.unref === "function") t.unref();
+      return t;
+    },
     clearTimeout,
     URL,
     localStorage,
@@ -216,16 +235,21 @@ function makeEnv(opts = {}) {
   win.location = nav.location;
   win.history = nav.history;
   win._nav = nav;
+  // Extra globals a module reads once at load (e.g. dbWalletImportPreview,
+  // FileReader), set before the modules run.
+  if (opts.globals) Object.assign(win, opts.globals);
   const ctx = vm.createContext(win);
   for (const f of opts.files || DEFAULT_FILES) {
-    vm.runInContext(fs.readFileSync(path.join(REPO, f), "utf8"), ctx, {
+    vm.runInContext(fs.readFileSync(path.join(opts.root || REPO, f), "utf8"), ctx, {
       filename: f,
     });
   }
   win._alerts = alerts;
   // Evaluate an expression inside the module realm (e.g. "({})" to get an
-  // object with the context's own Object.prototype).
-  win._eval = (code) => vm.runInContext(code, ctx);
+  // object with the context's own Object.prototype). `filename` (optional)
+  // names the code in stack traces.
+  win._eval = (code, filename) =>
+    vm.runInContext(code, ctx, filename ? { filename } : undefined);
   return win;
 }
 

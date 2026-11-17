@@ -1,28 +1,23 @@
 (() => {
+  // Loads after wallet-helpers.js and wallet-summary.js on every page
+  // (index.html, wallet.html, preview.html), so both are bound once here.
   const helpers = window.dbWalletHelpers || null;
+  const summaryApi = window.dbWalletSummary || null;
+  if (
+    !helpers ||
+    typeof helpers.safeParse !== "function" ||
+    typeof helpers.randomToken !== "function" ||
+    !summaryApi ||
+    typeof summaryApi.computeSummarySafe !== "function" ||
+    typeof summaryApi.formatPerDayDiagram !== "function"
+  ) {
+    return;
+  }
+  const { safeParse, randomToken } = helpers;
   const CACHE_PREFIX = "db-wallet:import-cache:";
 
-  function safeParseFallback(raw) {
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  const safeParse =
-    helpers && typeof helpers.safeParse === "function"
-      ? helpers.safeParse
-      : safeParseFallback;
-
   function cacheSet(payload) {
-    // Resolved lazily at call time (unlike `helpers` above): on wallet.html
-    // this script loads before wallet-helpers.js, so a module-load-time
-    // binding would permanently miss the real implementation. Safe because
-    // cacheSet only ever runs from a user-triggered import action, long after
-    // all deferred scripts have executed — nothing here runs at IIFE eval
-    // time.
-    const token = window.dbWalletHelpers.randomToken();
+    const token = randomToken();
     try {
       sessionStorage.setItem(CACHE_PREFIX + token, JSON.stringify(payload));
       return token;
@@ -53,6 +48,9 @@
 
   let activeChoiceDialog = null;
 
+  // P4.9: a native modal <dialog> (focus stays inside, Escape = cancel), and
+  // the focus goes back to where it was. Resolves "persist", "preview" or
+  // null (Abbrechen, Escape, a click on the backdrop).
   function chooseImportMode(context = {}) {
     return new Promise((resolve) => {
       const header = context.header || "Import: Was möchtest du tun?";
@@ -69,77 +67,92 @@
         activeChoiceDialog.finish(null);
       }
 
-      const overlay = document.createElement("div");
-      overlay.className = "import-choice-overlay";
-      overlay.setAttribute("role", "dialog");
-      overlay.setAttribute("aria-modal", "true");
+      const opener = document.activeElement || null;
 
+      const dialog = document.createElement("dialog");
+      dialog.className = "import-choice-dialog";
+      dialog.setAttribute("aria-labelledby", "import-choice-title");
+
+      // The content box: a click on the dialog element itself is a click on
+      // the backdrop (the dialog has no padding of its own).
       const modal = document.createElement("div");
       modal.className = "import-choice-modal";
-      modal.addEventListener("click", (e) => e.stopPropagation());
 
-      const title = document.createElement("div");
+      const title = document.createElement("h2");
+      title.id = "import-choice-title";
       title.className = "import-choice-title";
       title.textContent = header;
 
-      const subtitle = document.createElement("div");
+      const subtitle = document.createElement("p");
       subtitle.className = "import-choice-subtitle";
       subtitle.textContent = "Wähle eine Option:";
 
       const actions = document.createElement("div");
       actions.className = "import-choice-actions";
 
-      const btnPersist = document.createElement("button");
-      btnPersist.className = "import-choice-btn";
-      const persistTitle = document.createElement("div");
-      persistTitle.className = "import-choice-btn-title";
-      persistTitle.textContent = "Lokal importieren";
-      const persistSub = document.createElement("div");
-      persistSub.className = "import-choice-btn-sub";
-      persistSub.textContent = "(wie bisher)";
-      btnPersist.appendChild(persistTitle);
-      btnPersist.appendChild(persistSub);
-
-      const btnPreview = document.createElement("button");
-      btnPreview.className = "import-choice-btn";
-      const previewTitle = document.createElement("div");
-      previewTitle.className = "import-choice-btn-title";
-      previewTitle.textContent = "Nur ansehen";
-      const previewSub = document.createElement("div");
-      previewSub.className = "import-choice-btn-sub";
-      previewSub.textContent = "(Read-Only, nicht speichern)";
-      btnPreview.appendChild(previewTitle);
-      btnPreview.appendChild(previewSub);
+      const makeChoice = (label, sub) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "import-choice-btn";
+        const t = document.createElement("span");
+        t.className = "import-choice-btn-title";
+        t.textContent = label;
+        const st = document.createElement("span");
+        st.className = "import-choice-btn-sub";
+        st.textContent = sub;
+        btn.appendChild(t);
+        btn.appendChild(st);
+        return btn;
+      };
+      const btnPersist = makeChoice("Lokal importieren", "(wie bisher)");
+      const btnPreview = makeChoice("Nur ansehen", "(Read-Only, nicht speichern)");
 
       const btnCancel = document.createElement("button");
+      btnCancel.type = "button";
       btnCancel.className = "import-choice-cancel";
       btnCancel.textContent = "Abbrechen";
 
       let done = false;
-      const prevOverflow = document.body.style.overflow;
 
       function finish(result) {
         if (done) return;
         done = true;
-        document.removeEventListener("keydown", onKeyDown);
-        overlay.removeEventListener("click", onOverlayClick);
-        document.body.style.overflow = prevOverflow;
-        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-        if (activeChoiceDialog && activeChoiceDialog.overlay === overlay) {
+        dialog.removeEventListener("cancel", onCancel);
+        dialog.removeEventListener("close", onClose);
+        dialog.removeEventListener("click", onBackdrop);
+        if (dialog.open && typeof dialog.close === "function") {
+          try {
+            dialog.close();
+          } catch (e) {
+            // ignore
+          }
+        }
+        if (dialog.parentNode) dialog.parentNode.removeChild(dialog);
+        if (activeChoiceDialog && activeChoiceDialog.dialog === dialog) {
           activeChoiceDialog = null;
+        }
+        if (opener && typeof opener.focus === "function" && opener !== document.body) {
+          try {
+            opener.focus();
+          } catch (e) {
+            // ignore
+          }
         }
         resolve(result);
       }
 
-      function onKeyDown(e) {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          finish(null);
-        }
+      // Escape: the browser fires "cancel", then closes the dialog.
+      function onCancel(e) {
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+        finish(null);
       }
 
-      function onOverlayClick() {
+      function onClose() {
         finish(null);
+      }
+
+      function onBackdrop(e) {
+        if (e && e.target === dialog) finish(null);
       }
 
       btnPersist.addEventListener("click", () => finish("persist"));
@@ -153,23 +166,30 @@
       modal.appendChild(title);
       modal.appendChild(subtitle);
       modal.appendChild(actions);
-      overlay.appendChild(modal);
+      dialog.appendChild(modal);
 
-      document.body.style.overflow = "hidden";
-      document.addEventListener("keydown", onKeyDown);
-      overlay.addEventListener("click", onOverlayClick);
-      document.body.appendChild(overlay);
-      activeChoiceDialog = { overlay, finish };
+      dialog.addEventListener("cancel", onCancel);
+      dialog.addEventListener("close", onClose);
+      dialog.addEventListener("click", onBackdrop);
+      document.body.appendChild(dialog);
+      activeChoiceDialog = { dialog, finish };
 
-      setTimeout(() => btnPersist.focus(), 0);
+      if (typeof dialog.showModal === "function") {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "");
+        dialog.open = true;
+      }
+      if (typeof btnPersist.focus === "function") btnPersist.focus();
     });
   }
 
   function openPreview(payload) {
     const token = cacheSet(payload);
     if (!token) {
-      alert(
+      helpers.notify(
         "Read-Only Vorschau konnte nicht geöffnet werden (Session-Cache voll oder nicht verfügbar).",
+        { kind: "error" },
       );
       return false;
     }
@@ -178,40 +198,11 @@
   }
 
   function computeSummary(wallet) {
-    const summaryApi = window.dbWalletSummary || null;
-    if (summaryApi && typeof summaryApi.computeSummarySafe === "function") {
-      return summaryApi.computeSummarySafe(wallet);
-    }
-    return {
-      userId: wallet && typeof wallet.userId === "string" ? wallet.userId : "",
-      v: 1,
-      total: 0,
-      unpaid: 0,
-      credit: 0,
-      perDay: [],
-      eventsSorted: [],
-    };
+    return summaryApi.computeSummarySafe(wallet);
   }
 
-  // Resolved lazily at call time, same as computeSummary above: on wallet.html
-  // this script loads before wallet-summary.js, so a module-load-time binding
-  // would permanently miss the real implementation.
   function formatPerDayDiagram(perDay) {
-    const summaryApi = window.dbWalletSummary || null;
-    if (summaryApi && typeof summaryApi.formatPerDayDiagram === "function") {
-      return summaryApi.formatPerDayDiagram(perDay);
-    }
-    return perDay.map((d) => {
-      const drinkCount =
-        typeof d.drinkCount === "number" && Number.isFinite(d.drinkCount)
-          ? d.drinkCount
-          : typeof d.drinks === "number" && Number.isFinite(d.drinks)
-            ? Math.max(0, Math.round(d.drinks))
-            : 0;
-      const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
-      const paidMark = d.paid ? " 💰" : "";
-      return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
-    });
+    return summaryApi.formatPerDayDiagram(perDay);
   }
 
   function applyThemeTransient(themeName) {

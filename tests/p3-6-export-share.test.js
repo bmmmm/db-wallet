@@ -12,6 +12,8 @@ const { bootWalletPage, BASE } = require("./wallet-page");
 const { makeEnv } = require("./harness");
 
 function seedOne(e) {
+  // The one-time share hint (O3.4, tested in p4-1) is already seen here.
+  e.localStorage.setItem("db-wallet.share-hint-seen", "1");
   const S = e.dbWalletStorage;
   const x = S.loadWallet("max");
   S.appendEvents(x, [S.newEvent(x, "d", 1)]);
@@ -252,7 +254,7 @@ test("no shipped script revokes an object URL right after click()", () => {
   const fs = require("fs");
   const path = require("path");
   const { REPO } = require("./harness");
-  for (const f of ["wallet-ui.js", "action-codes.js", "wallet-export-ui.js"]) {
+  for (const f of ["wallet-ui.js", "action-codes.js", "action-codes-ui.js", "wallet-export-ui.js"]) {
     const src = fs.readFileSync(path.join(REPO, f), "utf8");
     assert.doesNotMatch(src, /revokeObjectURL/, f + " should use helpers.downloadBlob");
   }

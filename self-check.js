@@ -40,6 +40,10 @@
     };
 
     const helpers = window.dbWalletHelpers || null;
+    // P4.1: notices go to the status line now; the run's own bookings and
+    // errors must not land there either (restored with the dialogs below).
+    const origNotify = helpers && typeof helpers.notify === "function" ? helpers.notify : null;
+    if (origNotify) helpers.notify = () => true;
     const storage = window.dbWalletStorage || null;
     const importV2 = window.dbWalletImportV2 || null;
     const summaryApi = window.dbWalletSummary || null;
@@ -407,7 +411,7 @@
           // IV6: a newer codec version is rejected with a distinct error.
           let verErr = "";
           try {
-            importV2.decodeImportV2Bytes(new Uint8Array([100, 98, 119, 3, 0]));
+            importV2.decodeImportV2Bytes(new Uint8Array([100, 98, 119, 4, 0]));
           } catch (e) {
             verErr = (e && e.message) || "err";
           }
@@ -640,15 +644,17 @@
             `total=${outOfOrder.total}`,
           );
 
-          const logLine = summaryApi.formatLogLine(
-            { id: "x1", t: "x", ref: "evt-123", ts: baseTs },
-            1,
-          );
+          // P4.4: the history rows and the delete dialog name an entry by
+          // date and what it was.
+          const rowText = summaryApi.formatEntryText({ id: "x1", t: "d", n: 2, ts: baseTs });
+          const payText = summaryApi.formatEntryText({ id: "x2", t: "p", ts: baseTs });
           addCheck(
             result,
-            "tombstone log includes id",
-            logLine.includes("evt-123"),
-            logLine,
+            "history row text",
+            rowText.endsWith(" · 2 Getränke") &&
+              rowText.startsWith(helpers.formatDateTime(baseTs)) &&
+              payText.endsWith(" · Bezahlung"),
+            `${rowText} | ${payText}`,
           );
 
           let guard = 10;
@@ -762,26 +768,7 @@
           );
         }
 
-        if (
-          summaryApi &&
-          typeof summaryApi.parseDeleteRange === "function" &&
-          typeof summaryApi.computeSummary === "function"
-        ) {
-          // parseDeleteRange must cap the loop at maxIndex (no freeze on huge ranges).
-          const tStart = Date.now();
-          const huge = summaryApi.parseDeleteRange("1-99999999", 5);
-          const elapsed = Date.now() - tStart;
-          addCheck(
-            result,
-            "parseDeleteRange caps huge range",
-            huge.size === 5 &&
-              huge.has(1) &&
-              huge.has(5) &&
-              !huge.has(6) &&
-              elapsed < 200,
-            `size=${huge.size} ms=${elapsed}`,
-          );
-
+        if (summaryApi && typeof summaryApi.computeSummary === "function") {
           // Equal-ts events must order by numeric seq, not lexical base36.
           const sameTs = 1700000000000;
           const tieWallet = {
@@ -886,7 +873,7 @@
         if (
           actionsApi &&
           typeof actionsApi.editEntry === "function" &&
-          typeof actionsApi.deleteSelection === "function" &&
+          typeof actionsApi.deleteEntry === "function" &&
           summaryApi &&
           typeof summaryApi.computeSummary === "function"
         ) {
@@ -904,30 +891,22 @@
               devices: [],
             };
           };
+          // A DOM-free ctx: the answer to every question is `confirm` (a
+          // boolean at once, never the page's dialog).
           const mkCtx = (w, o) => {
             const opts = o || {};
             const alerts = [];
-            let promptCalls = 0;
             return {
               _alerts: alerts,
               getWallet: () => w,
               getUserId: () => w.userId || "u",
               getSummary: () => summaryApi.computeSummary(w),
-              getDeleteRange: () => opts.range || "1",
               getAmount: () => 1,
               dialogAlert: (m) => alerts.push(String(m)),
               dialogConfirm: () => opts.confirm !== false,
-              dialogPrompt: (msg, def) => {
-                const seq = opts.prompts || [];
-                const v = promptCalls < seq.length ? seq[promptCalls] : def;
-                promptCalls++;
-                return v;
-              },
               resetAmount: () => {},
               resetPayUi: () => {},
               clearExport: () => {},
-              clearDeleteRange: () => {},
-              setHistoryEmpty: () => {},
               refreshActionCodesUi: () => {},
               updateHeaderUi: () => {},
               onStateChanged: () => {},
@@ -939,9 +918,7 @@
           // the edit appends a replacement carrying supersedes=<root> (no
           // tombstone), and the fold collapses to the replacement.
           const wEdit = mkActWallet();
-          actionsApi.editEntry(
-            mkCtx(wEdit, { range: "1", prompts: ["2024-03-01", "5"] }),
-          );
+          actionsApi.editEntry(mkCtx(wEdit), "dev.1", { date: "2024-03-01", amount: "5" });
           const origStill = wEdit.events.find((e) => e.id === "dev.1");
           const repl = wEdit.events.find((e) => e.t === "d" && e.id !== "dev.1");
           const editTotal = summaryApi.computeSummary(wEdit).total;
@@ -958,7 +935,8 @@
           );
 
           // A1b: two devices editing the same entry offline collapse to ONE
-          // deterministic winner instead of double-counting after merge.
+          // deterministic winner instead of double-counting after merge — the
+          // later edit by seq (P5.4), not the later ts.
           const wConc = {
             userId: "selfcheck-conc-" + randomId(),
             walletId: "w",
@@ -976,19 +954,16 @@
           addCheck(
             result,
             "concurrent edit converges to one winner",
-            concSum.total === 7 &&
+            concSum.total === 5 &&
               concSum.eventsEffectiveSorted.length === 1 &&
-              concSum.eventsEffectiveSorted[0].id === "devb.3",
+              concSum.eventsEffectiveSorted[0].id === "deva.5",
             `total=${concSum.total} eff=${concSum.eventsEffectiveSorted.length}`,
           );
 
           // A2: a future date is rejected and the wallet is left untouched.
           const wFut = mkActWallet();
-          const ctxFut = mkCtx(wFut, {
-            range: "1",
-            prompts: ["2099-01-01", "5"],
-          });
-          actionsApi.editEntry(ctxFut);
+          const ctxFut = mkCtx(wFut);
+          actionsApi.editEntry(ctxFut, "dev.1", { date: "2099-01-01", amount: "5" });
           addCheck(
             result,
             "editEntry rejects future date",
@@ -997,15 +972,15 @@
             `len=${wFut.events.length}`,
           );
 
-          // A3: deleteSelection stamps the tombstone after the newest event ts.
+          // A3: deleteEntry stamps the tombstone after the newest event ts.
           const wDel = mkActWallet();
           const futTs = Date.now() + 10000000;
           wDel.events = [{ id: "dev.1", t: "d", n: 1, ts: futTs }];
-          actionsApi.deleteSelection(mkCtx(wDel, { range: "1", confirm: true }));
+          actionsApi.deleteEntry(mkCtx(wDel, { confirm: true }), "dev.1");
           const delTomb = wDel.events.find((e) => e.t === "x");
           addCheck(
             result,
-            "deleteSelection tombstone sorts last",
+            "deleteEntry tombstone sorts last",
             !!delTomb && delTomb.ts > futTs,
             `after=${delTomb && delTomb.ts > futTs}`,
           );
@@ -1882,7 +1857,7 @@
         // 3.6 -> 4), and that a mismatched key is rejected (no booking). Relies on:
         //   bookActionCode(targetUserId, { api, codeId, key }) -> loads the wallet,
         //   matches codeId, key-checks, books newEvent via appendEvents.
-        // bookActionCode uses global alert() and replaces the hash via
+        // bookActionCode reports via helpers.notify (stubbed for the run) and replaces the hash via
         // history.replaceState (P2.1: no new history entry, so Back can't
         // re-book), so both are overridden/saved and restored here.
         try {
@@ -2084,6 +2059,22 @@
       window.alert = origDialogs.alert;
       window.confirm = origDialogs.confirm;
       window.prompt = origDialogs.prompt;
+      if (origNotify) helpers.notify = origNotify;
+    }
+
+    // P5.6: qrcodegen.js is no page script any more; it loads on first use.
+    try {
+      if (typeof helpers.loadQrLibrary === "function") {
+        const lib = await helpers.loadQrLibrary();
+        addCheck(
+          result,
+          "QR library loads on demand",
+          !!(lib && lib.QrCode && typeof lib.QrCode.encodeText === "function"),
+          "qrcodegen.js",
+        );
+      }
+    } catch (e) {
+      addCheck(result, "QR library loads on demand", false, String((e && e.message) || e));
     }
 
     try {
@@ -2094,8 +2085,11 @@
           .filter((s) => s && s.startsWith(location.origin));
         // self-check.js itself is injected on demand by self-check-loader.js
         // (P3.5); it must be precached too, or run() fails offline.
-        const selfUrl = new URL("self-check.js", location.href).href;
-        if (!scripts.includes(selfUrl)) scripts.push(selfUrl);
+        // Likewise qrcodegen.js (P5.6, helpers.loadQrLibrary).
+        for (const f of ["self-check.js", "qrcodegen.js"]) {
+          const url = new URL(f, location.href).href;
+          if (!scripts.includes(url)) scripts.push(url);
+        }
         const missing = [];
         for (const url of scripts) {
           let hit = false;

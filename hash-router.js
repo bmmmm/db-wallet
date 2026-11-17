@@ -1,5 +1,13 @@
 (function () {
-  const RESERVED_PREFIXES = ["ac:", "acg:", "import:", "i2u:", "i2:"];
+  const helpers = window.dbWalletHelpers || null;
+  if (
+    !helpers ||
+    typeof helpers.isReservedHashPrefix !== "function" ||
+    typeof helpers.normalizeUserId !== "function"
+  ) {
+    return;
+  }
+  const { isReservedHashPrefix, normalizeUserId } = helpers;
   // Guard against a multi-MB hash freezing the tab during DOMContentLoaded;
   // the real per-format cap enforcement lives in wallet-import-v2.js.
   const MAX_HASH_PAYLOAD_LEN = 3 * 1024 * 1024;
@@ -13,14 +21,6 @@
     if (raw.startsWith("i2u:")) return "import-v2-plain";
     if (raw.startsWith("i2:")) return "import-v2";
     return "";
-  }
-
-  function isReservedHashPrefix(raw) {
-    const s = String(raw || "");
-    for (const p of RESERVED_PREFIXES) {
-      if (s.startsWith(p)) return true;
-    }
-    return false;
   }
 
   function isValidUserId(raw) {
@@ -37,9 +37,9 @@
       return true;
     }
 
-    let normalized = value.toLowerCase();
-    normalized = normalized.replace(/\s+/g, "-");
-    normalized = normalized.replace(/[^a-z0-9_-]/g, "");
+    // A typed id is valid only in its normalized form (the same rule, and the
+    // same 64-char cap, as creating a wallet).
+    const normalized = normalizeUserId(value);
     return !!normalized && normalized === value;
   }
 
@@ -66,7 +66,6 @@
     const kind = getHashKind(raw);
     if (!kind) return "";
 
-    const helpers = window.dbWalletHelpers || null;
     const importV2 = window.dbWalletImportV2 || null;
 
     try {

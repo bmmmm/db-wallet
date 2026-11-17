@@ -10,34 +10,35 @@
   const hadController = !!navigator.serviceWorker.controller;
   let notified = false;
 
+  const UPDATE_TEXT = "Neue Version verfügbar.";
+  const UPDATE_LABEL = "Neu laden";
+
+  // P5.3: the notice goes to the page's status line (sticky, with a reload
+  // button) instead of an inline-styled toast that ignored the theme and sat
+  // on top of the line's own notices. A later notice may replace it — the
+  // new version is active already, the next page load gets it anyway.
+  // Without the line (or the helpers) it builds an own box with the line's
+  // classes, so style.css still styles it.
   function showUpdateToast() {
     if (notified || !document.body) return;
     notified = true;
+    const reload = () => location.reload();
+    const helpers = window.dbWalletHelpers || null;
+    if (helpers && typeof helpers.notify === "function" && document.getElementById("status-line")) {
+      helpers.notify(UPDATE_TEXT, { sticky: true, action: { label: UPDATE_LABEL, run: reload } });
+      return;
+    }
     const bar = document.createElement("div");
-    bar.setAttribute("role", "status");
-    bar.style.position = "fixed";
-    bar.style.left = "50%";
-    bar.style.bottom = "16px";
-    bar.style.transform = "translateX(-50%)";
-    bar.style.zIndex = "9999";
-    bar.style.padding = "10px 14px";
-    bar.style.borderRadius = "10px";
-    bar.style.background = "rgba(20,20,20,0.92)";
-    bar.style.color = "#fff";
-    bar.style.font = "14px system-ui, sans-serif";
-    bar.style.boxShadow = "0 4px 16px rgba(0,0,0,0.35)";
-    bar.style.display = "flex";
-    bar.style.gap = "12px";
-    bar.style.alignItems = "center";
-
+    bar.className = "status-line update-toast is-visible";
     const text = document.createElement("span");
-    text.textContent = "Neue Version verfügbar.";
+    text.className = "status-text";
+    text.setAttribute("role", "status");
+    text.textContent = UPDATE_TEXT;
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = "Aktualisieren";
-    btn.style.cursor = "pointer";
-    btn.addEventListener("click", () => location.reload());
-
+    btn.className = "status-action";
+    btn.textContent = UPDATE_LABEL;
+    btn.addEventListener("click", reload);
     bar.appendChild(text);
     bar.appendChild(btn);
     document.body.appendChild(bar);

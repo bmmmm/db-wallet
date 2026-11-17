@@ -17,19 +17,19 @@
   }
 
   function buildGlobalActionPreview(payload) {
-    const type = payload && payload.t === "g" ? "g" : "d";
-    const amount =
-      payload && typeof payload.n === "number" && Number.isFinite(payload.n)
-        ? Math.max(1, Math.round(payload.n))
-        : 1;
-    const label =
-      payload && typeof payload.l === "string" ? payload.l.trim() : "";
-    return { type, amount, label };
+    const api = window.dbWalletActionCodes || null;
+    const action =
+      api && typeof api.globalPayloadAction === "function"
+        ? api.globalPayloadAction(payload)
+        : null;
+    return action || { type: "d", amount: 1, label: "" };
   }
 
   const CONTAINER_OPTIONS = {
-    className: "action-codes-notice global-action-panel",
-    anchors: [".top-row", "h1"],
+    className: "action-codes-notice card card--flat global-action-panel",
+    // After the header (P4.2): a direct <body> child, so the no-wallet CSS
+    // (body > :not(#global-action-message)) keeps it visible.
+    anchors: ["#wallet-header", ".top-row", "h1"],
   };
 
   function showMessage(message) {

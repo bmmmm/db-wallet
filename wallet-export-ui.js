@@ -1,5 +1,6 @@
 (function () {
   const helpers = window.dbWalletHelpers || null;
+  if (!helpers || typeof helpers.drawQrToCanvas !== "function") return;
 
   let opts = null;
   let refs = null;
@@ -120,12 +121,37 @@
     return ok;
   }
 
+  // O3.4: the shared link is a bearer credential — it carries the whole event
+  // log, the userId and the action-code keys, unencrypted. The first "Teilen"
+  // on a device says so in the status line and shares only from its button
+  // (a fresh tap, so the share sheet still has its user activation).
+  const SHARE_HINT_KEY = "db-wallet.share-hint-seen";
+  const SHARE_HINT =
+    "Bevor du teilst: Der Link enthält dein ganzes Wallet, alle Buchungen und die Schlüssel deiner Action Codes, unverschlüsselt. Wer ihn hat, kann das Wallet übernehmen. Nur an eigene Geräte oder Leute schicken, denen du es geben willst.";
+
+  function shareHintSeen() {
+    return helpers.safeLocalStorageGetItem(SHARE_HINT_KEY) === "1";
+  }
+
   async function shareLink(field, statusEl) {
     const url = field ? String(field.value || "") : "";
     if (!url) return;
     const nav = getNavigator();
     if (!nav || typeof nav.share !== "function") {
       await copyLink(field, statusEl);
+      return;
+    }
+    if (!shareHintSeen()) {
+      helpers.notify(SHARE_HINT, {
+        sticky: true,
+        action: {
+          label: "Teilen",
+          run: () => {
+            helpers.safeLocalStorageSetItem(SHARE_HINT_KEY, "1");
+            shareLink(field, statusEl);
+          },
+        },
+      });
       return;
     }
     setStatus(statusEl, "");
@@ -254,52 +280,71 @@
     } catch (e) {}
   }
 
-  function renderQrCode(url) {
+  // Width (CSS px) the QR may take: the content box of #qr-box, measured
+  // while it is shown. The old estimate (innerWidth - 48) missed the panel
+  // padding, so on a 360 px phone `max-width: 100%` squeezed the canvas and
+  // the modules left the device-pixel grid (O3.5). 1 px of slack absorbs the
+  // rounding of clientWidth.
+  function qrAvailableCssWidth() {
+    const box = refs && refs.qrBox;
+    const cw = box ? Number(box.clientWidth) : 0;
+    if (Number.isFinite(cw) && cw > 0) {
+      let pad = 0;
+      try {
+        const cs = typeof window.getComputedStyle === "function" ? window.getComputedStyle(box) : null;
+        if (cs) pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      } catch (e) {
+        pad = 0;
+      }
+      const inner = Math.floor(cw - pad) - 1;
+      if (inner > 0) return Math.min(360, inner);
+    }
+    const vw = Number(window.innerWidth);
+    return Number.isFinite(vw) && vw > 0 ? Math.min(360, Math.max(220, vw - 48)) : 360;
+  }
+
+  // Draws the export QR for `url` into #qr-canvas: backing store at
+  // devicePixelRatio with an integer number of device pixels per module, and a
+  // CSS width of backing / dpr that fits the box, so the browser shows it 1:1
+  // instead of stretching it (blurry or uneven modules). Returns the QrCode.
+  function drawExportQr(url) {
     if (!window.qrcodegen || !window.qrcodegen.QrCode || !refs || !refs.qrCanvas) {
       throw new Error("QR library missing");
     }
     const ecc = window.qrcodegen.QrCode.Ecc.LOW;
     const qr = window.qrcodegen.QrCode.encodeText(url, ecc);
-    // CSS size of the code, and the backing store at devicePixelRatio with an
-    // integer number of device pixels per module: the browser then shows it
-    // 1:1 instead of stretching a small canvas (blurry or uneven modules).
-    const vw = Number(window.innerWidth);
-    const cssMax = Number.isFinite(vw) && vw > 0 ? Math.min(360, Math.max(220, vw - 48)) : 360;
+    if (refs.qrBox) refs.qrBox.style.display = "flex";
+    const cssMax = qrAvailableCssWidth();
     const dprRaw = Number(window.devicePixelRatio);
     const dpr = Number.isFinite(dprRaw) && dprRaw >= 1 ? Math.min(dprRaw, 4) : 1;
     const maxPx = Math.floor(cssMax * dpr);
     const canvas = refs.qrCanvas;
-    if (helpers && typeof helpers.drawQrToCanvas === "function") {
-      helpers.drawQrToCanvas(canvas, url, { maxPx });
-    } else {
-      const border = 4;
-      const modules = qr.size + border * 2;
-      const scale = Math.max(2, Math.floor(maxPx / modules));
-      canvas.width = modules * scale;
-      canvas.height = modules * scale;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.imageSmoothingEnabled = false;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#000000";
-      for (let y = 0; y < qr.size; y++) {
-        for (let x = 0; x < qr.size; x++) {
-          if (qr.getModule(x, y)) {
-            ctx.fillRect(
-              (x + border) * scale,
-              (y + border) * scale,
-              scale,
-              scale,
-            );
-          }
-        }
-      }
-    }
-    // Only the width: height stays "auto" (style.css), so a narrower
-    // container (max-width) keeps the code square.
+    helpers.drawQrToCanvas(canvas, url, { maxPx });
+    // Only the width: height stays "auto" (style.css), so the code stays
+    // square even if a container still clamps it.
     canvas.style.width = `${canvas.width / dpr}px`;
-    if (refs.qrBox) refs.qrBox.style.display = "flex";
+    return qr;
+  }
+
+  // Rotation / window resize changes the box width: redraw the shown QR
+  // (canvas only — no focus or status change).
+  let qrResizeTimer = null;
+  let qrResizeBound = false;
+  function onQrResize() {
+    if (qrResizeTimer) clearTimeout(qrResizeTimer);
+    qrResizeTimer = setTimeout(() => {
+      qrResizeTimer = null;
+      if (!lastQrUrl || !refs || !refs.qrBox || refs.qrBox.style.display !== "flex") return;
+      try {
+        drawExportQr(lastQrUrl);
+      } catch (e) {
+        // keep the old drawing
+      }
+    }, 150);
+  }
+
+  function renderQrCode(url) {
+    const qr = drawExportQr(url);
     if (refs.qrHint) {
       refs.qrHint.textContent = `QR antippen = als PNG speichern • QR v${qr.version} (L) • ${url.length} Zeichen`;
     }
@@ -317,36 +362,7 @@
   function downloadQrPng(url) {
     if (!window.qrcodegen || !window.qrcodegen.QrCode) return;
     const canvas = document.createElement("canvas");
-    if (helpers && typeof helpers.drawQrToCanvas === "function") {
-      helpers.drawQrToCanvas(canvas, url, { scale: 10 });
-    } else {
-      const ecc = window.qrcodegen.QrCode.Ecc.LOW;
-      const qr = window.qrcodegen.QrCode.encodeText(url, ecc);
-      const border = 4;
-      const scale = 10;
-      const size = qr.size;
-      const dim = (size + border * 2) * scale;
-      canvas.width = dim;
-      canvas.height = dim;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.imageSmoothingEnabled = false;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, dim, dim);
-      ctx.fillStyle = "#000000";
-      for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-          if (qr.getModule(x, y)) {
-            ctx.fillRect(
-              (x + border) * scale,
-              (y + border) * scale,
-              scale,
-              scale,
-            );
-          }
-        }
-      }
-    }
+    helpers.drawQrToCanvas(canvas, url, { scale: 10 });
 
     const date = opts.todayDateStr ? opts.todayDateStr() : "date";
     const wallet = opts.getWallet ? opts.getWallet() : null;
@@ -365,11 +381,7 @@
       document.body.removeChild(link);
     };
 
-    const saveBlob = (blob) => {
-      if (helpers && typeof helpers.downloadBlob === "function") {
-        helpers.downloadBlob(blob, filename);
-      }
-    };
+    const saveBlob = (blob) => helpers.downloadBlob(blob, filename);
 
     if (canvas.toBlob) {
       canvas.toBlob((blob) => {
@@ -418,14 +430,16 @@
     }
   }
 
-  // The data no longer fits a version-40 QR (roughly 590 events), but the
-  // compact i2: link is already built and works as a link — offer it instead
-  // of throwing it away (P2.5). Real QR scaling is P5.5.
+  // The data no longer fits a version-40 QR (roughly 560 entries, about 475
+  // with 10 % deletions since the compact tombstones of P5.5), but the compact
+  // i2: link is already built and works as a link — offer it instead of
+  // throwing it away (P2.5).
   function showCompactLinkInstead(url) {
     if (!refs || !refs.elExportUrl) return;
     setExportUrl(url);
-    alert(
+    helpers.notify(
       `Zu groß für einen QR-Code. Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
+      { sticky: true },
     );
     try {
       refs.elExportUrl.focus();
@@ -437,6 +451,13 @@
 
   async function showQrExport() {
     clearQrUi();
+    // qrcodegen.js loads on first use (P5.6). A failed load leaves the
+    // library missing; drawExportQr then reports it below.
+    try {
+      await helpers.loadQrLibrary();
+    } catch (e) {
+      // handled by the "QR library missing" path
+    }
     const cached = loadCachedQrUrl();
     if (cached) {
       try {
@@ -460,8 +481,9 @@
 
         const msg = String(e && e.message ? e.message : e || "");
         if (msg.includes("QR library missing")) {
-          alert(
+          helpers.notify(
             "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt). Du kannst den Export-Link trotzdem kopieren.",
+            { kind: "error" },
           );
           return;
         }
@@ -478,7 +500,9 @@
           if (url) {
             showCompactLinkInstead(url);
           } else {
-            alert("Zu groß für QR-Export. Nutze Export-Link oder JSON.");
+            helpers.notify("Zu groß für QR-Export. Nutze Export-Link oder JSON.", {
+              kind: "error",
+            });
           }
           return;
         }
@@ -491,14 +515,15 @@
           if (!migrated) return;
           continue;
         }
-        alert("QR-Code konnte nicht erzeugt werden.");
+        helpers.notify("QR-Code konnte nicht erzeugt werden.", { kind: "error" });
         return;
       }
     }
     // Reached only if every attempt (incl. post-migration retries) failed
     // without returning — never leave the user without feedback.
-    alert(
+    helpers.notify(
       "QR-Code konnte nach Migration nicht erzeugt werden. Bitte den Export-Link oder JSON-Download nutzen.",
+      { kind: "error" },
     );
   }
 
@@ -563,8 +588,9 @@
         // The classic link is uncompressed JSON; for large wallets it can exceed
         // what some apps/browsers accept in a URL. Warn but still show it.
         if (url.length > 8000) {
-          alert(
+          helpers.notify(
             `Achtung: Der Export-Link ist sehr lang (${url.length} Zeichen) und funktioniert evtl. nicht überall. Für große Wallets bitte den QR-Export oder JSON-Download nutzen.`,
+            { kind: "error" },
           );
         }
         setExportUrl(url);
@@ -606,6 +632,10 @@
         if (!lastQrUrl) return;
         downloadQrPng(lastQrUrl);
       });
+    }
+    if (!qrResizeBound && typeof window.addEventListener === "function") {
+      qrResizeBound = true;
+      window.addEventListener("resize", onQrResize);
     }
   }
 
