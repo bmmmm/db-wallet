@@ -23,7 +23,6 @@
     safeParse,
     hash53,
     extractLegacyDeviceKey,
-    cmpEventId,
     formatCompactEventId,
     normalizeUserId,
   } = helpers;
@@ -162,7 +161,7 @@
       addEvent(e);
     }
 
-    // Return in canonical order (ts, then cmpEventId) so the persisted log
+    // Return in canonical order (compareEventsByTime) so the persisted log
     // matches the balance fold — consumers re-sort anyway, but this removes the
     // latent trap and satisfies the ordering invariant.
     if (helpers && typeof helpers.compareEventsByTime === "function") {
@@ -834,15 +833,18 @@
       });
     }
 
-    // Order events exactly as the balance fold does (computeSummary: ts then
-    // canonical id). The decoder rebuilds sub-minute order from payload position,
-    // so any divergence here would silently reorder same-minute events on import
-    // and could flip paid/unpaid. (Sorting by tsMs keeps tsMin non-decreasing, so
-    // the minute deltas written below stay >= 0.)
-    events.sort((a, b) => {
-      if (a.tsMs !== b.tsMs) return a.tsMs - b.tsMs;
-      return cmpEventId(a.id, b.id);
-    });
+    // Order events exactly as the balance fold does (compareEventsByTime: the
+    // minute, the root id, the id — P5.4), on the clamped tsMs the payload
+    // carries. The order inside a minute no longer rests on the payload
+    // position, but writing it canonically keeps the decoded sub-minute times in
+    // that order. (Minute first keeps tsMin non-decreasing, so the minute
+    // deltas written below stay >= 0.)
+    events.sort((a, b) =>
+      helpers.compareEventsByTime(
+        { ts: a.tsMs, id: a.id, supersedes: a.supersedes },
+        { ts: b.tsMs, id: b.id, supersedes: b.supersedes },
+      ),
+    );
 
     writeVarUint(deviceKeys.length, out);
     for (const key of deviceKeys) {

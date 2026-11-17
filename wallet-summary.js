@@ -28,6 +28,8 @@
       helpers && typeof helpers.compareEventsByTime === "function"
         ? helpers.compareEventsByTime
         : null;
+    const editCmp =
+      helpers && typeof helpers.compareEdits === "function" ? helpers.compareEdits : null;
     const list = Array.isArray(events) ? events : [];
 
     const tombstones = [];
@@ -77,7 +79,8 @@
       if (membersByRoot.has(root)) deletedRoots.add(root);
     }
 
-    // Winner per root: the canonical-last replacement if any edit happened,
+    // Winner per root: the latest edit (compareEdits: the highest seq, not the
+    // latest ts — an edit may move an entry further back) if any edit happened,
     // else the bare root event. Two devices editing the same root independently
     // therefore collapse to ONE deterministic survivor on every device.
     const winnerByRoot = new Map();
@@ -88,11 +91,13 @@
       const pool = reps.length ? reps : members;
       let winner = pool[0];
       for (let i = 1; i < pool.length; i++) {
-        const better = cmp
-          ? cmp(pool[i], winner) > 0
-          : (pool[i].ts || 0) > (winner.ts || 0) ||
-            ((pool[i].ts || 0) === (winner.ts || 0) &&
-              String(pool[i].id) > String(winner.id));
+        const better = editCmp
+          ? editCmp(pool[i], winner) > 0
+          : cmp
+            ? cmp(pool[i], winner) > 0
+            : (pool[i].ts || 0) > (winner.ts || 0) ||
+              ((pool[i].ts || 0) === (winner.ts || 0) &&
+                String(pool[i].id) > String(winner.id));
         if (better) winner = pool[i];
       }
       winnerByRoot.set(root, winner);

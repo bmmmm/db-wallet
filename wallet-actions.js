@@ -541,9 +541,8 @@
     // converge instead of double-counting. No tombstone: the replacement
     // supersedes the original (and any earlier replacement) directly.
     const ok = persistMutation(ctx, wallet, () => {
-      const ev = newEvent(wallet, target.t, newAmount);
+      const ev = newEvent(wallet, target.t, newAmount, { supersedes: rootId });
       ev.ts = newTs;
-      ev.supersedes = rootId;
       wallet.events.push(ev);
     });
     if (!ok) return false;

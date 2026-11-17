@@ -698,6 +698,41 @@ Unabhängige Pakete, jeweils nur bei Bedarf.
   (`wallet-helpers.js`, `compareEventsByTime`), der auch den Gewinner bei Edits und das
   Undo-Ziel bestimmt. Vor der Umsetzung einen kurzen Entwurf schreiben und die
   Tombstone-Zeitstempel (`max(now, maxTs + 1)`) dagegen prüfen.
+
+  **Entwurf (2026-11-17).** Der Harness zeigt drei Fehler derselben Ursache: A7;
+  zwei Geräte, die denselben Eintrag bearbeiten, behalten je ihre eigene Fassung;
+  und schon auf einem Gerät verliert eine zweite Bearbeitung, die den Eintrag weiter
+  zurückdatiert, gegen die erste (der Gewinner war „größter `ts`“).
+  1. *Reihenfolge* (`compareEventsByTime`): Minute (`floor(ts / 60000)`), dann die
+     Wurzel-ID (`supersedes`, sonst `id`) per `cmpEventId`, dann die eigene ID. Die
+     Minute übersteht den Export exakt, IDs sind überall gleich, also sortiert jedes
+     Gerät gleich. Innerhalb einer Minute zählt auf einem Gerät die `seq`, also die
+     Buchungsfolge; zwischen Geräten der `deviceKey` (deterministisch, nicht
+     zeitlich). Eine Ersetzung mit gleichem `ts` bleibt über die Wurzel-ID genau am
+     Platz des Originals, auch wenn danach in derselben Minute bezahlt wurde. Der
+     Encoder schreibt in derselben Ordnung; das Wire-Format bleibt gleich.
+  2. *Gewinner einer Bearbeitung* (`compareEdits`, nicht mehr nach Zeit): die
+     Ersetzung mit der höchsten `seq`, bei Gleichstand der größere `deviceKey`.
+     Migrierte (`oid`) und nicht kompakte IDs tragen eine Hash-`seq` und ranken
+     darunter, untereinander nach der Reihenfolge aus 1. Damit eine Bearbeitung jede
+     gesehene Ersetzung schlägt, auch eine fremde, hebt `newEvent(…, { supersedes })`
+     den Zähler des Geräts über die höchste `seq` der Kette (Lamport-Uhr je Eintrag;
+     Werte ab 2^40 zählen nicht, damit ein präparierter Import den Zähler nicht an
+     `MAX_SAFE_INTEGER` treibt). Gleichzeitige Bearbeitungen konvergieren auf einen
+     Gewinner.
+  3. *Tombstones*: Ihre Position wirkt nur auf `afterDeletion` im Undo
+     (`sorted[last]`). Ab 1. kann ein fremdes Event derselben Minute hinter dem
+     Tombstone liegen; deshalb nimmt `resolveUndoTarget` als „letzte Aktion“ das
+     eigene Event mit der höchsten `seq`. `max(now, maxTs + 1)` bleibt.
+  4. *Undo-Ziel*: der letzte sichtbare Eintrag in der Ordnung aus 1, also die unterste
+     Zeile der Historie. Hat ein anderes Gerät in derselben Minute gebucht, kann das
+     dessen Eintrag sein; der Hinweis „Rückgängig“ nach einer Buchung trifft weiter
+     genau diese Buchung (`undoBooking`).
+  5. *Grenzen*: Geräte mit altem und neuem Stand sortieren verschieden, bis beide
+     aktualisiert sind. Bei vorhandenen Daten kann der Gewinner eines auf zwei
+     Geräten bearbeiteten Eintrags wechseln, ein auf einen anderen Tag verschobener
+     Eintrag in der Minute einer Zahlung die Seite wechseln. Die Prüfung „über eine
+     Bezahlung hinweg“ in `editEntry` nutzt dieselbe Ordnung.
 - **P5.5 QR-Kapazität.** Tombstones kosten im Export etwa fünfmal so viel wie ein
   Event (zwei Volltext-IDs im `xt`-Block). Erst Tombstones kompakt kodieren
   (Geräteindex und `seq`), dann bei Bedarf Delta-Export je Peer oder mehrteiliger QR.

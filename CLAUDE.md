@@ -90,20 +90,28 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   merge dedups strictly by `id`). Operations:
   - drink/credit/pay → append a new event.
   - delete/undo → append a tombstone (`t:"x"`, `ref` = the entry's **root** id).
-  - edit → append a replacement carrying `supersedes` = root id (no tombstone). The
-    summary fold (`applyTombstones`) collapses every replacement of one root to the
-    canonical-last winner, so concurrent edits on two devices converge instead of
-    double-counting; a delete of the root wins over a concurrent edit. The
-    `supersedes` link round-trips via the `se` codec extension block.
-  - Order: sort by `ts`, tie-break by numeric base36 seq (not lexical).
+  - edit → append a replacement carrying `supersedes` = root id (no tombstone),
+    minted by `newEvent(wallet, t, n, { supersedes: root })`. The summary fold
+    (`applyTombstones`) collapses every replacement of one root to the latest edit
+    (`helpers.compareEdits`: the highest seq, tie the larger deviceKey — not the
+    latest `ts`, an edit may move an entry back); `newEvent` lifts the device
+    counter above every seq of the chain, so an edit beats what it replaced on
+    every device and concurrent edits converge. A delete of the root wins over a
+    concurrent edit. The `supersedes` link round-trips via the `se` codec block.
+  - Order (`compareEventsByTime`, P5.4): the **minute** of `ts`, then the root id,
+    then the id (`cmpEventId`: deviceKey, then numeric base36 seq — not lexical).
+    Milliseconds never decide (an imported event's sub-minute time is made up), so
+    every device sorts alike; an edit with the same `ts` keeps the original's place.
 - **Undo is monotonic** — it removes the last *visible* entry (tombstoning its root);
   it does not revert a deletion (that would ping-pong with its own tombstones). It
-  confirms when the previous action was a deletion. `applyTombstones` still treats a
+  confirms when the previous action was a deletion (this device's newest event, the
+  highest own seq, is a delete tombstone). `applyTombstones` still treats a
   tombstone-of-a-tombstone as an un-delete for data/merge robustness.
 - **QR export is minute-resolution + a bearer credential** — `tsMs` is quantized to
-  the minute on encode (order-preserving, balance-neutral; sub-minute order is rebuilt
-  from payload position). The export QR/link carries the full event log, userId, and
-  action-code keys with no encryption — anyone who captures it can replay it.
+  the minute on encode (balance-neutral: the order is by minute + ids anyway; events
+  are written in canonical order and decode at minute + position). The export
+  QR/link carries the full event log, userId, and action-code keys with no
+  encryption — anyone who captures it can replay it.
 - **Codec extension blocks are order-sensitive** — they have no length prefix, so an
   old decoder stops at the first unknown block. New blocks (`se`, `gc`, `dc`, `ck`) are
   written LAST and `ck` (integrity checksum) is absolutely last so it covers everything. `gc`

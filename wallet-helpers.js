@@ -264,15 +264,62 @@
     return cmpStr(idA, idB);
   }
 
-  // Canonical full-event comparator: primary key timestamp, tie-broken by
-  // cmpEventId. Used wherever an event list is sorted before folding the balance.
+  function eventMinute(e) {
+    const ts = e && typeof e.ts === "number" && Number.isFinite(e.ts) ? e.ts : 0;
+    return Math.floor(ts / 60000);
+  }
+
+  function eventRootId(e) {
+    if (e && typeof e.supersedes === "string" && e.supersedes) return e.supersedes;
+    return e && typeof e.id === "string" ? e.id : "";
+  }
+
+  // Canonical full-event comparator (P5.4), the same on every device: the
+  // minute, then the entry's root id, then the event's own id. The QR export
+  // keeps only the minute (an imported event's sub-minute time is its payload
+  // position), so milliseconds must not decide the order — within a minute the
+  // ids do: on one device the seq is the booking order, between devices the
+  // deviceKey decides. Sorting by the root id keeps an edit that kept its ts at
+  // the original's place (before a later pay of that minute). Used wherever an
+  // event list is sorted before folding the balance, and by the encoder.
   function compareEventsByTime(a, b) {
-    const aTs = a && typeof a.ts === "number" && Number.isFinite(a.ts) ? a.ts : 0;
-    const bTs = b && typeof b.ts === "number" && Number.isFinite(b.ts) ? b.ts : 0;
-    if (aTs !== bTs) return aTs - bTs;
+    const aMin = eventMinute(a);
+    const bMin = eventMinute(b);
+    if (aMin !== bMin) return aMin - bMin;
+    const byRoot = cmpEventId(eventRootId(a), eventRootId(b));
+    if (byRoot !== 0) return byRoot;
     const aId = a && typeof a.id === "string" ? a.id : "";
     const bId = b && typeof b.id === "string" ? b.id : "";
     return cmpEventId(aId, bId);
+  }
+
+  // Seq values from 2^40 up are not a booking count (a crafted import); an
+  // edit does not lift its device counter above them (newEvent).
+  const EDIT_SEQ_LIMIT = 2 ** 40;
+
+  // The edit order of one id: its parsed compact id, or null for a migrated
+  // event (`oid`, its seq is a hash of the v1 id) or a non-compact id.
+  function editOrderOf(e) {
+    if (!e || (typeof e.oid === "string" && e.oid)) return null;
+    return parseCompactEventId(typeof e.id === "string" ? e.id : "");
+  }
+
+  // Which replacement of one entry is the later edit (> 0: a). Not by time —
+  // an edit may move an entry further back: the higher seq wins, a tie the
+  // larger deviceKey. newEvent lifts an edit's seq above every replacement of
+  // the entry the device has seen, so an edit beats what it replaced, on every
+  // device; concurrent edits converge on one winner. Migrated and non-compact
+  // ids rank below, among themselves in canonical order.
+  function compareEdits(a, b) {
+    const pa = editOrderOf(a);
+    const pb = editOrderOf(b);
+    if (pa && pb) {
+      if (pa.seq !== pb.seq) return pa.seq - pb.seq;
+      return cmpStr(pa.deviceKey, pb.deviceKey);
+    }
+    if (pa) return 1;
+    if (pb) return -1;
+    return compareEventsByTime(a, b);
   }
 
   function fnv1a64(bytes) {
@@ -679,6 +726,9 @@
     cmpStr,
     cmpEventId,
     compareEventsByTime,
+    compareEdits,
+    editOrderOf,
+    EDIT_SEQ_LIMIT,
     fnv1a64,
     hash53,
     extractLegacyDeviceKey,

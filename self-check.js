@@ -935,7 +935,8 @@
           );
 
           // A1b: two devices editing the same entry offline collapse to ONE
-          // deterministic winner instead of double-counting after merge.
+          // deterministic winner instead of double-counting after merge — the
+          // later edit by seq (P5.4), not the later ts.
           const wConc = {
             userId: "selfcheck-conc-" + randomId(),
             walletId: "w",
@@ -953,9 +954,9 @@
           addCheck(
             result,
             "concurrent edit converges to one winner",
-            concSum.total === 7 &&
+            concSum.total === 5 &&
               concSum.eventsEffectiveSorted.length === 1 &&
-              concSum.eventsEffectiveSorted[0].id === "devb.3",
+              concSum.eventsEffectiveSorted[0].id === "deva.5",
             `total=${concSum.total} eff=${concSum.eventsEffectiveSorted.length}`,
           );
 

@@ -303,6 +303,22 @@
     return ev;
   }
 
+  // This device's newest event: the one with the highest seq on its deviceKey
+  // (ids are minted in increasing seq order), or null.
+  function lastOwnEvent(events) {
+    const deviceKey = getDeviceKey();
+    let best = null;
+    let bestSeq = 0;
+    for (const e of events || []) {
+      const parsed = e && helpers.parseCompactEventId(e.id);
+      if (parsed && parsed.deviceKey === deviceKey && parsed.seq > bestSeq) {
+        best = e;
+        bestSeq = parsed.seq;
+      }
+    }
+    return best;
+  }
+
   // Pure resolution of what an undo would act on — shared by undoLastEvent and
   // the UI's pre-undo confirm so the confirm always matches the actual outcome.
   // Returns { type: "undo", id, event, afterDeletion } or null if nothing to
@@ -334,7 +350,11 @@
     // afterDeletion = the last appended event was a real DELETE: a tombstone
     // that is neither itself neutralized nor a neutralizer (a tombstone-of-a-
     // tombstone, i.e. an undo-of-delete — its ref names a neutralized tombstone).
-    const lastAppended = sorted[sorted.length - 1];
+    // "Last appended" is this device's newest event (the highest own seq), not
+    // the end of the canonical order: since P5.4 another device's event of the
+    // same minute may sort after a local tombstone. Without an own event, the
+    // end of the order.
+    const lastAppended = lastOwnEvent(sorted) || sorted[sorted.length - 1];
     const lastRef =
       lastAppended && typeof lastAppended.ref === "string"
         ? lastAppended.ref.trim()
@@ -396,15 +416,41 @@
     return `${deviceKey}.${seq.toString(36)}`;
   }
 
+  // An edit must be the later edit (helpers.compareEdits: the higher seq) than
+  // every replacement of its entry this device has seen, a foreign one too:
+  // lift the device counter above the highest seq of the chain (a Lamport
+  // clock per entry). Migrated ids (a hash as seq) and seqs from
+  // EDIT_SEQ_LIMIT up (a crafted import) do not count.
+  function liftSeqAboveEdits(wallet, rootId) {
+    const deviceKey = getDeviceKey();
+    let max = 0;
+    for (const e of wallet.events || []) {
+      if (!e || e.supersedes !== rootId) continue;
+      const order = helpers.editOrderOf(e);
+      if (order && order.seq < helpers.EDIT_SEQ_LIMIT && order.seq > max) max = order.seq;
+    }
+    if (!wallet.seq || typeof wallet.seq !== "object") wallet.seq = {};
+    if (typeof wallet.seq[deviceKey] !== "number") {
+      wallet.seq[deviceKey] = maxSeqForDevice(wallet, deviceKey) + 1;
+    }
+    if (wallet.seq[deviceKey] <= max) wallet.seq[deviceKey] = max + 1;
+  }
+
   // Canonical event factory — a fresh id + timestamp for a drink/pay/credit.
   // Shared so callers (wallet-actions, sync, UI) all mint identical shapes.
-  function newEvent(wallet, type, n) {
-    return {
+  // `opts.supersedes` (a root id) makes it an edit replacement of that entry.
+  function newEvent(wallet, type, n, opts) {
+    const supersedes =
+      opts && typeof opts.supersedes === "string" && opts.supersedes ? opts.supersedes : "";
+    if (supersedes) liftSeqAboveEdits(wallet, supersedes);
+    const ev = {
       id: nextEventId(wallet),
       t: type,
       n: typeof n === "number" ? n : undefined,
       ts: Date.now(),
     };
+    if (supersedes) ev.supersedes = supersedes;
+    return ev;
   }
 
   // Append events and persist, rolling back the optimistic in-memory append when
