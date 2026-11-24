@@ -95,9 +95,10 @@
     };
   }
 
+  // Only db-wallet's own keys: the origin is shared with the account's other
+  // Pages apps, so a bare `userId` key belongs to one of them.
   function removeUserData(userId) {
     safeLocalStorageRemoveItem(STORAGE_PREFIX + userId);
-    safeLocalStorageRemoveItem(userId);
     const nextReg = loadRegistry();
     if (nextReg && typeof nextReg === "object" && nextReg[userId]) {
       delete nextReg[userId];
@@ -569,11 +570,7 @@
     if (!ok) return;
 
     // Re-read: another tab may have added or removed a wallet meanwhile.
-    collectKeys().forEach((key) => {
-      const userId = key.slice(STORAGE_PREFIX.length);
-      safeLocalStorageRemoveItem(key);
-      safeLocalStorageRemoveItem(userId);
-    });
+    collectKeys().forEach((key) => safeLocalStorageRemoveItem(key));
 
     safeLocalStorageRemoveItem(REGISTRY_KEY);
 

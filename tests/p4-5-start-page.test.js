@@ -314,6 +314,35 @@ test("'Alle löschen': one danger question with the names and backups for each",
   assert.equal($(w, "existing-users-section").hidden, true);
 });
 
+// The origin (bmmmm.github.io) is shared by every Pages project of the
+// account: deleting a wallet must not remove another app's key that happens
+// to be named like the wallet (db-wallet never writes bare-name keys).
+test("Löschen and 'Alle löschen' leave other apps' keys alone", async () => {
+  const storage = seedStorage({ peter: 1, settings: 2 });
+  const foreign = { peter: "other app", settings: "{\"dark\":true}", "other-app:state": "1" };
+  for (const [k, v] of Object.entries(foreign)) storage.setItem(k, v);
+  storage.setItem("db-wallet.share-hint-seen", "1");
+  const before = new Set(Array.from({ length: storage.length }, (_, i) => storage.key(i)));
+  const w = await bootIndex({ storage });
+  fakeDialog(w);
+
+  btnIn(cardOf(w, "settings"), "wallet-delete").click();
+  $(w, "confirm-ok").click();
+  await settle();
+  assert.equal(storage.getItem("db-wallet:settings"), null);
+  assert.equal(storage.getItem("settings"), foreign.settings);
+
+  $(w, "btn-nuke-all").click();
+  $(w, "confirm-ok").click();
+  await settle();
+  assert.equal(storage.getItem("db-wallet:peter"), null);
+  for (const [k, v] of Object.entries(foreign)) assert.equal(storage.getItem(k), v, k);
+  const after = new Set(Array.from({ length: storage.length }, (_, i) => storage.key(i)));
+  const removed = [...before].filter((k) => !after.has(k)).sort();
+  assert.deepEqual(removed, ["db-wallet:peter", "db-wallet:registry", "db-wallet:settings"]);
+  assert.ok(after.has("db-wallet:device"), "the device identity stays");
+});
+
 // --- P4.8 link einfügen ------------------------------------------------------------
 
 test("hashFromPastedLink: only the part after '#' counts", async () => {
