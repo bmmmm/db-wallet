@@ -1,7 +1,9 @@
 (function () {
   const helpers = window.dbWalletHelpers || null;
   const storage = window.dbWalletStorage || null;
-  if (!helpers || !storage) return;
+  // action-codes.js loads before this module on both pages.
+  const actionCodesApi = window.dbWalletActionCodes || null;
+  if (!helpers || !storage || !actionCodesApi) return;
 
   const themeApi = window.dbWalletTheme || null;
   const canonicalThemeName =
@@ -23,6 +25,7 @@
     safeParse,
     hash53,
     extractLegacyDeviceKey,
+    parseCompactEventId,
     formatCompactEventId,
     normalizeUserId,
   } = helpers;
@@ -81,7 +84,6 @@
 
   const {
     getDeviceKey,
-    parseCompactEventId,
     ensureWalletDevices,
     mergeWalletDevices,
     ensureDeviceSeq,
@@ -164,9 +166,7 @@
     // Return in canonical order (compareEventsByTime) so the persisted log
     // matches the balance fold — consumers re-sort anyway, but this removes the
     // latent trap and satisfies the ordering invariant.
-    if (helpers && typeof helpers.compareEventsByTime === "function") {
-      merged.sort(helpers.compareEventsByTime);
-    }
+    merged.sort(helpers.compareEventsByTime);
     // Expose how many id-less events were skipped so the import flow can warn
     // about a partial import instead of reporting clean success. Non-enumerable
     // so it never serializes into the persisted wallet.
@@ -976,10 +976,7 @@
     if (rawActionCodes.length) {
       let actionCodes = rawActionCodes;
       try {
-        const api = window.dbWalletActionCodes || null;
-        if (api && typeof api.normalizeActionCodes === "function") {
-          actionCodes = api.normalizeActionCodes(rawActionCodes);
-        }
+        actionCodes = actionCodesApi.normalizeActionCodes(rawActionCodes);
       } catch (e) {
         console.warn("db-wallet: encode-v2 normalizeActionCodes failed", e);
       }
@@ -993,7 +990,7 @@
     }
 
     // optional extension: sync peer device id ("sp", v1)
-    const deviceId = typeof getDeviceKey === "function" ? getDeviceKey() : "";
+    const deviceId = getDeviceKey();
     if (deviceId) {
       out.push(115, 112); // "sp"
       writeVarUint(1, out);
@@ -1002,10 +999,7 @@
 
     // optional extension: device list ("dv", v1)
     try {
-      const devices =
-        typeof ensureWalletDevices === "function"
-          ? ensureWalletDevices(wallet)
-          : [];
+      const devices = ensureWalletDevices(wallet);
       if (devices && devices.length) {
         out.push(100, 118); // "dv"
         writeVarUint(1, out);
@@ -1069,10 +1063,7 @@
         : [];
     let globalCodes = rawGlobalCodes;
     try {
-      const api = window.dbWalletActionCodes || null;
-      if (api && typeof api.normalizeGlobalActionCodes === "function") {
-        globalCodes = api.normalizeGlobalActionCodes(rawGlobalCodes);
-      }
+      globalCodes = actionCodesApi.normalizeGlobalActionCodes(rawGlobalCodes);
     } catch (e) {
       console.warn(
         "db-wallet: encode-v2 normalizeGlobalActionCodes failed",
@@ -1095,14 +1086,8 @@
     // only misses the deletions.
     let deletedCodes = null;
     try {
-      const api = window.dbWalletActionCodes || null;
-      if (
-        wallet &&
-        wallet.deletedActionCodes &&
-        api &&
-        typeof api.normalizeDeletedActionCodes === "function"
-      ) {
-        deletedCodes = api.normalizeDeletedActionCodes(wallet.deletedActionCodes);
+      if (wallet && wallet.deletedActionCodes) {
+        deletedCodes = actionCodesApi.normalizeDeletedActionCodes(wallet.deletedActionCodes);
       }
     } catch (e) {
       console.warn("db-wallet: encode-v2 deleted action codes failed", e);
@@ -1124,15 +1109,13 @@
     // gzip's CRC doesn't cover: a corrupt byte flips the checksum and the decoder
     // rejects instead of silently importing wrong data. Old decoders stop at this
     // unknown block without verifying (graceful).
-    if (helpers && typeof helpers.fnv1a64 === "function") {
-      const sum = Number(helpers.fnv1a64(out) & 0xffffffffn);
-      out.push(99, 107); // "ck"
-      writeVarUint(1, out);
-      out.push((sum >>> 24) & 0xff);
-      out.push((sum >>> 16) & 0xff);
-      out.push((sum >>> 8) & 0xff);
-      out.push(sum & 0xff);
-    }
+    const sum = Number(helpers.fnv1a64(out) & 0xffffffffn);
+    out.push(99, 107); // "ck"
+    writeVarUint(1, out);
+    out.push((sum >>> 24) & 0xff);
+    out.push((sum >>> 16) & 0xff);
+    out.push((sum >>> 8) & 0xff);
+    out.push(sum & 0xff);
 
     return new Uint8Array(out);
   }
@@ -1217,10 +1200,7 @@
       for (const k of ["ref", "supersedes", "oid"]) {
         if (k in picked && typeof picked[k] !== "string") delete picked[k];
       }
-      const norm =
-        typeof storage.normalizeEvent === "function"
-          ? storage.normalizeEvent(picked)
-          : picked;
+      const norm = storage.normalizeEvent(picked);
       // Keep id-less/typeless entries for mergeEvents' dropped-count warning.
       out.push(norm || picked);
     }
@@ -1239,29 +1219,23 @@
     // device is removed here, and one deleted here stays deleted.
     let deleted = local.deletedActionCodes;
     try {
-      const api = window.dbWalletActionCodes || null;
       const remoteDeleted =
         remote && remote.deletedActionCodes && typeof remote.deletedActionCodes === "object"
           ? remote.deletedActionCodes
           : null;
-      if (remoteDeleted && api && typeof api.mergeDeletedActionCodes === "function") {
-        deleted = api.mergeDeletedActionCodes(local.deletedActionCodes, remoteDeleted);
+      if (remoteDeleted) {
+        deleted = actionCodesApi.mergeDeletedActionCodes(local.deletedActionCodes, remoteDeleted);
         if (Object.keys(deleted).length) local.deletedActionCodes = deleted;
       }
     } catch (e) {
       console.warn("db-wallet: import deleted action codes merge failed", e);
     }
     try {
-      const api = window.dbWalletActionCodes || null;
-      if (api && typeof api.mergeActionCodes === "function") {
-        local.actionCodes = api.mergeActionCodes(
-          local.actionCodes,
-          remote && remote.actionCodes,
-          deleted,
-        );
-      } else if (remote && Array.isArray(remote.actionCodes)) {
-        local.actionCodes = remote.actionCodes;
-      }
+      local.actionCodes = actionCodesApi.mergeActionCodes(
+        local.actionCodes,
+        remote && remote.actionCodes,
+        deleted,
+      );
     } catch (e) {
       console.warn("db-wallet: import action codes merge failed", e);
     }
@@ -1279,16 +1253,11 @@
         ? local.globalActionCodes
         : [];
       if (remoteGlobal.length || localGlobal.length) {
-        const api = window.dbWalletActionCodes || null;
-        if (api && typeof api.mergeGlobalActionCodes === "function") {
-          local.globalActionCodes = api.mergeGlobalActionCodes(
-            localGlobal,
-            remoteGlobal,
-            deleted,
-          );
-        } else if (remoteGlobal.length) {
-          local.globalActionCodes = remoteGlobal;
-        }
+        local.globalActionCodes = actionCodesApi.mergeGlobalActionCodes(
+          localGlobal,
+          remoteGlobal,
+          deleted,
+        );
       }
     } catch (e) {
       console.warn("db-wallet: import global action codes merge failed", e);
@@ -1423,9 +1392,7 @@
 
     // device list (synced): merge + normalize + max 6
     try {
-      if (typeof mergeWalletDevices === "function") {
-        mergeWalletDevices(local, remote && remote.devices);
-      }
+      mergeWalletDevices(local, remote && remote.devices);
     } catch (e) {
       console.warn("db-wallet: import device list merge failed", e);
     }
@@ -1441,9 +1408,9 @@
   // The import reports a failed save itself (saveWallet runs quiet): name the
   // real reason, a wallet reset in another tab is not a full storage.
   function importSaveFailedMessage() {
-    const reason =
-      typeof storage.getLastSaveError === "function" ? storage.getLastSaveError() : null;
-    return reason === "replaced" ? IMPORT_WALLET_REPLACED_MESSAGE : IMPORT_SAVE_FAILED_MESSAGE;
+    return storage.getLastSaveError() === "replaced"
+      ? IMPORT_WALLET_REPLACED_MESSAGE
+      : IMPORT_SAVE_FAILED_MESSAGE;
   }
 
   function importRemoteWallet(remote, options) {
@@ -1602,11 +1569,7 @@
   // tryImportFromHash result (via the `done` field) for short-circuit cases.
   function parseActionCodeHash(hash, options) {
     const activeUserId = returnUserIdOf(options);
-    const api = window.dbWalletActionCodes || null;
-    const payload =
-      api && typeof api.decodeActionHash === "function"
-        ? api.decodeActionHash(hash)
-        : safeParse(base64UrlDecode(hash.slice(3)));
+    const payload = actionCodesApi.decodeActionHash(hash);
     if (!payload || typeof payload !== "object") {
       throw importError("corrupt", "Invalid action payload");
     }
@@ -1633,7 +1596,7 @@
       };
     }
 
-    return { api, payload, payloadWalletId, codeId, key, activeUserId };
+    return { payloadWalletId, codeId, key, activeUserId };
   }
 
   // With a wallet open the page stays and the message goes to the status line;
@@ -1687,15 +1650,13 @@
   // books the event, persists, and updates the hash. Returns the standard
   // tryImportFromHash result.
   function bookActionCode(targetUserId, parsed) {
-    const { api, payload, codeId, key } = parsed;
+    const { codeId, key } = parsed;
     const wallet = loadWallet(targetUserId);
     ensureDeviceSeq(wallet);
 
     try {
-      if (api && typeof api.ensureWalletActionCodes === "function") {
-        const res = api.ensureWalletActionCodes(wallet);
-        if (res && res.changed) saveWallet(wallet);
-      }
+      const res = actionCodesApi.ensureWalletActionCodes(wallet);
+      if (res && res.changed) saveWallet(wallet);
     } catch (e) {
       console.warn("db-wallet: ensureWalletActionCodes failed", e);
     }
@@ -1721,13 +1682,7 @@
       return { userId: targetUserId, redirectedToPreview: false };
     }
 
-    const amount =
-      api && typeof api.normalizeAmount === "function"
-        ? api.normalizeAmount(match.amount)
-        : (() => {
-            const n = parseInt(match.amount, 10);
-            return isNaN(n) || n <= 0 ? 1 : n;
-          })();
+    const amount = actionCodesApi.normalizeAmount(match.amount);
 
     const normalizeType = (v) => (v === "d" || v === "g" ? v : null);
     // Always book the STORED code's type — never let the scanned payload override
