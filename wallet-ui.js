@@ -31,7 +31,6 @@
   if (!helpers || !storage || !importV2 || !summaryApi) return;
 
   const {
-    base64UrlEncode,
     base64UrlEncodeBytes,
     gzipCompress,
     loadRegistry,
@@ -176,7 +175,6 @@
     const btnPayCancel = document.getElementById("btn-pay-cancel");
     const btnExport = document.getElementById("btn-export");
     const exportOptions = document.getElementById("export-options");
-    const btnExportLink = document.getElementById("btn-export-link");
     const btnExportLinkQr = document.getElementById("btn-export-link-qr");
     const btnExportJson = document.getElementById("btn-export-json");
     const btnReset = document.getElementById("btn-reset");
@@ -470,7 +468,6 @@
         refs: {
           btnExport,
           exportOptions,
-          btnExportLink,
           btnExportLinkQr,
           btnExportJson,
           elExportUrl,
@@ -490,7 +487,6 @@
         saveWallet: (w) => saveWallet(w),
         encodeImportV2Bytes,
         gzipCompress,
-        base64UrlEncode,
         base64UrlEncodeBytes,
         todayDateStr,
         needsMigration,

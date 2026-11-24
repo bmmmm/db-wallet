@@ -430,16 +430,17 @@
     }
   }
 
-  // The data no longer fits a version-40 QR (roughly 560 entries, about 475
-  // with 10 % deletions since the compact tombstones of P5.5), but the compact
-  // i2: link is already built and works as a link — offer it instead of
-  // throwing it away (P2.5).
-  function showCompactLinkInstead(url) {
+  // No QR, but the compact i2: link is already built and works as a link —
+  // offer it in the link field instead of throwing it away. Either the data
+  // no longer fits a version-40 QR (roughly 560 entries, about 475 with 10 %
+  // deletions since the compact tombstones of P5.5; P2.5), or qrcodegen.js
+  // did not load.
+  function showCompactLinkInstead(url, reason, notifyOpts) {
     if (!refs || !refs.elExportUrl) return;
     setExportUrl(url);
     helpers.notify(
-      `Zu groß für einen QR-Code. Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
-      { sticky: true },
+      `${reason} Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
+      Object.assign({ sticky: true }, notifyOpts),
     );
     try {
       refs.elExportUrl.focus();
@@ -481,10 +482,15 @@
 
         const msg = String(e && e.message ? e.message : e || "");
         if (msg.includes("QR library missing")) {
-          helpers.notify(
-            "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt). Du kannst den Export-Link trotzdem kopieren.",
-            { kind: "error" },
-          );
+          if (url) {
+            showCompactLinkInstead(url, "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt).", {
+              kind: "error",
+            });
+          } else {
+            helpers.notify("QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt).", {
+              kind: "error",
+            });
+          }
           return;
         }
 
@@ -498,9 +504,9 @@
             continue;
           }
           if (url) {
-            showCompactLinkInstead(url);
+            showCompactLinkInstead(url, "Zu groß für einen QR-Code.");
           } else {
-            helpers.notify("Zu groß für QR-Export. Nutze Export-Link oder JSON.", {
+            helpers.notify("Zu groß für QR-Export. Nutze den JSON-Download.", {
               kind: "error",
             });
           }
@@ -522,7 +528,7 @@
     // Reached only if every attempt (incl. post-migration retries) failed
     // without returning — never leave the user without feedback.
     helpers.notify(
-      "QR-Code konnte nach Migration nicht erzeugt werden. Bitte den Export-Link oder JSON-Download nutzen.",
+      "QR-Code konnte nach Migration nicht erzeugt werden. Bitte den JSON-Download nutzen.",
       { kind: "error" },
     );
   }
@@ -546,57 +552,6 @@
           refs.exportOptions.style.display = "none";
           clear();
         }
-      });
-    }
-
-    if (refs.btnExportLink) {
-      refs.btnExportLink.addEventListener("click", () => {
-        const wallet = opts.getWallet ? opts.getWallet() : null;
-        try {
-          const actionApi = window.dbWalletActionCodes || null;
-          if (actionApi && typeof actionApi.ensureWalletActionCodes === "function") {
-            const res = actionApi.ensureWalletActionCodes(wallet);
-            if (res && res.changed && opts.saveWallet) {
-              opts.saveWallet(wallet);
-              if (opts.actionCodesUi && typeof opts.actionCodesUi.refresh === "function") {
-                opts.actionCodesUi.refresh();
-              }
-            }
-          }
-        } catch (e) {
-          // ignore
-        }
-        if (opts.touchLocalDevice) {
-          try {
-            opts.touchLocalDevice();
-          } catch (e) {
-            // ignore
-          }
-        }
-        const theme = opts.getStoredTheme ? opts.getStoredTheme() : null;
-        const payload = JSON.stringify({
-          userId: wallet.userId,
-          walletId: wallet.walletId,
-          v: wallet.v,
-          events: wallet.events,
-          actionCodes: wallet.actionCodes,
-          devices: wallet.devices,
-          theme,
-        });
-        const token = opts.base64UrlEncode(payload);
-        const url = getBaseUrl() + "#import:" + token;
-        // The classic link is uncompressed JSON; for large wallets it can exceed
-        // what some apps/browsers accept in a URL. Warn but still show it.
-        if (url.length > 8000) {
-          helpers.notify(
-            `Achtung: Der Export-Link ist sehr lang (${url.length} Zeichen) und funktioniert evtl. nicht überall. Für große Wallets bitte den QR-Export oder JSON-Download nutzen.`,
-            { kind: "error" },
-          );
-        }
-        setExportUrl(url);
-        refs.elExportUrl.focus();
-        refs.elExportUrl.select();
-        clearQr();
       });
     }
 
