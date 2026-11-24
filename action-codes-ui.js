@@ -306,9 +306,17 @@
           amount: amountInput.value,
           label: labelInput.value,
         });
-        if (!result) return;
-        commit(ctx, result);
         ctx.editingId = "";
+        if (result) commit(ctx, result);
+        // Deleted in another tab meanwhile: the save keeps it deleted
+        // (wallet.deletedActionCodes), so the edit is gone — say so.
+        const kept = result && (!result.code || hasCode(ctx.getWallet(), result.code.id));
+        if (!kept) {
+          helpers.notify(
+            "Dieser Action Code wurde inzwischen in einem anderen Tab gelöscht — die Änderung ist nicht gespeichert.",
+            { kind: "error" },
+          );
+        }
         ctx.refresh();
       },
       onCancel: () => {
@@ -541,6 +549,12 @@
     ctx.qrQueue = [];
 
     persistIfChanged(ctx, wallet);
+    // Same wallet as the last render? (A wallet switch closes an open form
+    // without a word; a code gone from the same wallet was deleted elsewhere.)
+    const walletKey = `${wallet.userId || ""}\n${wallet.walletId || ""}`;
+    const sameWallet = walletKey === ctx.walletKey;
+    ctx.walletKey = walletKey;
+    ctx.signature = codesSignature(wallet);
 
     const localCodes = Array.isArray(wallet.actionCodes)
       ? wallet.actionCodes
@@ -549,6 +563,9 @@
     if (localCodes.length < SOFT_LIMIT) ctx.showSoftLimitNotice = false;
     if (ctx.editingId && !codes.find((c) => c && c.id === ctx.editingId)) {
       ctx.editingId = "";
+      if (sameWallet) {
+        helpers.notify("Der Action Code, der gerade bearbeitet wurde, wurde in einem anderen Tab gelöscht.");
+      }
     }
     if (
       ctx.pendingDeleteId &&
@@ -644,8 +661,26 @@
       : [];
   }
 
+  function hasCode(wallet, id) {
+    const local = wallet && Array.isArray(wallet.actionCodes) ? wallet.actionCodes : [];
+    return local.concat(getGlobalCodes(wallet)).some((c) => c && c.id === id);
+  }
+
+  // What the panel shows of a wallet: a change elsewhere that leaves this
+  // alone (a booking) needs no re-render.
+  function codesSignature(wallet) {
+    return JSON.stringify([
+      wallet.userId,
+      wallet.walletId,
+      wallet.actionCodes || [],
+      wallet.globalActionCodes || [],
+    ]);
+  }
+
   // options: container, getWallet, persistWallet(next), getBaseUrl (all
-  // required), panel (optional).
+  // required), panel (optional). Returns refresh() (always re-renders) and
+  // sync() (re-renders only when the wallet's codes changed, e.g. after
+  // another tab saved; an open form keeps what was typed otherwise).
   function initActionCodesUi(options) {
     const o = options || {};
     if (
@@ -654,7 +689,7 @@
       typeof o.persistWallet !== "function" ||
       typeof o.getBaseUrl !== "function"
     ) {
-      return { refresh: () => {} };
+      return { refresh: () => {}, sync: () => false };
     }
 
     const ctx = {
@@ -674,15 +709,23 @@
       createOpen: false,
       editingId: "",
       pendingDeleteId: "",
+      walletKey: "",
+      signature: "",
       refresh: null,
     };
     ctx.refresh = () => renderActionList(ctx);
+    const sync = () => {
+      const wallet = ctx.getWallet();
+      if (!wallet || codesSignature(wallet) === ctx.signature) return false;
+      renderActionList(ctx);
+      return true;
+    };
     if (ctx.panel && typeof ctx.panel.addEventListener === "function") {
       ctx.panel.addEventListener("toggle", () => drawQueuedQrs(ctx));
     }
 
     ctx.refresh();
-    return { refresh: ctx.refresh };
+    return { refresh: ctx.refresh, sync };
   }
 
   window.dbWalletActionCodesUI = { initActionCodesUi };

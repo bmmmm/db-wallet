@@ -425,9 +425,6 @@
         elUid.textContent = userId;
         elUid.title = "";
       }
-      if (deviceUi && typeof deviceUi.render === "function") {
-        deviceUi.render();
-      }
     }
 
     if (deviceUi && typeof deviceUi.init === "function") {
@@ -627,9 +624,7 @@
         // ignore
       }
       saveWallet(wallet);
-      handleWalletStateChange();
-      if (actionCodesUi) actionCodesUi.refresh();
-      updateHeaderUi();
+      handleWalletReloaded();
       updateUidLabel();
       return true;
     }
@@ -932,6 +927,16 @@
       refreshSummary();
     }
 
+    // The wallet was read again (another tab saved it, a wallet switch):
+    // the code panel, the header and the device picker follow as well. The
+    // panel re-renders only when its codes changed.
+    function handleWalletReloaded() {
+      handleWalletStateChange();
+      if (actionCodesUi) actionCodesUi.sync();
+      updateHeaderUi();
+      if (deviceUi && typeof deviceUi.render === "function") deviceUi.render();
+    }
+
     // Stay live across tabs: when another tab of the SAME wallet persists a
     // change, reload from storage and re-render. saveWallet already union-merges
     // on write, so this is purely for UI freshness (the storage event never
@@ -941,7 +946,7 @@
       const reloaded = loadWallet(userId);
       if (reloaded) {
         wallet = reloaded;
-        handleWalletStateChange();
+        handleWalletReloaded();
       }
     });
 
