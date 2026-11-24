@@ -114,6 +114,19 @@
     return n > 0 ? n : NaN;
   }
 
+  // How many drinks removing the entry `rootId` re-opens (> 0 only for a pay):
+  // the whole edit chain goes, not just its root event — a replacement left
+  // behind would keep the pay alive.
+  function reopenedByRemoving(wallet, rootId) {
+    const without = {
+      events: wallet.events.filter((e) => e && summaryApi.rootIdOf(e) !== rootId),
+    };
+    return (
+      summaryApi.computeSummarySafe(without).unpaid -
+      summaryApi.computeSummarySafe(wallet).unpaid
+    );
+  }
+
   // The visible entry of a root id (the newest edit of it), or null when it
   // is deleted or unknown.
   function findEntry(wallet, rootId) {
@@ -171,12 +184,7 @@
       if (plan.event && plan.event.t === "p") {
         // Undoing a pay re-opens the drinks it settled — confirm with the swing,
         // matching the warning a deleted pay row shows.
-        const without = {
-          events: wallet.events.filter((e) => e && e.id !== plan.id),
-        };
-        const baseline = summaryApi.computeSummarySafe(wallet);
-        const reopened =
-          summaryApi.computeSummarySafe(without).unpaid - baseline.unpaid;
+        const reopened = reopenedByRemoving(wallet, plan.id);
         msg =
           reopened > 0
             ? `Dies nimmt die letzte Bezahlung zurück und öffnet ${reopened} Getränk(e) wieder. Fortfahren? 💸`
@@ -369,12 +377,7 @@
     }
     let msg = `Eintrag löschen: ${summaryApi.formatEntryText(entry)}?`;
     if (entry.t === "p") {
-      const without = {
-        events: wallet.events.filter((e) => e && summaryApi.rootIdOf(e) !== rootId),
-      };
-      const reopened =
-        summaryApi.computeSummarySafe(without).unpaid -
-        summaryApi.computeSummarySafe(wallet).unpaid;
+      const reopened = reopenedByRemoving(wallet, rootId);
       msg +=
         reopened > 0
           ? `\nDas ist eine Bezahlung: danach sind ${drinksText(reopened)} wieder offen. 💸`
