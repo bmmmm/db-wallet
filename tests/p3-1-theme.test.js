@@ -76,13 +76,22 @@ for (const name of NAMES) {
   });
 }
 
-test("style.css :root fallback equals Lilac Carbon", () => {
+// One copy of the theme values: bare :root (no data-theme yet) gets Lilac
+// Carbon from its rule in themes.css, style.css defines no theme token.
+test("Lilac Carbon is the :root fallback, defined once in themes.css", () => {
+  const css = THEMES_CSS.replace(/\/\*[\s\S]*?\*\//g, "");
+  const blocks = Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].split(",").map((x) => x.trim()));
+  const lilac = blocks.find((sels) => sels.includes(':root[data-theme="Lilac Carbon"]'));
+  assert.ok(lilac && lilac.includes(":root"), "the Lilac Carbon rule must also select bare :root");
+  assert.equal(blocks.filter((sels) => sels.includes(":root")).length, 1);
   const root = /(^|\n):root\s*\{([^}]*)\}/.exec(STYLE_CSS);
   assert.ok(root, ":root block not found");
-  const decls = parseDecls(root[2]);
-  const lilac = THEMES["Lilac Carbon"];
-  for (const k of Object.keys(lilac)) {
-    assert.equal(decls[k], lilac[k], k);
+  const tokens = Object.keys(parseDecls(root[2])).filter((k) => k in THEMES["Lilac Carbon"]);
+  assert.deepEqual(tokens, [], "theme tokens in style.css :root");
+  for (const page of ["index.html", "wallet.html", "preview.html"]) {
+    const html = read(page);
+    const at = (f) => html.indexOf(`<link rel="stylesheet" href="${f}" />`);
+    assert.ok(at("style.css") >= 0 && at("themes.css") > at("style.css"), page);
   }
 });
 

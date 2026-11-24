@@ -1,3 +1,6 @@
+/* Lilac Carbon is also the fallback without data-theme (theme.js sets it
+   before the first paint; every page loads this file after style.css). */
+:root,
 :root[data-theme="Lilac Carbon"] {
     --bg: #121322;
     --panel: #181a2b;

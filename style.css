@@ -1,15 +1,6 @@
 :root {
-    /* Fallback = Lilac Carbon (themes.css); theme.js always sets data-theme. */
-    --bg: #121322;
-    --panel: #181a2b;
-    --border: #242842;
-    --accent: #c7b6ff;
-    --accent-strong: #b59bff;
-    --text: #f0edff;
-    --muted: #c5c2d8;
-    --danger: #f7a3c0;
-    --glow: rgba(199, 182, 255, 0.25);
-    color-scheme: dark;
+    /* The theme tokens (--bg, --accent, …, color-scheme) come from themes.css;
+       Lilac Carbon also applies without data-theme. */
     --shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
     font-family:
         "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas,
