@@ -67,3 +67,21 @@ test("reset leaves a bare localStorage key of the same name alone (another app's
   assert.equal(state.wallet.events.length, 0);
   assert.equal(w.localStorage.getItem("test"), "other app");
 });
+
+test("an emptied label on a local edit gets the type's default, like create and global", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const AC = w.dbWalletActionCodes;
+  const wallet = w.dbWalletStorage.loadWallet("anna");
+  const created = AC.createActionCode(wallet, { scope: "local", type: "d", amount: "5", label: "" });
+  assert.equal(created.code.label, "Drink +5");
+  const key = created.code.key;
+  // The same values with the label field left empty: nothing changed, the
+  // key (a printed QR) stays valid.
+  const same = AC.editActionCode(created.wallet, created.code.id, { type: "d", amount: "5", label: "" });
+  assert.equal(same.code.label, "Drink +5");
+  assert.equal(same.code.key, key);
+  const credit = AC.editActionCode(same.wallet, created.code.id, { type: "g", amount: "3", label: "  " });
+  assert.equal(credit.code.label, "Guthaben +3");
+  const global = AC.createActionCode(wallet, { scope: "global", type: "d", amount: "5", label: "" });
+  assert.equal(global.code.label, "Drink +5");
+});

@@ -144,7 +144,8 @@
     const nextType = normalizeType(updates && updates.type);
     const nextLabelRaw =
       updates && typeof updates.label === "string" ? updates.label : "";
-    const nextLabel = String(nextLabelRaw || "").trim() || `+${nextAmount}`;
+    const nextLabel =
+      String(nextLabelRaw || "").trim() || defaultLabelForType(nextType, nextAmount);
     const prevLabel = code.label || "";
     const changed =
       nextAmount !== code.amount ||
