@@ -94,3 +94,24 @@ test("index.html: visible label for the name field, no duplicate aria-label", ()
   assert.doesNotMatch(input[0], /aria-label/);
   assert.doesNotMatch(html, /sr-only/, ".sr-only is not defined in style.css");
 });
+
+// A second block for the same selector list splits one component over the
+// file (.wallet-actions was defined twice, 90 lines apart).
+test("style.css: no selector list has two blocks in the same @media context", () => {
+  const seen = new Set();
+  const dups = [];
+  const stack = [];
+  for (const m of CSS.matchAll(/([^{}]+)\{|\}/g)) {
+    if (m[0] === "}") {
+      stack.pop();
+      continue;
+    }
+    const sel = m[1].trim().replace(/\s+/g, " ");
+    const key = stack.filter((s) => s.startsWith("@")).join(" ") + " | " + sel;
+    stack.push(sel);
+    if (sel.startsWith("@")) continue;
+    if (seen.has(key)) dups.push(key);
+    seen.add(key);
+  }
+  assert.deepEqual(dups, []);
+});

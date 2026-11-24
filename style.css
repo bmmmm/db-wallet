@@ -184,7 +184,6 @@ input[type="number"] {
 pre {
     padding: 0.75rem;
     min-height: 3rem;
-    white-space: pre;
     font-size: 0.9rem;
     color: var(--muted);
     max-height: 260px;
@@ -371,7 +370,6 @@ hr {
 }
 
 .sync-timeline {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     white-space: pre;
     overflow: hidden;
 }
@@ -411,22 +409,10 @@ hr {
 }
 
 .mode-btn.active,
-.raw-toggle-btn.active,
 .theme-btn.active {
     border-color: var(--accent);
     color: var(--accent-strong);
     box-shadow: 0 6px 18px var(--glow);
-}
-
-.raw-toggle {
-    margin-top: 0.4rem;
-    font-size: 0.95rem;
-    color: var(--muted);
-}
-
-.raw-toggle-btn {
-    padding: 0.25rem 0.6rem;
-    font-size: 0.85rem;
 }
 
 /* P4.2: one fixed row of three stats (Getrunken / Offen / Guthaben), always
@@ -493,19 +479,12 @@ hr {
     list-style: none;
 }
 
-.action-codes-summary::marker,
-.wallet-actions-summary::marker,
-.theme-summary::marker {
-    content: "";
-}
-
 .action-codes-summary::after,
 .wallet-actions-summary::after,
 .theme-summary::after {
     content: "›";
     display: inline-block;
     color: var(--muted);
-    transform: rotate(0deg);
     transition:
         transform 120ms ease,
         color 120ms ease;
@@ -640,7 +619,10 @@ hr {
     font-size: 0.92rem;
 }
 
-.action-code-buttons {
+.action-code-buttons,
+.action-code-form-actions,
+.action-code-type-toggle,
+.action-code-scope-toggle {
     display: flex;
     gap: 0.35rem;
     flex-wrap: wrap;
@@ -677,24 +659,6 @@ hr {
     width: 100%;
 }
 
-.action-code-form-actions {
-    display: flex;
-    gap: 0.35rem;
-    flex-wrap: wrap;
-}
-
-.action-code-type-toggle {
-    display: flex;
-    gap: 0.35rem;
-    flex-wrap: wrap;
-}
-
-.action-code-scope-toggle {
-    display: flex;
-    gap: 0.35rem;
-    flex-wrap: wrap;
-}
-
 .action-code-confirm {
     padding: 0.6rem;
     color: var(--muted);
@@ -722,6 +686,9 @@ hr {
 }
 
 .wallet-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
     padding: 1rem;
     margin-top: 1rem;
 }
@@ -805,16 +772,6 @@ hr {
     width: 100%;
     max-width: 360px;
     cursor: copy;
-}
-
-.wallet-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
-}
-
-.wallet-actions .raw-toggle {
-    margin-top: 0;
 }
 
 .wallet-actions pre {
@@ -1154,10 +1111,6 @@ input[aria-invalid="true"] {
         align-items: center;
     }
 
-    .amount-row input[type="number"] {
-        width: 120px;
-    }
-
     input[type="text"] {
         width: 100%;
         max-width: none;
@@ -1213,7 +1166,6 @@ input[aria-invalid="true"] {
 
     .action-code-buttons button {
         width: 100%;
-        min-height: 44px;
     }
 
     .theme-buttons {
@@ -1334,7 +1286,6 @@ body[data-no-wallet="1"] > :not(#global-action-message):not(#status-line):not(di
 .global-action-label {
     color: var(--muted);
     font-size: 0.9rem;
-    font-style: normal;
 }
 
 .global-action-prompt {
@@ -1400,7 +1351,6 @@ body[data-no-wallet="1"] > :not(#global-action-message):not(#status-line):not(di
 
 .global-action-cancel {
     background: transparent;
-    border: 1px solid var(--border);
     font-size: 0.9rem;
 }
 
