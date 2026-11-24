@@ -225,3 +225,18 @@ test("global code amounts clamp to 1..100 (junk = 1) wherever a code is built or
   const url = AC.buildActionUrl(edited.wallet, { scope: "global", type: "d", amount: "junk" }, "");
   assert.equal(AC.decodeGlobalActionHash(url.slice(1)).n, 1);
 });
+
+test("drawQrToCanvas returns the QrCode it drew (also without a 2d context)", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const H = w.dbWalletHelpers;
+  assert.equal(H.drawQrToCanvas(null, "x"), undefined);
+  const fills = [];
+  const ctx2d = { fillRect: (...a) => fills.push(a), set fillStyle(v) {}, set imageSmoothingEnabled(v) {} };
+  const canvas = { width: 0, height: 0, getContext: () => ctx2d };
+  const qr = H.drawQrToCanvas(canvas, "https://x.invalid/#abc", { scale: 3 });
+  assert.equal(qr.size, w.qrcodegen.QrCode.encodeText("https://x.invalid/#abc", w.qrcodegen.QrCode.Ecc.LOW).size);
+  assert.equal(canvas.width, (qr.size + 8) * 3);
+  assert.ok(fills.length > 1);
+  const bare = { width: 0, height: 0, getContext: () => null };
+  assert.equal(H.drawQrToCanvas(bare, "abc", { scale: 2 }).size, bare.width / 2 - 8);
+});

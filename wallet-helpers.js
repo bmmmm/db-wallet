@@ -403,11 +403,6 @@
       .slice(0, 64);
   }
 
-  // Renders a QR code for `text` onto `canvas` using the global qrcodegen
-  // library. opts: { scale, maxPx, border }. `scale` is a fixed pixel-per-module
-  // integer; if omitted and `maxPx` is given, scale is derived to fit within
-  // maxPx. `border` defaults to 4 modules. Throws if the QR library is missing
-  // or encodeText fails — callers are expected to catch.
   // Replace the URL fragment in place (history.replaceState): no new session
   // history entry and no "hashchange". Assigning location.hash would push an
   // entry (Back re-runs an #ac: booking) and fire a second hashchange that
@@ -466,6 +461,12 @@
     return qrLibraryLoading;
   }
 
+  // Renders a QR code for `text` onto `canvas` using the global qrcodegen
+  // library. opts: { scale, maxPx, border }. `scale` is a fixed pixel-per-module
+  // integer; if omitted and `maxPx` is given, scale is derived to fit within
+  // maxPx. `border` defaults to 4 modules. Throws if the QR library is missing
+  // or encodeText fails — callers are expected to catch.
+  // Returns the QrCode (also without a 2d context); undefined without a canvas.
   function drawQrToCanvas(canvas, text, opts) {
     if (!canvas) return;
     if (!window.qrcodegen || !window.qrcodegen.QrCode) {
@@ -486,7 +487,7 @@
     canvas.width = dim;
     canvas.height = dim;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return qr;
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, dim, dim);
@@ -498,6 +499,7 @@
         }
       }
     }
+    return qr;
   }
 
   // Object URLs of a download stay valid this long. Revoking right after
