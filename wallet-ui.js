@@ -54,6 +54,7 @@
   let lastHandledGlobalHash = "";
   let lastHandledGlobalHashAt = 0;
   const GLOBAL_ACTION_DUP_WINDOW_MS = 750;
+  const INVALID_GLOBAL_CODE = "Globaler Action Code ungültig — nichts gebucht.";
   const LAST_USER_KEY = "db-wallet:last-user";
 
   // Shared with the codec (wallet-helpers.js): history.replaceState, no
@@ -277,15 +278,31 @@
         };
       });
 
-      if (userIds.length === 0) {
+      if (!payload) {
+        // A broken or invalid code books nothing: no wallet choice for it.
+        // Say so, drop it from the address bar (a reload must not repeat
+        // it) and open the wallet this would have landed on anyway.
+        helpers.notify(INVALID_GLOBAL_CODE, { kind: "error" });
+        const fallback =
+          userIds.length === 1
+            ? userIds[0]
+            : lastUserId && wallets[lastUserId]
+              ? lastUserId
+              : "";
+        helpers.replaceHashSilently(fallback);
+        if (!fallback) {
+          enterNoWalletState("Bitte zuerst ein Wallet importieren oder öffnen.");
+          return;
+        }
+        initialUserId = fallback;
+        initialWallet = wallets[fallback] || null;
+      } else if (userIds.length === 0) {
         enterNoWalletState(
           "Bitte zuerst ein Wallet importieren oder öffnen.",
         );
         return;
-      }
-
-      pendingGlobalHash = initialRoute.raw || "";
-      if (userIds.length === 1) {
+      } else if (userIds.length === 1) {
+        pendingGlobalHash = initialRoute.raw || "";
         initialUserId = userIds[0];
         initialWallet = wallets[initialUserId] || null;
       } else {
@@ -296,7 +313,6 @@
           lastUserId,
         });
         if (!selection || selection.action === "cancel") {
-          pendingGlobalHash = "";
           const fallback =
             selection && selection.userId ? selection.userId : "";
           if (fallback && wallets[fallback]) {
@@ -310,6 +326,7 @@
             return;
           }
         } else {
+          pendingGlobalHash = initialRoute.raw || "";
           initialUserId = selection.userId;
           initialWallet = wallets[selection.userId] || null;
         }

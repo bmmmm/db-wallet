@@ -16,13 +16,15 @@
     }
   }
 
+  // What the code would book, or null for a payload that cannot be applied
+  // (the wallet choice is not offered for it).
   function buildGlobalActionPreview(payload) {
     const api = window.dbWalletActionCodes || null;
     const action =
       api && typeof api.globalPayloadAction === "function"
         ? api.globalPayloadAction(payload)
         : null;
-    return action || { type: "d", amount: 1, label: "" };
+    return action || null;
   }
 
   const CONTAINER_OPTIONS = {
@@ -101,7 +103,7 @@
 
     const userIds = Array.isArray(options.userIds) ? options.userIds : [];
     const walletMeta = options.walletMeta || {};
-    const preview = buildGlobalActionPreview(options.payload);
+    const preview = options.preview;
     const onSelect = options.onSelect;
     const onCancel = options.onCancel;
 
@@ -220,12 +222,16 @@
   function awaitGlobalActionWalletSelection(options) {
     const userIds = Array.isArray(options.userIds) ? options.userIds : [];
     if (!userIds.length) return Promise.resolve({ action: "cancel", userId: "" });
+    const preview = buildGlobalActionPreview(options.payload);
+    if (!preview) {
+      return Promise.resolve({ action: "cancel", userId: options.lastUserId || "" });
+    }
     setNoWalletState();
     return new Promise((resolve) => {
       showGlobalActionSelection({
         userIds,
         walletMeta: options.walletMeta,
-        payload: options.payload,
+        preview,
         onSelect: (userId) => {
           clearNoWalletState();
           clearMessage();
