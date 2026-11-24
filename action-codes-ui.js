@@ -157,6 +157,7 @@
     amountInput.type = "number";
     amountInput.min = "1";
     amountInput.value = config.amount;
+    ctx.focusRefs.form = amountInput;
 
     const labelInput = document.createElement("input");
     labelInput.type = "text";
@@ -267,20 +268,21 @@
       onSave: ({ scopeToggle, typeToggle, amountInput, labelInput }) => {
         const walletNow = ctx.getWallet();
         if (!walletNow) return;
-        commit(
-          ctx,
-          createActionCode(walletNow, {
-            scope: scopeToggle.getScope(),
-            type: typeToggle.getType(),
-            amount: amountInput.value,
-            label: labelInput.value,
-          }),
-        );
+        const result = createActionCode(walletNow, {
+          scope: scopeToggle.getScope(),
+          type: typeToggle.getType(),
+          amount: amountInput.value,
+          label: labelInput.value,
+        });
+        commit(ctx, result);
         ctx.createOpen = false;
+        // On the new card (falls back to "Neuer Action Code" without one).
+        ctx.pendingFocus = { what: "edit", id: result && result.code ? result.code.id : "" };
         ctx.refresh();
       },
       onCancel: () => {
         ctx.createOpen = false;
+        ctx.pendingFocus = { what: "add" };
         ctx.refresh();
       },
     });
@@ -317,10 +319,13 @@
             { kind: "error" },
           );
         }
+        // A scope change gives the code a new id.
+        ctx.pendingFocus = { what: "edit", id: kept && result.code ? result.code.id : code.id };
         ctx.refresh();
       },
       onCancel: () => {
         ctx.editingId = "";
+        ctx.pendingFocus = { what: "edit", id: code.id };
         ctx.refresh();
       },
     });
@@ -344,6 +349,7 @@
       if (!walletNow) return;
       commit(ctx, deleteActionCode(walletNow, code.id));
       ctx.pendingDeleteId = "";
+      ctx.pendingFocus = { what: "add" };
       ctx.refresh();
     });
 
@@ -352,8 +358,11 @@
     btnCancel.textContent = "Abbrechen";
     btnCancel.addEventListener("click", () => {
       ctx.pendingDeleteId = "";
+      ctx.pendingFocus = { what: "delete", id: code.id };
       ctx.refresh();
     });
+    // The question gets the focus on its harmless answer.
+    ctx.focusRefs.confirm = btnCancel;
 
     deleteActions.appendChild(btnConfirm);
     deleteActions.appendChild(btnCancel);
@@ -467,6 +476,7 @@
       ctx.editingId = code.id;
       ctx.pendingDeleteId = "";
       ctx.createOpen = false;
+      ctx.pendingFocus = { what: "form" };
       ctx.refresh();
     });
 
@@ -477,8 +487,12 @@
       ctx.pendingDeleteId = ctx.pendingDeleteId === code.id ? "" : code.id;
       ctx.editingId = "";
       ctx.createOpen = false;
+      ctx.pendingFocus = ctx.pendingDeleteId
+        ? { what: "confirm" }
+        : { what: "delete", id: code.id };
       ctx.refresh();
     });
+    ctx.focusRefs.cards.set(code.id, { edit: btnEdit, delete: btnDelete });
 
     btns.appendChild(btnEdit);
     btns.appendChild(btnDelete);
@@ -576,6 +590,7 @@
 
     ctx.container.innerHTML = "";
     ctx.container.classList.add("action-codes-body-inner");
+    ctx.focusRefs = { add: null, form: null, confirm: null, cards: new Map() };
 
     const toolbar = document.createElement("div");
     toolbar.className = "action-codes-toolbar";
@@ -594,8 +609,10 @@
       ctx.createOpen = !ctx.createOpen;
       ctx.editingId = "";
       ctx.pendingDeleteId = "";
+      ctx.pendingFocus = { what: ctx.createOpen ? "form" : "add" };
       ctx.refresh();
     });
+    ctx.focusRefs.add = btnAdd;
 
     toolbar.appendChild(btnAdd);
 
@@ -628,6 +645,7 @@
       if (ctx.showTrimNotice) ctx.container.appendChild(notice);
       if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
       ctx.container.appendChild(empty);
+      applyPendingFocus(ctx);
       return;
     }
 
@@ -648,7 +666,31 @@
     if (ctx.showTrimNotice) ctx.container.appendChild(notice);
     if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
     ctx.container.appendChild(grid);
+    applyPendingFocus(ctx);
     drawQueuedQrs(ctx);
+  }
+
+  // A click re-renders the panel, so the clicked button is gone: the focus
+  // goes where ctx.pendingFocus says, "Neuer Action Code" when that target
+  // is not there (a deleted code, a failed save).
+  function applyPendingFocus(ctx) {
+    const want = ctx.pendingFocus;
+    ctx.pendingFocus = null;
+    if (!want) return;
+    const refs = ctx.focusRefs;
+    const cardRefs = want.id ? refs.cards.get(want.id) : null;
+    let target = null;
+    if (want.what === "form") target = refs.form;
+    else if (want.what === "confirm") target = refs.confirm;
+    else if (want.what === "edit") target = cardRefs && cardRefs.edit;
+    else if (want.what === "delete") target = cardRefs && cardRefs.delete;
+    target = target || refs.add;
+    if (!target || typeof target.focus !== "function") return;
+    try {
+      target.focus();
+    } catch (e) {
+      // ignore
+    }
   }
 
   // Global ('🌍') codes live on the wallet (wallet.globalActionCodes) and only
@@ -711,6 +753,10 @@
       pendingDeleteId: "",
       walletKey: "",
       signature: "",
+      // Where the focus goes after the next render (applyPendingFocus) and
+      // the elements of the last render it can go to.
+      pendingFocus: null,
+      focusRefs: { add: null, form: null, confirm: null, cards: new Map() },
       refresh: null,
     };
     ctx.refresh = () => renderActionList(ctx);
