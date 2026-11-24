@@ -314,6 +314,35 @@ test("'Alle löschen': one danger question with the names and backups for each",
   assert.equal($(w, "existing-users-section").hidden, true);
 });
 
+// The origin (bmmmm.github.io) is shared by every Pages project of the
+// account: deleting a wallet must not remove another app's key that happens
+// to be named like the wallet (db-wallet never writes bare-name keys).
+test("Löschen and 'Alle löschen' leave other apps' keys alone", async () => {
+  const storage = seedStorage({ peter: 1, settings: 2 });
+  const foreign = { peter: "other app", settings: "{\"dark\":true}", "other-app:state": "1" };
+  for (const [k, v] of Object.entries(foreign)) storage.setItem(k, v);
+  storage.setItem("db-wallet.share-hint-seen", "1");
+  const before = new Set(Array.from({ length: storage.length }, (_, i) => storage.key(i)));
+  const w = await bootIndex({ storage });
+  fakeDialog(w);
+
+  btnIn(cardOf(w, "settings"), "wallet-delete").click();
+  $(w, "confirm-ok").click();
+  await settle();
+  assert.equal(storage.getItem("db-wallet:settings"), null);
+  assert.equal(storage.getItem("settings"), foreign.settings);
+
+  $(w, "btn-nuke-all").click();
+  $(w, "confirm-ok").click();
+  await settle();
+  assert.equal(storage.getItem("db-wallet:peter"), null);
+  for (const [k, v] of Object.entries(foreign)) assert.equal(storage.getItem(k), v, k);
+  const after = new Set(Array.from({ length: storage.length }, (_, i) => storage.key(i)));
+  const removed = [...before].filter((k) => !after.has(k)).sort();
+  assert.deepEqual(removed, ["db-wallet:peter", "db-wallet:registry", "db-wallet:settings"]);
+  assert.ok(after.has("db-wallet:device"), "the device identity stays");
+});
+
 // --- P4.8 link einfügen ------------------------------------------------------------
 
 test("hashFromPastedLink: only the part after '#' counts", async () => {
@@ -410,6 +439,42 @@ test("index.html#i2:…: the 'open in wallet.html?' question uses the dialog", a
   assert.deepEqual(w._nav.pageLoads, [BASE + "wallet.html#i2:AAAA"]);
 });
 
+test("index.html#…: the question names the local wallet a link belongs to", async () => {
+  const storage = seedStorage({ max: 2 });
+  const src = makeEnv({ storage });
+  const H = src.dbWalletHelpers;
+  const max = src.dbWalletStorage.loadWallet("max");
+  const bytes = src.dbWalletImportV2.encodeImportV2Bytes(max, "");
+  const json = JSON.stringify({ walletId: max.walletId, userId: "max", events: [] });
+  const ac = JSON.stringify({ v: 1, walletId: max.walletId, codeId: "c1", key: "k" });
+  const links = [
+    ["i2u:" + H.base64UrlEncodeBytes(bytes), /^Import Link erkannt\.\n\nLokales Profil: "max"/],
+    ["i2:" + H.base64UrlEncodeBytes(await H.gzipCompress(bytes)), /Lokales Profil: "max"/],
+    ["import:" + H.base64UrlEncode(json), /Lokales Profil: "max"/],
+    ["ac:" + H.base64UrlEncode(ac), /^Action Code Link erkannt\.\n\nLokales Profil: "max"/],
+    ["ac:" + H.base64UrlEncode(ac.replace(max.walletId, "w-other")), /lokal nicht bekannt/],
+    // Cut off: no wallet id, the plain question (wallet.html reports the error).
+    ["i2u:" + H.base64UrlEncodeBytes(bytes.subarray(0, 12)), /^Import Link erkannt\.\n\nIn wallet\.html öffnen\?$/],
+  ];
+  for (const [hash, expected] of links) {
+    let shown;
+    const w = await bootIndex({
+      storage,
+      hash,
+      noWait: true,
+      beforeBoot: (w) => {
+        shown = fakeDialog(w).shown;
+      },
+    });
+    await settle();
+    await settle();
+    assert.equal(shown.length, 1, hash.slice(0, 8));
+    assert.match(shown[0], expected, hash.slice(0, 8));
+    $(w, "confirm-cancel").click();
+    await w._booted;
+  }
+});
+
 test("index.html#i2:…: 'Abbrechen' drops the link from the address bar", async () => {
   const w = await bootIndex({ hash: "i2:AAAA", noWait: true, beforeBoot: (w) => fakeDialog(w) });
   await settle();
@@ -498,6 +563,37 @@ test("import choice: no inline styles left in import-preview.js", () => {
   // width: 100% plus padding must not overflow the dialog (360 px phones).
   assert.match(CSS, /\.import-choice-modal\s*\{[^}]*box-sizing:\s*border-box/);
   assert.match(CSS, /\.import-choice-cancel\s*\{[^}]*box-sizing:\s*border-box;[^}]*margin:\s*0/);
+});
+
+// preview.html: the cached payload renders read-only; its theme is shown but
+// never stored, and a name outside the theme whitelist is ignored.
+function previewPage(payload) {
+  const document = makePageDocument(read("preview.html"));
+  document.body.dataset.page = "preview";
+  const w = makeEnv({
+    document,
+    url: BASE + "preview.html#tok",
+    files: ["theme.js", "wallet-helpers.js", "wallet-summary.js", "import-preview.js"],
+  });
+  w.sessionStorage.setItem("db-wallet:import-cache:tok", JSON.stringify(payload));
+  document._fire("DOMContentLoaded");
+  const text = (id) => document.getElementById(id).textContent;
+  return { w, document, text };
+}
+
+test("preview page: renders the payload, shows its theme without storing it", () => {
+  const src = makeEnv({ deviceKey: "devA" });
+  const wallet = src.dbWalletStorage.loadWallet("max");
+  src.dbWalletStorage.appendEvents(wallet, [src.dbWalletStorage.newEvent(wallet, "d", 3)]);
+  const { w, document, text } = previewPage({ wallet: plain(wallet), theme: "Cyan Mist" });
+  assert.equal(text("uid"), "max");
+  assert.equal(text("unpaid"), "3");
+  assert.equal(document.documentElement.getAttribute("data-theme"), "Teal Ember");
+  assert.equal(w.localStorage.getItem("db-wallet:theme"), null);
+
+  const bad = previewPage({ wallet: plain(wallet), theme: "x\" onload=\"" });
+  assert.equal(bad.document.documentElement.getAttribute("data-theme"), "Lilac Carbon");
+  assert.equal(bad.w.localStorage.getItem("db-wallet:theme"), null);
 });
 
 test("the no-wallet CSS keeps an open <dialog> visible", () => {

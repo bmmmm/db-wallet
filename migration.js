@@ -2,12 +2,7 @@
   const helpers = window.dbWalletHelpers || null;
   if (!helpers) return;
 
-  const {
-    randomWalletId,
-    parseCompactEventId,
-    hash53,
-    extractLegacyDeviceKey,
-  } = helpers;
+  const { parseCompactEventId, hash53, extractLegacyDeviceKey } = helpers;
 
   function walletNeedsMigration(wallet) {
     if (!wallet || typeof wallet !== "object") return false;
@@ -23,9 +18,9 @@
   function migrateWalletV1toV2(wallet) {
     if (!wallet || typeof wallet !== "object") return wallet;
 
+    // Both callers pass a loadWallet() result (walletId and seq are set there;
+    // the migration reads neither).
     if (!Array.isArray(wallet.events)) wallet.events = [];
-    if (!wallet.walletId) wallet.walletId = randomWalletId();
-    if (!wallet.seq || typeof wallet.seq !== "object") wallet.seq = {};
 
     const usedIds = new Set();
     for (const e of wallet.events) {
@@ -46,13 +41,10 @@
       // self-collision against usedIds), breaking idempotency and cross-device sync.
       if (id && parseCompactEventId(id)) continue;
 
-      // Derive a stable fallback from the event's content (not Date.now()) so two
-      // devices migrating the same id-less event converge on the same id instead
-      // of minting divergent, non-deduplicable ids.
-      const contentKey = `legacy-${hash53(
-        `${e.t || ""}:${e.n != null ? e.n : ""}:${e.ts != null ? e.ts : ""}`,
-      ).toString(36)}`;
-      const legacyId = oid || id || contentKey;
+      // An event without any id never gets here: normalizeEvent drops it on
+      // load and the import merge skips it.
+      const legacyId = oid || id;
+      if (!legacyId) continue;
       const legacyDevice = extractLegacyDeviceKey(legacyId);
 
       let seq = hash53(legacyId);

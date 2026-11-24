@@ -1,7 +1,9 @@
 (function () {
   const helpers = window.dbWalletHelpers || null;
   const storage = window.dbWalletStorage || null;
-  if (!helpers || !storage) return;
+  // action-codes.js loads before this module on both pages.
+  const actionCodesApi = window.dbWalletActionCodes || null;
+  if (!helpers || !storage || !actionCodesApi) return;
 
   const themeApi = window.dbWalletTheme || null;
   const canonicalThemeName =
@@ -23,12 +25,11 @@
     safeParse,
     hash53,
     extractLegacyDeviceKey,
+    parseCompactEventId,
     formatCompactEventId,
     normalizeUserId,
   } = helpers;
 
-  // Point the URL at `userId` (or drop the fragment for "") without a history
-  // entry or a hashchange (P2.1): the caller routes exactly once itself.
   // Import failures carry a machine-readable `code` (P2.3); tryImportFromHash
   // maps it through IMPORT_ERROR_MESSAGES instead of matching message text.
   function importError(code, message) {
@@ -49,7 +50,7 @@
     "unsupported-version":
       "Import fehlgeschlagen ❌ — die Daten stammen aus einer neueren App-Version.\nBitte diese App aktualisieren.",
     "unsupported-browser":
-      "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON.",
+      "Dieser Browser kann den komprimierten Link/QR-Code nicht lesen.\nBitte auf dem Quellgerät „Als JSON herunterladen“ nutzen und die Datei hier auf der Startseite mit „JSON importieren“ einlesen.",
     unknown: "Import fehlgeschlagen ❌",
   };
 
@@ -73,6 +74,8 @@
       : "";
   }
 
+  // Point the URL at `userId` (or drop the fragment for "") without a history
+  // entry or a hashchange (P2.1): the caller routes exactly once itself.
   function replaceHash(userId) {
     const target = String(userId || "");
     if (helpers.replaceHashSilently && helpers.replaceHashSilently(target)) return;
@@ -81,7 +84,6 @@
 
   const {
     getDeviceKey,
-    parseCompactEventId,
     ensureWalletDevices,
     mergeWalletDevices,
     ensureDeviceSeq,
@@ -164,9 +166,7 @@
     // Return in canonical order (compareEventsByTime) so the persisted log
     // matches the balance fold — consumers re-sort anyway, but this removes the
     // latent trap and satisfies the ordering invariant.
-    if (helpers && typeof helpers.compareEventsByTime === "function") {
-      merged.sort(helpers.compareEventsByTime);
-    }
+    merged.sort(helpers.compareEventsByTime);
     // Expose how many id-less events were skipped so the import flow can warn
     // about a partial import instead of reporting clean success. Non-enumerable
     // so it never serializes into the persisted wallet.
@@ -245,7 +245,14 @@
 
   function readString(bytes, offset) {
     const [len, next] = readVarUint(bytes, offset);
-    const str = stringDecoder.decode(sliceChecked(bytes, next, len));
+    const raw = sliceChecked(bytes, next, len);
+    let str;
+    try {
+      str = stringDecoder.decode(raw);
+    } catch (e) {
+      // Node's TypeError carries its own `code`; map it to ours.
+      throw importError("corrupt", "Invalid UTF-8 string");
+    }
     return [str, next + len];
   }
 
@@ -481,230 +488,224 @@
   }
 
   // Reads the optional trailing extension blocks ("ac", "gc", "sp", "dv", "xt",
-  // "se", "dc") and mutates decoded in place. Tolerates parse errors for forward-compat.
-  // deviceKeys is the header's device table (the compact ids of "xt" v2).
+  // "se", "dc", "ck") and mutates decoded in place. deviceKeys is the header's
+  // device table (the compact ids of "xt" v2). Forward compatibility is the
+  // `break` on an unknown block or block version (blocks have no length prefix,
+  // so a newer app's block ends the parse there). A block that fails to parse
+  // throws: that is broken or cut-off data, and a partial import would lose
+  // tombstones (a deleted booking comes back).
   function decodeV2Extensions(bytes, startOffset, decoded, deviceKeys) {
     let offset = startOffset;
-    try {
-      while (offset + 1 < bytes.length) {
-        if (
-          bytes[offset] === 97 && // "a"
-          bytes[offset + 1] === 99 // "c"
-        ) {
-          offset += 2;
-          const [acVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          // Unknown version: stop extension parsing rather than continuing with a
-          // desynced cursor (blocks have no length prefix to skip over).
-          if (acVersion !== 1 && acVersion !== 2) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const actionCodes = [];
-          for (let i = 0; i < count; i++) {
-            let code;
-            [code, offset] = readActionCodeEntry(bytes, offset, acVersion === 2);
-            actionCodes.push(code);
+    while (offset + 1 < bytes.length) {
+      if (
+        bytes[offset] === 97 && // "a"
+        bytes[offset + 1] === 99 // "c"
+      ) {
+        offset += 2;
+        const [acVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        // Unknown version: stop extension parsing rather than continuing with a
+        // desynced cursor (blocks have no length prefix to skip over).
+        if (acVersion !== 1 && acVersion !== 2) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        const actionCodes = [];
+        for (let i = 0; i < count; i++) {
+          let code;
+          [code, offset] = readActionCodeEntry(bytes, offset, acVersion === 2);
+          actionCodes.push(code);
+        }
+        decoded.actionCodes = actionCodes;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 103 && // "g"
+        bytes[offset + 1] === 99 // "c"
+      ) {
+        offset += 2;
+        const [gcVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (gcVersion !== 1) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        const globalActionCodes = [];
+        for (let i = 0; i < count; i++) {
+          let code;
+          [code, offset] = readActionCodeEntry(bytes, offset, true);
+          // Global codes carry no key. Exports written before P1.3 contain an
+          // invented random key here (and lost the scope); drop it and
+          // restore the scope so old exports import as proper global codes.
+          delete code.key;
+          code.scope = "global";
+          globalActionCodes.push(code);
+        }
+        decoded.globalActionCodes = globalActionCodes;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 115 && // "s"
+        bytes[offset + 1] === 112 // "p"
+      ) {
+        offset += 2;
+        const [spVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (spVersion !== 1) break;
+        let deviceId;
+        [deviceId, offset] = readString(bytes, offset);
+        if (deviceId) decoded.deviceId = deviceId;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 100 && // "d"
+        bytes[offset + 1] === 118 // "v"
+      ) {
+        offset += 2;
+        const [dvVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (dvVersion !== 1) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        const devices = [];
+        for (let i = 0; i < count; i++) {
+          let deviceKey;
+          [deviceKey, offset] = readString(bytes, offset);
+
+          const [symCode, o11] = readVarUint(bytes, offset);
+          offset = o11;
+          const symbol =
+            symCode >= 1 && symCode <= DEVICE_SYMBOLS.length
+              ? DEVICE_SYMBOLS[symCode - 1]
+              : null;
+
+          const [lastSeenAt, o12] = readVarUint(bytes, offset);
+          offset = o12;
+
+          devices.push({
+            deviceKey,
+            symbol,
+            lastSeenAt,
+          });
+        }
+        decoded.devices = devices;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 120 && // "x"
+        bytes[offset + 1] === 116 // "t"
+      ) {
+        offset += 2;
+        const [xtVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (xtVersion !== 1 && xtVersion !== 2) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        // v1: id and ref as strings, the exact ts in ms. v2 (P5.5): the minute
+        // as a running delta (the first one absolute), then id and ref via
+        // readIdRef; the ts decodes to the full minute.
+        let tsMin = 0;
+        for (let i = 0; i < count; i++) {
+          let id, ref, tsMs;
+          if (xtVersion === 1) {
+            [id, offset] = readString(bytes, offset);
+            [ref, offset] = readString(bytes, offset);
+            [tsMs, offset] = readVarUint(bytes, offset);
+          } else {
+            let delta;
+            [delta, offset] = readVarUint(bytes, offset);
+            tsMin += delta;
+            tsMs = tsMin * 60000;
+            if (tsMs > Number.MAX_SAFE_INTEGER) {
+              throw importError("corrupt", "Timestamp out of range");
+            }
+            [id, offset] = readIdRef(bytes, offset, deviceKeys);
+            [ref, offset] = readIdRef(bytes, offset, deviceKeys);
           }
-          decoded.actionCodes = actionCodes;
-          continue;
-        }
 
-        if (
-          bytes[offset] === 103 && // "g"
-          bytes[offset + 1] === 99 // "c"
-        ) {
-          offset += 2;
-          const [gcVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (gcVersion !== 1) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const globalActionCodes = [];
-          for (let i = 0; i < count; i++) {
-            let code;
-            [code, offset] = readActionCodeEntry(bytes, offset, true);
-            // Global codes carry no key. Exports written before P1.3 contain an
-            // invented random key here (and lost the scope); drop it and
-            // restore the scope so old exports import as proper global codes.
-            delete code.key;
-            code.scope = "global";
-            globalActionCodes.push(code);
-          }
-          decoded.globalActionCodes = globalActionCodes;
-          continue;
-        }
-
-        if (
-          bytes[offset] === 115 && // "s"
-          bytes[offset + 1] === 112 // "p"
-        ) {
-          offset += 2;
-          const [spVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (spVersion !== 1) break;
-          let deviceId;
-          [deviceId, offset] = readString(bytes, offset);
-          if (deviceId) decoded.deviceId = deviceId;
-          continue;
-        }
-
-        if (
-          bytes[offset] === 100 && // "d"
-          bytes[offset + 1] === 118 // "v"
-        ) {
-          offset += 2;
-          const [dvVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (dvVersion !== 1) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const devices = [];
-          for (let i = 0; i < count; i++) {
-            let deviceKey;
-            [deviceKey, offset] = readString(bytes, offset);
-
-            const [symCode, o11] = readVarUint(bytes, offset);
-            offset = o11;
-            const symbol =
-              symCode >= 1 && symCode <= DEVICE_SYMBOLS.length
-                ? DEVICE_SYMBOLS[symCode - 1]
-                : null;
-
-            const [lastSeenAt, o12] = readVarUint(bytes, offset);
-            offset = o12;
-
-            devices.push({
-              deviceKey,
-              symbol,
-              lastSeenAt,
+          // Skip self-referential tombstones (a tombstone deleting itself is
+          // meaningless) — cheap guard against malformed/crafted xt entries.
+          if (id && ref && id !== ref) {
+            decoded.events.push({
+              id,
+              t: "x",
+              ref,
+              ts: tsMs,
             });
           }
-          decoded.devices = devices;
-          continue;
         }
-
-        if (
-          bytes[offset] === 120 && // "x"
-          bytes[offset + 1] === 116 // "t"
-        ) {
-          offset += 2;
-          const [xtVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (xtVersion !== 1 && xtVersion !== 2) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          // v1: id and ref as strings, the exact ts in ms. v2 (P5.5): the minute
-          // as a running delta (the first one absolute), then id and ref via
-          // readIdRef; the ts decodes to the full minute.
-          let tsMin = 0;
-          for (let i = 0; i < count; i++) {
-            let id, ref, tsMs;
-            if (xtVersion === 1) {
-              [id, offset] = readString(bytes, offset);
-              [ref, offset] = readString(bytes, offset);
-              [tsMs, offset] = readVarUint(bytes, offset);
-            } else {
-              let delta;
-              [delta, offset] = readVarUint(bytes, offset);
-              tsMin += delta;
-              tsMs = tsMin * 60000;
-              if (tsMs > Number.MAX_SAFE_INTEGER) {
-                throw importError("corrupt", "Timestamp out of range");
-              }
-              [id, offset] = readIdRef(bytes, offset, deviceKeys);
-              [ref, offset] = readIdRef(bytes, offset, deviceKeys);
-            }
-
-            // Skip self-referential tombstones (a tombstone deleting itself is
-            // meaningless) — cheap guard against malformed/crafted xt entries.
-            if (id && ref && id !== ref) {
-              decoded.events.push({
-                id,
-                t: "x",
-                ref,
-                ts: tsMs,
-              });
-            }
-          }
-          continue;
-        }
-
-        if (
-          bytes[offset] === 115 && // "s"
-          bytes[offset + 1] === 101 // "e"
-        ) {
-          offset += 2;
-          const [seVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (seVersion !== 1) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const supById = new Map();
-          for (let i = 0; i < count; i++) {
-            let id, sup;
-            [id, offset] = readString(bytes, offset);
-            [sup, offset] = readString(bytes, offset);
-
-            if (id && sup && id !== sup) supById.set(id, sup);
-          }
-          if (supById.size && Array.isArray(decoded.events)) {
-            for (const ev of decoded.events) {
-              if (ev && ev.t !== "x" && typeof ev.id === "string" && supById.has(ev.id)) {
-                ev.supersedes = supById.get(ev.id);
-              }
-            }
-          }
-          continue;
-        }
-
-        if (
-          bytes[offset] === 100 && // "d"
-          bytes[offset + 1] === 99 // "c"
-        ) {
-          offset += 2;
-          const [dcVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (dcVersion !== 1) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          // null-prototype: the ids become keys.
-          const deleted = Object.create(null);
-          for (let i = 0; i < count; i++) {
-            let id;
-            [id, offset] = readString(bytes, offset);
-            const [at, o11] = readVarUint(bytes, offset);
-            offset = o11;
-            if (id) deleted[id] = Math.max(deleted[id] || 0, at);
-          }
-          decoded.deletedActionCodes = deleted;
-          continue;
-        }
-
-        if (
-          bytes[offset] === 99 && // "c"
-          bytes[offset + 1] === 107 // "k"
-        ) {
-          // Just consume the trailer here; the checksum is verified independently
-          // of this cursor in decodeImportV2Bytes (a corrupt upstream tag/version
-          // byte would make this loop break before ever reaching ck).
-          offset += 2;
-          const [ckVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (ckVersion !== 1) break;
-          offset += 4;
-          continue;
-        }
-
-        break;
+        continue;
       }
-    } catch (e) {
-      console.warn("db-wallet: import-v2 extension parse failed", e);
-      // Flag the loss so the import flow can warn the user that some action
-      // codes / devices / tombstones were dropped, instead of reporting a clean
-      // success. Dropped tombstones in particular resurrect deleted events.
-      if (decoded && typeof decoded === "object") {
-        decoded._extWarning = true;
+
+      if (
+        bytes[offset] === 115 && // "s"
+        bytes[offset + 1] === 101 // "e"
+      ) {
+        offset += 2;
+        const [seVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (seVersion !== 1) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        const supById = new Map();
+        for (let i = 0; i < count; i++) {
+          let id, sup;
+          [id, offset] = readString(bytes, offset);
+          [sup, offset] = readString(bytes, offset);
+
+          if (id && sup && id !== sup) supById.set(id, sup);
+        }
+        if (supById.size && Array.isArray(decoded.events)) {
+          for (const ev of decoded.events) {
+            if (ev && ev.t !== "x" && typeof ev.id === "string" && supById.has(ev.id)) {
+              ev.supersedes = supById.get(ev.id);
+            }
+          }
+        }
+        continue;
       }
+
+      if (
+        bytes[offset] === 100 && // "d"
+        bytes[offset + 1] === 99 // "c"
+      ) {
+        offset += 2;
+        const [dcVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (dcVersion !== 1) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        // null-prototype: the ids become keys.
+        const deleted = Object.create(null);
+        for (let i = 0; i < count; i++) {
+          let id;
+          [id, offset] = readString(bytes, offset);
+          const [at, o11] = readVarUint(bytes, offset);
+          offset = o11;
+          if (id) deleted[id] = Math.max(deleted[id] || 0, at);
+        }
+        decoded.deletedActionCodes = deleted;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 99 && // "c"
+        bytes[offset + 1] === 107 // "k"
+      ) {
+        // Just consume the trailer here; the checksum is verified independently
+        // of this cursor in decodeImportV2Bytes (a corrupt upstream tag/version
+        // byte would make this loop break before ever reaching ck).
+        offset += 2;
+        const [ckVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (ckVersion !== 1) break;
+        offset += 4;
+        continue;
+      }
+
+      break;
     }
   }
 
@@ -731,31 +732,30 @@
     // Verify the integrity checksum INDEPENDENTLY of the extension-block cursor:
     // if the payload ends with a "ck" trailer (99,107, version=1, 4 checksum
     // bytes), fnv1a64 over everything before it must match. Doing it here — not
-    // inside the tolerant extension loop — means a corrupt upstream tag/version
-    // byte (which would make that loop break early) can't slip a corrupt payload
-    // through. Payloads without a ck trailer (older encoders) skip the check.
-    if (bytes.length >= 7) {
-      const tlen = bytes.length;
-      if (
-        bytes[tlen - 7] === 99 &&
-        bytes[tlen - 6] === 107 &&
-        bytes[tlen - 5] === 1 &&
-        helpers &&
-        typeof helpers.fnv1a64 === "function"
-      ) {
-        const stored =
-          ((bytes[tlen - 4] << 24) |
-            (bytes[tlen - 3] << 16) |
-            (bytes[tlen - 2] << 8) |
-            bytes[tlen - 1]) >>>
-          0;
-        const actual = Number(
-          helpers.fnv1a64(bytes.subarray(0, tlen - 7)) & 0xffffffffn,
-        );
-        if (stored !== actual) {
-          throw importError("checksum", "Import checksum mismatch");
-        }
+    // in the extension loop — means a corrupt upstream tag/version byte (which
+    // would make that loop break early) can't slip a corrupt payload through.
+    // Codec 2 payloads without a ck trailer (encoders before 4c46261) skip the
+    // check. Every codec 3 encoder writes ck, so a codec 3 payload without it
+    // was cut off — e.g. an i2u: link, which has no gzip CRC.
+    const tlen = bytes.length;
+    const hasChecksum =
+      tlen >= 7 &&
+      bytes[tlen - 7] === 99 &&
+      bytes[tlen - 6] === 107 &&
+      bytes[tlen - 5] === 1;
+    if (hasChecksum) {
+      const stored =
+        ((bytes[tlen - 4] << 24) |
+          (bytes[tlen - 3] << 16) |
+          (bytes[tlen - 2] << 8) |
+          bytes[tlen - 1]) >>>
+        0;
+      const actual = Number(helpers.fnv1a64(bytes.subarray(0, tlen - 7)) & 0xffffffffn);
+      if (stored !== actual) {
+        throw importError("checksum", "Import checksum mismatch");
       }
+    } else if (bytes[3] === 3) {
+      throw importError("truncated", "Codec 3 payload without checksum");
     }
 
     const header = decodeV2Header(bytes, 4);
@@ -941,11 +941,11 @@
     }
 
     // optional extension: tombstones ("xt", v2 — P5.5)
-    // Encoded FIRST among the extension blocks: blocks have no length prefix, so a
-    // forward-compat version bump or a corrupt byte in a later block (ac/sp/dv)
-    // stops the parse where it is. Putting tombstones first means that truncation
-    // can't drop them — and a dropped tombstone resurrects a deleted event, the
-    // worst failure mode of the lot.
+    // Encoded FIRST among the extension blocks: blocks have no length prefix, so
+    // an unknown block or block version (a newer app's export) stops the parse
+    // where it is, and tombstones in front are never lost that way — a dropped
+    // tombstone resurrects a deleted event, the worst failure mode of the lot.
+    // (A cut or corrupt block refuses the whole payload, see decodeV2Extensions.)
     // v2 writes them in canonical order: the minute as a running delta (the
     // first one absolute; minute resolution like the events), then id and ref
     // as device index + seq (writeIdRef) — about 6 bytes instead of about 34.
@@ -976,10 +976,7 @@
     if (rawActionCodes.length) {
       let actionCodes = rawActionCodes;
       try {
-        const api = window.dbWalletActionCodes || null;
-        if (api && typeof api.normalizeActionCodes === "function") {
-          actionCodes = api.normalizeActionCodes(rawActionCodes);
-        }
+        actionCodes = actionCodesApi.normalizeActionCodes(rawActionCodes);
       } catch (e) {
         console.warn("db-wallet: encode-v2 normalizeActionCodes failed", e);
       }
@@ -993,7 +990,7 @@
     }
 
     // optional extension: sync peer device id ("sp", v1)
-    const deviceId = typeof getDeviceKey === "function" ? getDeviceKey() : "";
+    const deviceId = getDeviceKey();
     if (deviceId) {
       out.push(115, 112); // "sp"
       writeVarUint(1, out);
@@ -1002,10 +999,7 @@
 
     // optional extension: device list ("dv", v1)
     try {
-      const devices =
-        typeof ensureWalletDevices === "function"
-          ? ensureWalletDevices(wallet)
-          : [];
+      const devices = ensureWalletDevices(wallet);
       if (devices && devices.length) {
         out.push(100, 118); // "dv"
         writeVarUint(1, out);
@@ -1038,12 +1032,12 @@
     }
 
     // optional extension: supersedes links ("se", v1) — maps an edit-replacement
-    // id to its chain root. Written LAST among the extension blocks: blocks have
-    // no length prefix, so an OLD decoder that doesn't know "se" breaks here,
-    // AFTER it has already parsed xt/ac/sp/dv. Losing supersedes only reverts
-    // that old client to the pre-merge-safe edit behavior (it can't converge
-    // concurrent edits, but it already couldn't); a new decoder reads the links
-    // and collapses concurrent edits deterministically.
+    // id to its chain root. Written after xt/ac/sp/dv (gc, dc and ck follow):
+    // blocks have no length prefix, so an OLD decoder that doesn't know "se"
+    // breaks here, AFTER it has already parsed xt/ac/sp/dv. Losing supersedes
+    // only reverts that old client to the pre-merge-safe edit behavior (it can't
+    // converge concurrent edits, but it already couldn't); a new decoder reads
+    // the links and collapses concurrent edits deterministically.
     const superseded = events.filter((e) => e.supersedes);
     if (superseded.length) {
       out.push(115, 101); // "se"
@@ -1069,10 +1063,7 @@
         : [];
     let globalCodes = rawGlobalCodes;
     try {
-      const api = window.dbWalletActionCodes || null;
-      if (api && typeof api.normalizeGlobalActionCodes === "function") {
-        globalCodes = api.normalizeGlobalActionCodes(rawGlobalCodes);
-      }
+      globalCodes = actionCodesApi.normalizeGlobalActionCodes(rawGlobalCodes);
     } catch (e) {
       console.warn(
         "db-wallet: encode-v2 normalizeGlobalActionCodes failed",
@@ -1095,14 +1086,8 @@
     // only misses the deletions.
     let deletedCodes = null;
     try {
-      const api = window.dbWalletActionCodes || null;
-      if (
-        wallet &&
-        wallet.deletedActionCodes &&
-        api &&
-        typeof api.normalizeDeletedActionCodes === "function"
-      ) {
-        deletedCodes = api.normalizeDeletedActionCodes(wallet.deletedActionCodes);
+      if (wallet && wallet.deletedActionCodes) {
+        deletedCodes = actionCodesApi.normalizeDeletedActionCodes(wallet.deletedActionCodes);
       }
     } catch (e) {
       console.warn("db-wallet: encode-v2 deleted action codes failed", e);
@@ -1120,19 +1105,18 @@
 
     // optional extension: integrity checksum ("ck", v1) — fnv1a64 truncated to
     // 32 bits over every preceding byte. Written ABSOLUTELY LAST so it covers all
-    // other blocks. Hardens the uncompressed i2u: and legacy import: paths that
-    // gzip's CRC doesn't cover: a corrupt byte flips the checksum and the decoder
-    // rejects instead of silently importing wrong data. Old decoders stop at this
-    // unknown block without verifying (graceful).
-    if (helpers && typeof helpers.fnv1a64 === "function") {
-      const sum = Number(helpers.fnv1a64(out) & 0xffffffffn);
-      out.push(99, 107); // "ck"
-      writeVarUint(1, out);
-      out.push((sum >>> 24) & 0xff);
-      out.push((sum >>> 16) & 0xff);
-      out.push((sum >>> 8) & 0xff);
-      out.push(sum & 0xff);
-    }
+    // other blocks. Hardens the uncompressed i2u: path, which gzip's CRC doesn't
+    // cover (import: links are JSON and never carry it): a corrupt byte flips the
+    // checksum and the decoder rejects instead of silently importing wrong data;
+    // codec 3 requires the trailer, so a cut-off link is refused too. Old
+    // decoders stop at this unknown block without verifying (graceful).
+    const sum = Number(helpers.fnv1a64(out) & 0xffffffffn);
+    out.push(99, 107); // "ck"
+    writeVarUint(1, out);
+    out.push((sum >>> 24) & 0xff);
+    out.push((sum >>> 16) & 0xff);
+    out.push((sum >>> 8) & 0xff);
+    out.push(sum & 0xff);
 
     return new Uint8Array(out);
   }
@@ -1217,10 +1201,7 @@
       for (const k of ["ref", "supersedes", "oid"]) {
         if (k in picked && typeof picked[k] !== "string") delete picked[k];
       }
-      const norm =
-        typeof storage.normalizeEvent === "function"
-          ? storage.normalizeEvent(picked)
-          : picked;
+      const norm = storage.normalizeEvent(picked);
       // Keep id-less/typeless entries for mergeEvents' dropped-count warning.
       out.push(norm || picked);
     }
@@ -1239,29 +1220,23 @@
     // device is removed here, and one deleted here stays deleted.
     let deleted = local.deletedActionCodes;
     try {
-      const api = window.dbWalletActionCodes || null;
       const remoteDeleted =
         remote && remote.deletedActionCodes && typeof remote.deletedActionCodes === "object"
           ? remote.deletedActionCodes
           : null;
-      if (remoteDeleted && api && typeof api.mergeDeletedActionCodes === "function") {
-        deleted = api.mergeDeletedActionCodes(local.deletedActionCodes, remoteDeleted);
+      if (remoteDeleted) {
+        deleted = actionCodesApi.mergeDeletedActionCodes(local.deletedActionCodes, remoteDeleted);
         if (Object.keys(deleted).length) local.deletedActionCodes = deleted;
       }
     } catch (e) {
       console.warn("db-wallet: import deleted action codes merge failed", e);
     }
     try {
-      const api = window.dbWalletActionCodes || null;
-      if (api && typeof api.mergeActionCodes === "function") {
-        local.actionCodes = api.mergeActionCodes(
-          local.actionCodes,
-          remote && remote.actionCodes,
-          deleted,
-        );
-      } else if (remote && Array.isArray(remote.actionCodes)) {
-        local.actionCodes = remote.actionCodes;
-      }
+      local.actionCodes = actionCodesApi.mergeActionCodes(
+        local.actionCodes,
+        remote && remote.actionCodes,
+        deleted,
+      );
     } catch (e) {
       console.warn("db-wallet: import action codes merge failed", e);
     }
@@ -1279,16 +1254,11 @@
         ? local.globalActionCodes
         : [];
       if (remoteGlobal.length || localGlobal.length) {
-        const api = window.dbWalletActionCodes || null;
-        if (api && typeof api.mergeGlobalActionCodes === "function") {
-          local.globalActionCodes = api.mergeGlobalActionCodes(
-            localGlobal,
-            remoteGlobal,
-            deleted,
-          );
-        } else if (remoteGlobal.length) {
-          local.globalActionCodes = remoteGlobal;
-        }
+        local.globalActionCodes = actionCodesApi.mergeGlobalActionCodes(
+          localGlobal,
+          remoteGlobal,
+          deleted,
+        );
       }
     } catch (e) {
       console.warn("db-wallet: import global action codes merge failed", e);
@@ -1410,12 +1380,12 @@
       const remoteEvents = Array.isArray(remote && remote.events)
         ? remote.events
         : [];
-      const peerEventCount = remoteEvents.length;
 
       peer.updatedAt = Date.now();
-      peer.peerEventCount = peerEventCount;
-      // One-way import: common = remote events (all now in local), not merged length — otherwise local-only events never show as sync-delta.
-      peer.commonEventCount = Math.min(peerEventCount, local.events.length);
+      // One-way import: common = remote events (all now in local), not merged
+      // length — otherwise local-only events never show as sync-delta. (The
+      // sync line reads only this and updatedAt.)
+      peer.commonEventCount = Math.min(remoteEvents.length, local.events.length);
       local.syncPeers[peerKey] = peer;
     } catch (e) {
       console.warn("db-wallet: import sync-peer tracking failed", e);
@@ -1423,9 +1393,7 @@
 
     // device list (synced): merge + normalize + max 6
     try {
-      if (typeof mergeWalletDevices === "function") {
-        mergeWalletDevices(local, remote && remote.devices);
-      }
+      mergeWalletDevices(local, remote && remote.devices);
     } catch (e) {
       console.warn("db-wallet: import device list merge failed", e);
     }
@@ -1441,9 +1409,9 @@
   // The import reports a failed save itself (saveWallet runs quiet): name the
   // real reason, a wallet reset in another tab is not a full storage.
   function importSaveFailedMessage() {
-    const reason =
-      typeof storage.getLastSaveError === "function" ? storage.getLastSaveError() : null;
-    return reason === "replaced" ? IMPORT_WALLET_REPLACED_MESSAGE : IMPORT_SAVE_FAILED_MESSAGE;
+    return storage.getLastSaveError() === "replaced"
+      ? IMPORT_WALLET_REPLACED_MESSAGE
+      : IMPORT_SAVE_FAILED_MESSAGE;
   }
 
   function importRemoteWallet(remote, options) {
@@ -1462,16 +1430,13 @@
     replaceHash(userId);
     helpers.notify(
       remote && remote._extWarning
-        ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Daten (Zusatzdaten oder Einträge ohne gültige ID) konnte nicht vollständig importiert und wurde übersprungen."
+        ? "Getränkedaten importiert ✅\nHinweis: Einträge ohne gültige ID wurden übersprungen."
         : "Getränkedaten importiert ✅",
       remote && remote._extWarning ? { sticky: true } : undefined,
     );
     return userId;
   }
 
-  // Decodes a wallet import hash into a typed payload object, or null if
-  // the hash is not a recognized import format. Async because "i2:" requires
-  // gzip decompression.
   function decodeTokenBytes(token) {
     try {
       return base64UrlDecodeBytes(token);
@@ -1488,6 +1453,9 @@
     }
   }
 
+  // Decodes a wallet import hash into a typed payload object, or null if
+  // the hash is not a recognized import format. Async because "i2:" requires
+  // gzip decompression.
   async function parseImportHashPayload(hash) {
     if (hash.startsWith("i2u:")) {
       const raw = decodeTokenBytes(hash.slice(4));
@@ -1569,8 +1537,8 @@
 
   // Dispatches a parsed import payload between the preview overlay and the
   // persist-and-route path. Returns the standard tryImportFromHash shape.
-  async function handleImportChoice(remote, label, options, hooks) {
-    const { chooseMode, openPreview } = hooks || getImportPreviewHooks();
+  async function handleImportChoice(remote, label, options) {
+    const { chooseMode, openPreview } = getImportPreviewHooks();
 
     let mode = "persist";
     if (chooseMode) {
@@ -1582,11 +1550,7 @@
       const built = buildImportedWallet(remote);
       const theme =
         remote && typeof remote.theme === "string" ? remote.theme : "";
-      const ok = openPreview({
-        source: "hash",
-        wallet: built.wallet,
-        theme,
-      });
+      const ok = openPreview({ wallet: built.wallet, theme });
       if (ok) return { userId: null, redirectedToPreview: true };
       return leaveCancelledImport(options);
     }
@@ -1601,15 +1565,8 @@
   // triple. Returns { payload, activeUserId } on success or a terminal
   // tryImportFromHash result (via the `done` field) for short-circuit cases.
   function parseActionCodeHash(hash, options) {
-    const activeUserId =
-      options && typeof options.returnToUserId === "string"
-        ? options.returnToUserId
-        : "";
-    const api = window.dbWalletActionCodes || null;
-    const payload =
-      api && typeof api.decodeActionHash === "function"
-        ? api.decodeActionHash(hash)
-        : safeParse(base64UrlDecode(hash.slice(3)));
+    const activeUserId = returnUserIdOf(options);
+    const payload = actionCodesApi.decodeActionHash(hash);
     if (!payload || typeof payload !== "object") {
       throw importError("corrupt", "Invalid action payload");
     }
@@ -1636,7 +1593,7 @@
       };
     }
 
-    return { api, payload, payloadWalletId, codeId, key, activeUserId };
+    return { payloadWalletId, codeId, key, activeUserId };
   }
 
   // With a wallet open the page stays and the message goes to the status line;
@@ -1663,13 +1620,12 @@
         "Dieses Wallet ist auf diesem Gerät noch nicht vorhanden.\nVor dem Buchen muss es importiert werden.\nJetzt zur Startseite wechseln?",
       );
       if (!shouldGoHome) {
-        if (activeUserId) {
-          replaceHash(activeUserId);
-          return {
-            done: { userId: activeUserId, redirectedToPreview: false },
-          };
-        }
-        return { done: { userId: null, redirectedToPreview: false } };
+        // Drop the declined link (back to the open wallet, or no hash), so a
+        // reload doesn't ask again.
+        replaceHash(activeUserId);
+        return {
+          done: { userId: activeUserId || null, redirectedToPreview: false },
+        };
       }
       window.location.href = "index.html";
       return { done: { userId: null, redirectedToPreview: true } };
@@ -1691,15 +1647,13 @@
   // books the event, persists, and updates the hash. Returns the standard
   // tryImportFromHash result.
   function bookActionCode(targetUserId, parsed) {
-    const { api, payload, codeId, key } = parsed;
+    const { codeId, key } = parsed;
     const wallet = loadWallet(targetUserId);
     ensureDeviceSeq(wallet);
 
     try {
-      if (api && typeof api.ensureWalletActionCodes === "function") {
-        const res = api.ensureWalletActionCodes(wallet);
-        if (res && res.changed) saveWallet(wallet);
-      }
+      const res = actionCodesApi.ensureWalletActionCodes(wallet);
+      if (res && res.changed) saveWallet(wallet);
     } catch (e) {
       console.warn("db-wallet: ensureWalletActionCodes failed", e);
     }
@@ -1725,13 +1679,7 @@
       return { userId: targetUserId, redirectedToPreview: false };
     }
 
-    const amount =
-      api && typeof api.normalizeAmount === "function"
-        ? api.normalizeAmount(match.amount)
-        : (() => {
-            const n = parseInt(match.amount, 10);
-            return isNaN(n) || n <= 0 ? 1 : n;
-          })();
+    const amount = actionCodesApi.normalizeAmount(match.amount);
 
     const normalizeType = (v) => (v === "d" || v === "g" ? v : null);
     // Always book the STORED code's type — never let the scanned payload override
@@ -1790,12 +1738,7 @@
       }
       const parsed = await parseImportHashPayload(hash);
       if (parsed) {
-        return await handleImportChoice(
-          parsed.remote,
-          parsed.label,
-          options,
-          getImportPreviewHooks(),
-        );
+        return await handleImportChoice(parsed.remote, parsed.label, options);
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
@@ -1809,33 +1752,21 @@
   }
 
   window.dbWalletImportV2 = {
-    writeVarUint,
     readVarUint,
-    fnv1a64: helpers.fnv1a64,
-    hash53,
     legacyIdToV2Id,
     mergeEvents,
-    themeIndexFromName,
-    themeNameFromIndex,
     encodeImportV2Bytes,
     decodeImportV2Bytes,
     decodeV2Header,
     decodeV2Events,
-    decodeV2Extensions,
-    resolveUserIdForImport,
     applyImportedTheme,
     buildImportedWallet,
     importRemoteWallet,
-    IMPORT_SAVE_FAILED_MESSAGE,
     importSaveFailedMessage,
     IMPORT_ERROR_MESSAGES,
     importErrorCode,
     parseImportHashPayload,
-    handleImportChoice,
-    parseActionCodeHash,
-    resolveActionCodeTarget,
     bookActionCode,
-    handleActionCodeHash,
     tryImportFromHash,
   };
 })();
