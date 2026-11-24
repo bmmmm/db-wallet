@@ -171,3 +171,18 @@ test("wallet.deviceId is no longer minted; a stored one stays harmless", () => {
   assert.equal(w.dbWalletActions.resetWallet(ctx), true);
   assert.equal("deviceId" in state.wallet, false);
 });
+
+test("findUserIdByWalletId names the wallet by its key, like getAllWallets", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const S = w.dbWalletStorage;
+  book(w, "anna", "d", 1, Date.now() - DAY);
+  const stored = JSON.parse(w.localStorage.getItem("db-wallet:anna"));
+  // A record whose own userId field disagrees with its key (hand-edited or
+  // from an old build): loadWallet opens it as "anna", so the lookup must too.
+  stored.userId = "Anna";
+  w.localStorage.setItem("db-wallet:anna", JSON.stringify(stored));
+  assert.equal(S.findUserIdByWalletId(stored.walletId), "anna");
+  assert.deepEqual(Object.keys(S.getAllWallets()), ["anna"]);
+  assert.equal(S.loadWallet("anna").walletId, stored.walletId);
+  assert.equal(S.findUserIdByWalletId("ZZZZZZZZZZZZZZZZ"), null);
+});

@@ -12,6 +12,9 @@
     safeParse,
     safeLocalStorageGetItem,
     safeLocalStorageSetItem,
+    cmpStr,
+    formatCompactEventId,
+    isReservedHashPrefix,
   } = helpers;
 
   const themeApi = window.dbWalletTheme || null;
@@ -32,12 +35,7 @@
 
   function isValidUserId(userId) {
     const raw = typeof userId === "string" ? userId.trim() : "";
-    if (!raw) return false;
-    const router = window.dbWalletHashRouter || null;
-    if (router && typeof router.isReservedHashPrefix === "function") {
-      if (router.isReservedHashPrefix(raw)) return false;
-    }
-    return true;
+    return !!raw && !isReservedHashPrefix(raw);
   }
 
   function userIdExists(userId) {
@@ -60,7 +58,7 @@
     if (!raw) {
       return makeUniqueUserId("user-" + randomId());
     }
-    if (helpers.isReservedHashPrefix(raw)) {
+    if (isReservedHashPrefix(raw)) {
       return makeUniqueUserId("user-" + raw);
     }
     if (!isReservedStorageKey(STORAGE_PREFIX + raw)) {
@@ -135,7 +133,7 @@
 
     const items = Array.from(byKey.values()).sort((a, b) => {
       if (a.lastSeenAt !== b.lastSeenAt) return b.lastSeenAt - a.lastSeenAt;
-      return a.deviceKey.localeCompare(b.deviceKey);
+      return cmpStr(a.deviceKey, b.deviceKey);
     });
 
     // Deterministic symbol de-duplication:
@@ -356,18 +354,21 @@
     return tombstone;
   }
 
-  function nextEventId(wallet) {
-    const deviceKey = getDeviceKey();
-    if (!wallet.seq || typeof wallet.seq !== "object") {
-      wallet.seq = {};
-    }
+  // The device's next seq; a wallet without a counter for the device starts
+  // above its highest id.
+  function deviceSeq(wallet, deviceKey) {
+    if (!wallet.seq || typeof wallet.seq !== "object") wallet.seq = {};
     if (typeof wallet.seq[deviceKey] !== "number") {
       wallet.seq[deviceKey] = maxSeqForDevice(wallet, deviceKey) + 1;
     }
+    return wallet.seq[deviceKey];
+  }
 
-    const seq = wallet.seq[deviceKey];
+  function nextEventId(wallet) {
+    const deviceKey = getDeviceKey();
+    const seq = deviceSeq(wallet, deviceKey);
     wallet.seq[deviceKey] = seq + 1;
-    return `${deviceKey}.${seq.toString(36)}`;
+    return formatCompactEventId(deviceKey, seq);
   }
 
   // An edit must be the later edit (helpers.compareEdits: the higher seq) than
@@ -383,11 +384,7 @@
       const order = helpers.editOrderOf(e);
       if (order && order.seq < helpers.EDIT_SEQ_LIMIT && order.seq > max) max = order.seq;
     }
-    if (!wallet.seq || typeof wallet.seq !== "object") wallet.seq = {};
-    if (typeof wallet.seq[deviceKey] !== "number") {
-      wallet.seq[deviceKey] = maxSeqForDevice(wallet, deviceKey) + 1;
-    }
-    if (wallet.seq[deviceKey] <= max) wallet.seq[deviceKey] = max + 1;
+    if (deviceSeq(wallet, deviceKey) <= max) wallet.seq[deviceKey] = max + 1;
   }
 
   // Canonical event factory — a fresh id + timestamp for a drink/pay/credit.
@@ -866,7 +863,7 @@
                 ) + 1;
             }
             nextSeqByDevice.set(deviceKey, next + 1);
-            return `${deviceKey}.${next.toString(36)}`;
+            return formatCompactEventId(deviceKey, next);
           };
           // Only THIS device mints ids in its own seq space, so a real two-tab
           // collision is always on the local deviceKey. A clash on a foreign (or
@@ -958,12 +955,11 @@
     return loadedIds.every((id) => stored.has(id));
   }
 
-  function getAllWallets() {
-    // null-prototype: imported wallet userIds become bracket-assigned keys here,
-    // so a "__proto__"/"constructor" userId must create an ordinary own property
-    // rather than poison the prototype chain.
-    const all = Object.create(null);
-
+  // Calls visit(userId, record) for every stored wallet until it returns
+  // true. The userId is the key's name — loadWallet opens the wallet under it
+  // whatever the record's own userId field says; keys are unique, so no wallet
+  // comes twice. Internal keys and non-wallet values are skipped.
+  function eachStoredWallet(visit) {
     let len = 0;
     try {
       len =
@@ -971,9 +967,8 @@
           ? localStorage.length
           : 0;
     } catch (e) {
-      return all;
+      return;
     }
-
     for (let i = 0; i < len; i++) {
       let key = null;
       try {
@@ -981,26 +976,25 @@
       } catch (e) {
         continue;
       }
-      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-
-      const raw = safeLocalStorageGetItem(key);
-      if (!raw) continue;
-
-      const obj = safeParse(raw);
-      if (!obj || typeof obj !== "object" || !Array.isArray(obj.events)) {
-        continue; // skip non-wallet keys like registry/theme
-      }
-
-      // The key names the wallet (loadWallet sets userId from it); keys
-      // are unique, so no wallet is seen twice.
+      if (!key || !key.startsWith(STORAGE_PREFIX) || isReservedStorageKey(key)) continue;
       const userId = key.slice(STORAGE_PREFIX.length);
       if (!userId) continue;
-      if (isReservedStorageKey(key)) continue;
-      const loaded = loadWallet(userId, obj);
-      if (!loaded) continue;
-      all[userId] = loaded;
+      const raw = safeLocalStorageGetItem(key);
+      const obj = raw ? safeParse(raw) : null;
+      if (!obj || typeof obj !== "object" || !Array.isArray(obj.events)) continue;
+      if (visit(userId, obj) === true) return;
     }
+  }
 
+  function getAllWallets() {
+    // null-prototype: imported wallet userIds become bracket-assigned keys here,
+    // so a "__proto__"/"constructor" userId must create an ordinary own property
+    // rather than poison the prototype chain.
+    const all = Object.create(null);
+    eachStoredWallet((userId, obj) => {
+      const loaded = loadWallet(userId, obj);
+      if (loaded) all[userId] = loaded;
+    });
     return all;
   }
 
@@ -1030,41 +1024,13 @@
 
   function findUserIdByWalletId(walletId) {
     if (!walletId) return null;
-    let len = 0;
-    try {
-      len =
-        typeof localStorage !== "undefined" && localStorage
-          ? localStorage.length
-          : 0;
-    } catch (e) {
-      return null;
-    }
-
-    for (let i = 0; i < len; i++) {
-      let key = null;
-      try {
-        key = localStorage.key(i);
-      } catch (e) {
-        continue;
-      }
-      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-
-      const raw = safeLocalStorageGetItem(key);
-      if (!raw) continue;
-
-      const obj = safeParse(raw);
-      if (!obj || typeof obj !== "object" || !Array.isArray(obj.events)) {
-        continue;
-      }
-      if (obj.walletId === walletId) {
-        const userId =
-          typeof obj.userId === "string"
-            ? obj.userId
-            : key.slice(STORAGE_PREFIX.length);
-        return userId || null;
-      }
-    }
-    return null;
+    let found = null;
+    eachStoredWallet((userId, obj) => {
+      if (obj.walletId !== walletId) return false;
+      found = userId;
+      return true;
+    });
+    return found;
   }
 
   function walletIdForUserId(userId) {
