@@ -375,16 +375,6 @@
       return;
     }
 
-    if (pendingGlobalHash) {
-      const result = handleGlobalActionHash(pendingGlobalHash, {
-        wallet,
-        skipPersist: true,
-        skipHashCleanup: true,
-      });
-      if (result && result.applied) {
-        replaceHashSilently(userId);
-      }
-    }
     setLastUserId(userId);
     ensureDeviceSeq(wallet);
     try {
@@ -735,8 +725,8 @@
         const what = type === "d" ? `+${amount} gebucht` : `Guthaben +${amount} gebucht`;
         helpers.notify(`${payloadLabel ? `„${payloadLabel}“: ` : ""}${what} · ${balance}`);
       } else {
-        // Non-persisting path: the boot pre-apply (skipPersist — the caller
-        // saves later) or a non-active/programmatic wallet. Stage the append in
+        // Non-persisting path: a programmatic apply (skipPersist, the
+        // self-check's dry runs) or a non-active wallet. Stage the append in
         // memory only.
         targetWallet.events.push(event);
       }
@@ -1064,5 +1054,10 @@
     btnReset.addEventListener("click", () => {
       if (actionsApi) actionsApi.resetWallet(actionsCtx);
     });
+
+    // A global code opened on a cold start books on the chosen wallet
+    // through the same path as one opened with the wallet open: confirmed,
+    // saved (or the save error), reported, the hash back to the wallet.
+    if (pendingGlobalHash) handleGlobalActionHash(pendingGlobalHash);
   });
 })();

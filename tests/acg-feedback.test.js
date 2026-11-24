@@ -99,3 +99,41 @@ test("broken acg: link while a wallet is open: an error, the hash goes back", as
   assert.equal(w.document.body.dataset.noWallet, undefined);
   assert.equal(events(w, "anna"), 0);
 });
+
+function validHash(label, amount) {
+  return (w) =>
+    w.dbWalletActionCodes.buildActionUrl(
+      w.dbWalletStorage.loadWallet("anna"),
+      { scope: "global", type: "d", amount, label },
+      "https://example.invalid/wallet.html",
+    ).split("#")[1];
+}
+
+test("valid acg: on a cold start reports the booking like an open wallet", async () => {
+  const { makeEnv } = require("./harness");
+  const hash = validHash("Kiste", 2)(makeEnv());
+  const w = await boot({ hash, seed: seedWallets("anna") });
+  const s = status(w);
+  assert.equal(s.text, "„Kiste“: +2 gebucht · Offen: 2");
+  assert.ok(s.visible && !s.error);
+  assert.equal(hashOf(w), "anna");
+  assert.equal(w.document.getElementById("unpaid").textContent, "2");
+  const stored = w.dbWalletStorage.loadWallet("anna").events;
+  assert.deepEqual(plain(stored.map((e) => [e.t, e.n])), [["d", 2]]);
+});
+
+test("valid acg: on a cold start with full storage: the error, nothing booked", async () => {
+  const { makeEnv, makeStorage } = require("./harness");
+  const hash = validHash("Kiste", 2)(makeEnv());
+  const storage = makeStorage();
+  // A first visit stores the device, so the boot save of the second one
+  // stays the same size and only the booking no longer fits.
+  await boot({ hash: "anna", storage, seed: seedWallets("anna") });
+  storage.quota = storage.getItem("db-wallet:anna").length + 10;
+  const w = await boot({ hash, storage });
+  const s = status(w);
+  assert.match(s.text, /Speichern fehlgeschlagen/);
+  assert.ok(s.error);
+  assert.equal(w.document.getElementById("unpaid").textContent, "0");
+  assert.equal(w.dbWalletStorage.loadWallet("anna").events.length, 0);
+});
