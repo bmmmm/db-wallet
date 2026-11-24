@@ -1,21 +1,8 @@
 (function () {
+  // theme.js loads synchronously in <head>, before every deferred script.
   const themeApi = window.dbWalletTheme || null;
-  const canonicalThemeName =
-    themeApi && typeof themeApi.canonicalThemeName === "function"
-      ? themeApi.canonicalThemeName
-      : (name) => String(name || "").trim();
-  const getStoredTheme =
-    themeApi && typeof themeApi.getStoredTheme === "function"
-      ? themeApi.getStoredTheme
-      : () => null;
-  const applyThemeRaw =
-    themeApi && typeof themeApi.applyTheme === "function"
-      ? themeApi.applyTheme
-      : () => false;
-  const initThemeSelector =
-    themeApi && typeof themeApi.initThemeSelector === "function"
-      ? themeApi.initThemeSelector
-      : () => {};
+  if (!themeApi) return;
+  const { canonicalThemeName, getStoredTheme, initThemeSelector } = themeApi;
 
   function updateCurrentThemeLabel() {
     const el = document.getElementById("current-theme-name");
@@ -30,7 +17,7 @@
   }
 
   const applyTheme = (name) => {
-    const ok = applyThemeRaw(name);
+    const ok = themeApi.applyTheme(name);
     updateCurrentThemeLabel();
     return ok;
   };
