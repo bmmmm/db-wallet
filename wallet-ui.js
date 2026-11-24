@@ -655,16 +655,17 @@
           : null;
       const skipMessage = !!options.skipMessage;
 
+      const targetWallet = "wallet" in options ? options.wallet : wallet;
       if (!payload) {
-        if (!skipMessage) {
-          showGlobalActionMessage(
-            "Bitte zuerst ein Wallet importieren oder öffnen.",
-          );
+        // A wallet is open here: an error in the status line, not the
+        // no-wallet notice, and the broken code leaves the address bar.
+        if (!skipMessage) helpers.notify(INVALID_GLOBAL_CODE, { kind: "error" });
+        if (targetWallet && targetWallet === wallet && !options.skipHashCleanup) {
+          replaceHashSilently(userId);
         }
         return { handled: true, applied: false, reason: "invalid" };
       }
 
-      const targetWallet = "wallet" in options ? options.wallet : wallet;
       if (!targetWallet) {
         if (!skipMessage) {
           showGlobalActionMessage(

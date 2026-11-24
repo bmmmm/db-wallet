@@ -4,7 +4,7 @@
 // it booked, like one opened while the wallet is already open.
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bootWalletPage } = require("./wallet-page");
+const { bootWalletPage, flushHashChanges } = require("./wallet-page");
 const { plain } = require("./harness");
 const { findAll } = require("./fake-dom");
 
@@ -85,4 +85,17 @@ test("buildGlobalActionPreview: no made-up booking for an invalid payload", asyn
   });
   assert.equal(res.action, "cancel");
   assert.equal(w.document.getElementById("global-action-wallet-select"), null);
+});
+
+test("broken acg: link while a wallet is open: an error, the hash goes back", async () => {
+  const w = await boot({ hash: "anna", seed: seedWallets("anna") });
+  w.location.hash = BROKEN;
+  await flushHashChanges(w);
+  const s = status(w);
+  assert.match(s.text, /Action Code ungültig/);
+  assert.ok(s.visible && s.error);
+  assert.equal(hashOf(w), "anna");
+  assert.equal(w.document.getElementById("global-action-message"), null, "no no-wallet notice");
+  assert.equal(w.document.body.dataset.noWallet, undefined);
+  assert.equal(events(w, "anna"), 0);
 });
