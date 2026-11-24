@@ -238,3 +238,20 @@ test("declining the ac: question without an open wallet removes the link", async
   assert.ok(!w._nav.entries.some((u) => u.includes("#ac:")), w._nav.entries.join(" "));
   assert.deepEqual(w._nav.pageLoads, []);
 });
+
+// A browser without DecompressionStream can't read i2: links. The classic
+// export link is gone from the export block, so the message points to the
+// JSON backup (the file), which every browser imports.
+test("an i2: link in a browser without DecompressionStream points to the JSON backup", async () => {
+  const src = makeEnv({ deviceKey: "devR" });
+  const H = src.dbWalletHelpers;
+  const token = H.base64UrlEncodeBytes(await H.gzipCompress(exportBytes(src)));
+  const w = makeEnv({ deviceKey: "devA", globals: { DecompressionStream: undefined } });
+  const res = await importHash(w, "i2:" + token);
+  assert.equal(res.userId, null);
+  assert.equal(w._alerts.length, 1);
+  assert.equal(w._alerts[0], w.dbWalletImportV2.IMPORT_ERROR_MESSAGES["unsupported-browser"]);
+  assert.doesNotMatch(w._alerts[0], /Export-Link|klassisch/);
+  assert.match(w._alerts[0], /„Als JSON herunterladen“/);
+  assert.match(w._alerts[0], /„JSON importieren“/);
+});

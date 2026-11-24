@@ -49,7 +49,7 @@
     "unsupported-version":
       "Import fehlgeschlagen ❌ — die Daten stammen aus einer neueren App-Version.\nBitte diese App aktualisieren.",
     "unsupported-browser":
-      "QR-Import (kurz) wird in diesem Browser nicht unterstützt.\nBitte nutze den klassischen Export-Link oder JSON.",
+      "Dieser Browser kann den komprimierten Link/QR-Code nicht lesen.\nBitte auf dem Quellgerät „Als JSON herunterladen“ nutzen und die Datei hier auf der Startseite mit „JSON importieren“ einlesen.",
     unknown: "Import fehlgeschlagen ❌",
   };
 
