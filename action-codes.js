@@ -618,7 +618,6 @@
     normalizeGlobalActionCodes,
     globalPayloadAction,
     removeActionCode,
-    recordDeletedActionCode,
     applyDeletedActionCodes,
     mergeDeletedActionCodes,
     normalizeDeletedActionCodes,

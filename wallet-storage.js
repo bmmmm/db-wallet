@@ -510,7 +510,6 @@
       const fresh = {
         userId,
         walletId: randomWalletId(),
-        deviceId: randomId(),
         v: 2,
         seq: {},
         events: [],
@@ -524,7 +523,6 @@
     if (!Array.isArray(obj.events)) obj.events = [];
     if (!Array.isArray(obj.actionCodes)) obj.actionCodes = [];
     if (!Array.isArray(obj.devices)) obj.devices = [];
-    if (!obj.deviceId) obj.deviceId = randomId();
     const mintedWalletId = !obj.walletId;
     if (mintedWalletId) obj.walletId = randomWalletId();
     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
@@ -556,18 +554,14 @@
   let storageFailedActive = false;
 
   // Surface persistent storage failures (quota exceeded / disabled storage in
-  // private mode) instead of going silent after the first alert. Sets an
-  // observable body flag and a persistent banner; cleared on the next good write.
+  // private mode) instead of going silent after the first alert: a persistent
+  // banner, cleared on the next good write.
   // A banner already shown takes the newest failure's text: after "Speicher
   // voll" a reset in another tab needs "neu laden", not more space.
   function markStorageFailed(failed, message) {
     if (!failed && !storageFailedActive) return;
     storageFailedActive = !!failed;
     try {
-      if (document && document.body && document.body.dataset) {
-        if (failed) document.body.dataset.storageFailed = "1";
-        else delete document.body.dataset.storageFailed;
-      }
       const msgApi = window.dbWalletMessages || null;
       if (msgApi) {
         if (failed) {
@@ -761,8 +755,8 @@
       : "";
   }
 
-  // opts.quiet: skip the generic one-time alert on failure (the banner/body
-  // flag is still set). For callers that report the failure themselves, e.g.
+  // opts.quiet: skip the generic one-time alert on failure (the banner is
+  // still shown). For callers that report the failure themselves, e.g.
   // the import, which must not claim success after a failed save.
   // opts.allowWalletIdChange: this save intentionally replaces the stored
   // wallet with a different walletId (reset). Without it, a save whose
@@ -969,7 +963,6 @@
     // so a "__proto__"/"constructor" userId must create an ordinary own property
     // rather than poison the prototype chain.
     const all = Object.create(null);
-    const seenUserIds = new Set();
 
     let len = 0;
     try {
@@ -998,18 +991,11 @@
         continue; // skip non-wallet keys like registry/theme
       }
 
-      const userIdFromKey = key.slice(STORAGE_PREFIX.length);
-      const userId =
-        typeof obj.userId === "string"
-          ? STORAGE_PREFIX + obj.userId === key
-            ? obj.userId
-            : userIdFromKey
-          : userIdFromKey;
+      // The key names the wallet (loadWallet sets userId from it); keys
+      // are unique, so no wallet is seen twice.
+      const userId = key.slice(STORAGE_PREFIX.length);
       if (!userId) continue;
-      if (isReservedStorageKey(STORAGE_PREFIX + userId)) continue;
-
-      if (seenUserIds.has(userId)) continue;
-      seenUserIds.add(userId);
+      if (isReservedStorageKey(key)) continue;
       const loaded = loadWallet(userId, obj);
       if (!loaded) continue;
       all[userId] = loaded;
@@ -1025,7 +1011,6 @@
     return {
       userId: w.userId,
       walletId: w.walletId,
-      deviceId: w.deviceId,
       v: w.v,
       seq: w.seq,
       events: w.events,
@@ -1091,8 +1076,6 @@
   }
 
   window.dbWalletStorage = {
-    DEVICE_KEY_STORAGE,
-    THEME_KEY_STORAGE,
     isReservedStorageKey,
     ensureNonReservedUserId,
     getDeviceKey,

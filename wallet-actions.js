@@ -4,7 +4,7 @@
   const summaryApi = window.dbWalletSummary || null;
   if (!helpers || !storage || !summaryApi) return;
 
-  const { randomId, randomWalletId, MAX_EVENT_AMOUNT } = helpers;
+  const { randomWalletId, MAX_EVENT_AMOUNT } = helpers;
   const {
     saveWallet,
     newEvent,
@@ -300,7 +300,6 @@
     const next = {
       userId: wallet.userId,
       walletId: randomWalletId(),
-      deviceId: wallet.deviceId || randomId(),
       v: 2,
       seq,
       events: [],

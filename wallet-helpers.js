@@ -784,7 +784,6 @@
     downloadBlob,
     downloadJson,
     notify,
-    clearStatus,
     confirmDialog,
     whenConfirmed,
   };

@@ -154,3 +154,20 @@ test("perDay carries drinks only; the diagram's [count] is the net drinks, also 
   assert.deepEqual(plain(s.perDay), [{ date: "2024-03-01", drinks: 1, paid: true }]);
   assert.deepEqual(plain(Sum.formatPerDayDiagram(s.perDay)), ["2024-03-01 [1] 💰 | #"]);
 });
+
+test("wallet.deviceId is no longer minted; a stored one stays harmless", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const S = w.dbWalletStorage;
+  assert.equal("deviceId" in S.loadWallet("anna"), false);
+  book(w, "anna", "d", 1, Date.now() - DAY);
+  assert.equal("deviceId" in JSON.parse(w.localStorage.getItem("db-wallet:anna")), false);
+  const old = JSON.parse(w.localStorage.getItem("db-wallet:anna"));
+  old.deviceId = "abc123";
+  w.localStorage.setItem("db-wallet:anna", JSON.stringify(old));
+  const x = S.loadWallet("anna");
+  assert.equal(x.deviceId, "abc123");
+  assert.equal(S.appendEvents(x, [S.newEvent(x, "d", 1)]), true);
+  const { ctx, state } = makeActionsCtx(w, S.loadWallet("anna"));
+  assert.equal(w.dbWalletActions.resetWallet(ctx), true);
+  assert.equal("deviceId" in state.wallet, false);
+});
