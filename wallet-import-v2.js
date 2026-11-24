@@ -1569,8 +1569,8 @@
 
   // Dispatches a parsed import payload between the preview overlay and the
   // persist-and-route path. Returns the standard tryImportFromHash shape.
-  async function handleImportChoice(remote, label, options, hooks) {
-    const { chooseMode, openPreview } = hooks || getImportPreviewHooks();
+  async function handleImportChoice(remote, label, options) {
+    const { chooseMode, openPreview } = getImportPreviewHooks();
 
     let mode = "persist";
     if (chooseMode) {
@@ -1601,10 +1601,7 @@
   // triple. Returns { payload, activeUserId } on success or a terminal
   // tryImportFromHash result (via the `done` field) for short-circuit cases.
   function parseActionCodeHash(hash, options) {
-    const activeUserId =
-      options && typeof options.returnToUserId === "string"
-        ? options.returnToUserId
-        : "";
+    const activeUserId = returnUserIdOf(options);
     const api = window.dbWalletActionCodes || null;
     const payload =
       api && typeof api.decodeActionHash === "function"
@@ -1789,12 +1786,7 @@
       }
       const parsed = await parseImportHashPayload(hash);
       if (parsed) {
-        return await handleImportChoice(
-          parsed.remote,
-          parsed.label,
-          options,
-          getImportPreviewHooks(),
-        );
+        return await handleImportChoice(parsed.remote, parsed.label, options);
       }
       return { userId: null, redirectedToPreview: false };
     } catch (e) {
@@ -1808,33 +1800,21 @@
   }
 
   window.dbWalletImportV2 = {
-    writeVarUint,
     readVarUint,
-    fnv1a64: helpers.fnv1a64,
-    hash53,
     legacyIdToV2Id,
     mergeEvents,
-    themeIndexFromName,
-    themeNameFromIndex,
     encodeImportV2Bytes,
     decodeImportV2Bytes,
     decodeV2Header,
     decodeV2Events,
-    decodeV2Extensions,
-    resolveUserIdForImport,
     applyImportedTheme,
     buildImportedWallet,
     importRemoteWallet,
-    IMPORT_SAVE_FAILED_MESSAGE,
     importSaveFailedMessage,
     IMPORT_ERROR_MESSAGES,
     importErrorCode,
     parseImportHashPayload,
-    handleImportChoice,
-    parseActionCodeHash,
-    resolveActionCodeTarget,
     bookActionCode,
-    handleActionCodeHash,
     tryImportFromHash,
   };
 })();
