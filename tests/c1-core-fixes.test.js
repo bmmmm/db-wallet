@@ -117,3 +117,25 @@ test("the storage banner follows the latest failure: full storage, then a reset 
   assert.equal(S.appendEvents(fresh, [S.newEvent(fresh, "d", 1)]), true);
   assert.equal(banner.text, null);
 });
+
+test("undoLastEvent: tombstone, null, or { status: 'failed' } with the append rolled back", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const S = w.dbWalletStorage;
+  assert.equal(S.undoLastEvent(S.loadWallet("anna")), null);
+  // A future-dated entry (skewed clock elsewhere): the tombstone carries now,
+  // its ts counts nowhere, and the entry is gone all the same.
+  const future = book(w, "anna", "d", 2, Date.now() + 3 * DAY);
+  const wallet = S.loadWallet("anna");
+  w.localStorage.quota = 10;
+  const before = plain(wallet.events);
+  assert.deepEqual(plain(S.undoLastEvent(wallet)), { status: "failed" });
+  assert.deepEqual(plain(wallet.events), before);
+  w.localStorage.quota = Infinity;
+  const tomb = S.undoLastEvent(wallet);
+  assert.equal(tomb.t, "x");
+  assert.equal(tomb.ref, future.id);
+  assert.ok(tomb.ts <= Date.now());
+  const stored = S.loadWallet("anna");
+  assert.equal(stored.events.length, 2);
+  assert.equal(w.dbWalletSummary.computeSummarySafe(stored).total, 0);
+});

@@ -10,7 +10,7 @@
     newEvent,
     appendEvents,
     undoLastEvent,
-    appendTombstone,
+    buildTombstoneEvent,
     resolveUndoTarget,
   } = storage;
   const { dateStrFromTimestamp } = summaryApi;
@@ -69,27 +69,16 @@
       notify(ctx, "Diese Buchung ist schon entfernt.");
       return false;
     }
-    const ok = persistMutation(ctx, wallet, () => {
-      appendTombstone(wallet, eventId);
-    });
-    if (!ok) return false;
+    if (!persistEvents(ctx, wallet, [buildTombstoneEvent(wallet, eventId)])) return false;
     ctx.onStateChanged();
     notify(ctx, `Buchung zurückgenommen · ${balanceText(ctx)}`);
     return true;
   }
 
-  // Persist a wallet mutation, rolling back the optimistic in-memory append when
-  // the write fails (quota exceeded / disabled storage). Returns true on success.
-  // `mutate` must only APPEND events. Built on storage.appendEvents: we capture
-  // exactly the events `mutate` appended, restore the pre-mutation array, then let
-  // appendEvents snapshot + push + save + roll back atomically. This keeps the
-  // dialog/alert here in the UI layer while the save/rollback lives in storage.
-  function persistMutation(ctx, wallet, mutate) {
-    const before = Array.isArray(wallet.events) ? wallet.events.slice() : [];
-    mutate();
-    const appended = wallet.events.slice(before.length);
-    wallet.events = before;
-    if (appendEvents(wallet, appended)) return true;
+  // Appends `events` and saves (storage.appendEvents rolls the append back on
+  // a failed write); a failure is reported here. Returns true on success.
+  function persistEvents(ctx, wallet, events) {
+    if (appendEvents(wallet, events)) return true;
     reportSaveFailure(ctx);
     return false;
   }
@@ -143,12 +132,8 @@
       // Read the wallet only now: during the dialog another tab may have
       // replaced it (storage event).
       const wallet = ctx.getWallet();
-      let event = null;
-      const ok = persistMutation(ctx, wallet, () => {
-        event = newEvent(wallet, "d", n);
-        wallet.events.push(event);
-      });
-      if (!ok) return false;
+      const event = newEvent(wallet, "d", n);
+      if (!persistEvents(ctx, wallet, [event])) return false;
       ctx.resetAmount();
       ctx.onStateChanged();
       notify(ctx, `+${n} gebucht · ${balanceText(ctx)}`, {
@@ -173,7 +158,7 @@
     const userId = ctx.getUserId();
     // Resolve what undoLastEvent will actually act on so any confirm matches the
     // outcome (undo is monotonic: it removes the last visible entry).
-    const plan = resolveUndoTarget ? resolveUndoTarget(wallet) : null;
+    const plan = resolveUndoTarget(wallet);
     let msg = null;
     if (plan) {
       if (plan.event && plan.event.t === "p") {
@@ -198,7 +183,7 @@
       if (confirmed) {
         // The answer came later: if the log changed meanwhile (another tab),
         // the confirmed entry may no longer be the one undo would hit.
-        const now = resolveUndoTarget ? resolveUndoTarget(current) : null;
+        const now = resolveUndoTarget(current);
         if (ctx.getUserId() !== userId || !now || !plan || now.id !== plan.id) {
           notify(ctx, "Der Verlauf hat sich inzwischen geändert — nichts rückgängig gemacht.");
           return false;
@@ -251,12 +236,8 @@
       ctx.clearExport();
       return false;
     }
-    let event = null;
-    const ok = persistMutation(ctx, wallet, () => {
-      event = newEvent(wallet, "p");
-      wallet.events.push(event);
-    });
-    if (!ok) return false;
+    const event = newEvent(wallet, "p");
+    if (!persistEvents(ctx, wallet, [event])) return false;
     ctx.resetAmount();
     ctx.resetPayUi();
     ctx.onStateChanged();
@@ -279,12 +260,8 @@
       return false;
     }
     const wallet = ctx.getWallet();
-    let event = null;
-    const ok = persistMutation(ctx, wallet, () => {
-      event = newEvent(wallet, "g", n);
-      wallet.events.push(event);
-    });
-    if (!ok) return false;
+    const event = newEvent(wallet, "g", n);
+    if (!persistEvents(ctx, wallet, [event])) return false;
     ctx.resetAmount();
     ctx.resetPayUi();
     ctx.onStateChanged();
@@ -384,12 +361,7 @@
           notify(ctx, "Dieser Eintrag ist schon entfernt.");
           return false;
         }
-        // Tombstones are stamped strictly after the newest event (ts =
-        // max(now, maxEventTs + 1)), so the deletion sorts last.
-        const ok = persistMutation(ctx, current, () => {
-          appendTombstone(current, rootId);
-        });
-        if (!ok) return false;
+        if (!persistEvents(ctx, current, [buildTombstoneEvent(current, rootId)])) return false;
         ctx.clearExport();
         ctx.onStateChanged();
         notify(ctx, `Eintrag gelöscht · ${balanceText(ctx)}`);
@@ -526,16 +498,14 @@
     }
 
     // Append-only, merge-safe edit: a replacement carrying supersedes=<root>.
-    // The summary fold collapses every replacement of one root to the
-    // canonical-last winner, so two devices editing the same entry offline
-    // converge instead of double-counting. No tombstone: the replacement
-    // supersedes the original (and any earlier replacement) directly.
-    const ok = persistMutation(ctx, wallet, () => {
-      const ev = newEvent(wallet, target.t, newAmount, { supersedes: rootId });
-      ev.ts = newTs;
-      wallet.events.push(ev);
-    });
-    if (!ok) return false;
+    // The summary fold collapses every replacement of one root to the latest
+    // edit (helpers.compareEdits: the highest seq; newEvent lifts it above the
+    // chain), so two devices editing the same entry offline converge instead
+    // of double-counting. No tombstone: the replacement supersedes the
+    // original (and any earlier replacement) directly.
+    const ev = newEvent(wallet, target.t, newAmount, { supersedes: rootId });
+    ev.ts = newTs;
+    if (!persistEvents(ctx, wallet, [ev])) return false;
     ctx.clearExport();
     ctx.onStateChanged();
     notify(ctx, `Eintrag geändert · ${balanceText(ctx)}`);

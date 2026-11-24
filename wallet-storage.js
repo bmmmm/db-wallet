@@ -244,18 +244,6 @@
     return maxSeq;
   }
 
-  // Highest event ts currently in the log (0 when none). Used to stamp locally
-  // built tombstones strictly after the newest event so they always sort last.
-  function maxEventTs(wallet) {
-    let maxTs = 0;
-    for (const e of (wallet && wallet.events) || []) {
-      if (e && typeof e.ts === "number" && Number.isFinite(e.ts) && e.ts > maxTs) {
-        maxTs = e.ts;
-      }
-    }
-    return maxTs;
-  }
-
   function ensureDeviceSeq(wallet) {
     if (!wallet || typeof wallet !== "object") return;
     const deviceKey = getDeviceKey();
@@ -275,32 +263,18 @@
     }
   }
 
-  function buildTombstoneEvent(wallet, refId, ts) {
+  // The tombstone of a delete/undo: `refId` is the entry's root id. Its ts
+  // counts nowhere (P5.5: the fold ignores the order of tombstones, undo
+  // finds the newest own event by seq), so it is simply now.
+  function buildTombstoneEvent(wallet, refId) {
     const ref = typeof refId === "string" ? refId.trim() : "";
     if (!ref) return null;
-    // With an explicit ts (e.g. a decoded remote tombstone keeping its wire ts)
-    // honor it verbatim. Otherwise default to strictly after the newest event so
-    // locally built delete/undo tombstones always sort last, even against future-
-    // dated entries or a backward-skewed clock. Callers no longer scan for this.
-    const stamp =
-      typeof ts === "number" && Number.isFinite(ts)
-        ? Math.floor(ts)
-        : Math.max(Date.now(), maxEventTs(wallet) + 1);
     return {
       id: nextEventId(wallet),
       t: "x",
       ref,
-      ts: stamp,
+      ts: Date.now(),
     };
-  }
-
-  function appendTombstone(wallet, refId, ts) {
-    if (!wallet || typeof wallet !== "object") return null;
-    if (!Array.isArray(wallet.events)) wallet.events = [];
-    const ev = buildTombstoneEvent(wallet, refId, ts);
-    if (!ev) return null;
-    wallet.events.push(ev);
-    return ev;
   }
 
   // This device's newest event: the one with the highest seq on its deviceKey
@@ -322,7 +296,8 @@
   // Pure resolution of what an undo would act on — shared by undoLastEvent and
   // the UI's pre-undo confirm so the confirm always matches the actual outcome.
   // Returns { type: "undo", id, event, afterDeletion } or null if nothing to
-  // undo. Undo is MONOTONIC (it removes the last effective entry); it never
+  // undo: `event` is the newest visible entry, `id` its ROOT id (what the
+  // tombstone refs, so the whole edit chain goes). Undo is MONOTONIC (it removes the last effective entry); it never
   // neutralizes its own trailing tombstone, otherwise repeated presses would
   // ping-pong the last entry instead of walking back through the log. The
   // afterDeletion flag lets the UI confirm when the previous action was a delete
@@ -333,16 +308,10 @@
     if (!events.length) return null;
 
     const sorted = events.slice().sort(helpers.compareEventsByTime);
-    const summaryApi = window.dbWalletSummary || null;
-    const tomb =
-      summaryApi && typeof summaryApi.applyTombstones === "function"
-        ? summaryApi.applyTombstones(sorted)
-        : null;
-
-    const effective =
-      tomb && Array.isArray(tomb.effectiveEvents)
-        ? tomb.effectiveEvents
-        : sorted.filter((e) => e && e.t !== "x");
+    // Read at call time: wallet.html loads wallet-summary.js after this file.
+    const summaryApi = window.dbWalletSummary;
+    const tomb = summaryApi.applyTombstones(sorted);
+    const effective = tomb.effectiveEvents;
     if (!effective.length) return null;
     const target = effective[effective.length - 1];
     if (!target || typeof target.id !== "string" || !target.id) return null;
@@ -359,46 +328,31 @@
       lastAppended && typeof lastAppended.ref === "string"
         ? lastAppended.ref.trim()
         : "";
-    const neutralized = tomb && tomb.neutralized ? tomb.neutralized : null;
+    const neutralized = tomb.neutralized;
     const afterDeletion = !!(
       lastAppended &&
       lastAppended.t === "x" &&
       typeof lastAppended.id === "string" &&
       lastAppended.id &&
-      (!neutralized ||
-        (!neutralized.has(lastAppended.id) && !neutralized.has(lastRef)))
+      !neutralized.has(lastAppended.id) &&
+      !neutralized.has(lastRef)
     );
 
     // Tombstone the entry's ROOT so undoing an edited entry removes the whole
     // logical entry (all its replacements), not just the visible replacement.
-    const rootId =
-      summaryApi && typeof summaryApi.rootIdOf === "function"
-        ? summaryApi.rootIdOf(target)
-        : typeof target.supersedes === "string" && target.supersedes
-          ? target.supersedes
-          : target.id;
-    return { type: "undo", id: rootId, event: target, afterDeletion };
+    return { type: "undo", id: summaryApi.rootIdOf(target), event: target, afterDeletion };
   }
 
-  // Returns the tombstone event on success, null when there is nothing to undo,
-  // and { status: "failed" } when the write failed — so the caller can tell a
-  // real save failure apart from an empty log and surface a dialog. (The success
-  // path keeps returning the event itself for existing consumers.) The tombstone
-  // ts default (strictly after the newest event) now lives in buildTombstoneEvent.
-  // `plan` is optional: undoLast passes its already-resolved target to avoid a
-  // second resolveUndoTarget pass; without one we resolve here.
+  // Appends the undo tombstone and saves (appendEvents). Returns the tombstone,
+  // null when there is nothing to undo, or { status: "failed" } when the save
+  // failed (the append is rolled back). `plan` is optional: undoLast passes the
+  // target it already resolved for its confirm.
   function undoLastEvent(wallet, plan) {
     const target = plan || resolveUndoTarget(wallet);
     if (!target) return null;
-
-    const before = wallet.events.slice();
-    const tombstone = appendTombstone(wallet, target.id);
+    const tombstone = buildTombstoneEvent(wallet, target.id);
     if (!tombstone) return null;
-    ensureDeviceSeq(wallet);
-    if (!saveWallet(wallet)) {
-      wallet.events = before; // roll back optimistic append on a failed write
-      return { status: "failed" };
-    }
+    if (!appendEvents(wallet, [tombstone])) return { status: "failed" };
     return tombstone;
   }
 
@@ -1150,7 +1104,6 @@
     parseCompactEventId,
     ensureDeviceSeq,
     buildTombstoneEvent,
-    appendTombstone,
     resolveUndoTarget,
     undoLastEvent,
     nextEventId,
