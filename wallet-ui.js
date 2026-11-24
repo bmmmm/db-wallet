@@ -43,7 +43,6 @@
     getLocalDeviceSymbol,
     setLocalDeviceSymbol,
     touchLocalDevice,
-    parseCompactEventId,
     ensureDeviceSeq,
     newEvent,
     appendEvents,
@@ -150,7 +149,6 @@
     const qrCanvas = document.getElementById("qr-canvas");
     const qrUrl = document.getElementById("qr-url");
     const exportUrlActions = document.getElementById("export-url-actions");
-    const topRow = document.querySelector(".top-row");
     const actionCodesPanel = document.getElementById("action-codes-panel");
     const actionCodesBody = document.getElementById("action-codes-body");
     const elHistory = document.getElementById("history");
@@ -235,12 +233,6 @@
           window.location.reload();
         };
         window.addEventListener("hashchange", noWalletHashListener);
-      }
-    }
-
-    function clearNoWalletState() {
-      if (hashActions && typeof hashActions.clearNoWalletState === "function") {
-        hashActions.clearNoWalletState();
       }
     }
 
@@ -438,7 +430,6 @@
 
     if (deviceUi && typeof deviceUi.init === "function") {
       deviceUi.init({
-        elUid,
         getDeviceKey: () => deviceKey,
         getDeviceSymbol: () =>
           typeof getLocalDeviceSymbol === "function"
@@ -505,15 +496,12 @@
 
     if (syncUi && typeof syncUi.init === "function") {
       syncUi.init({
-        topRow,
         getWallet: () => wallet,
         saveWallet: (w) => saveWallet(w),
-        getDeviceKey: () => deviceKey,
         getLocalSymbol: () =>
           (typeof getLocalDeviceSymbol === "function"
             ? getLocalDeviceSymbol(wallet)
             : "") || "_",
-        parseCompactEventId,
         syncApi,
         openExportSection: () => {
           if (exportUi && typeof exportUi.openSection === "function") {
@@ -554,12 +542,6 @@
 
     updateUidLabel();
     elExportUrl.value = ""; // initially empty
-
-    function openExportSection() {
-      if (exportUi && typeof exportUi.openSection === "function") {
-        exportUi.openSection();
-      }
-    }
 
     function clearExport() {
       if (exportUi && typeof exportUi.clear === "function") {
@@ -705,11 +687,7 @@
           // consume, so a deliberate later re-apply of the same code must still
           // be allowed.
           if (targetWallet === wallet && !options.skipHashCleanup) {
-            const declinedUserId =
-              typeof options.userId === "string" && options.userId.trim()
-                ? options.userId.trim()
-                : userId;
-            if (declinedUserId) replaceHashSilently(declinedUserId);
+            replaceHashSilently(userId);
           }
           return { handled: true, applied: false, reason: "declined" };
         }
@@ -757,11 +735,7 @@
       }
 
       if (isActiveWallet && !options.skipHashCleanup) {
-        const targetUserId =
-          typeof options.userId === "string" && options.userId.trim()
-            ? options.userId.trim()
-            : userId;
-        if (targetUserId) replaceHashSilently(targetUserId);
+        replaceHashSilently(userId);
       }
 
       return { handled: true, applied: true, reason: "applied" };
@@ -774,14 +748,7 @@
       try {
         const hash = window.location.hash.slice(1);
         const route = classifyHashValue(hash);
-        if (route.kind === "none") {
-          if (!wallet) {
-            showGlobalActionMessage(
-              "Bitte zuerst ein Wallet importieren oder öffnen.",
-            );
-          }
-          return;
-        }
+        if (route.kind === "none") return;
 
         if (route.kind === "globalAction") {
           handleGlobalActionHash(route.raw);
@@ -872,7 +839,6 @@
 
     window.dbWalletUi = {
       getCurrentUserId: () => userId,
-      getCurrentWallet: () => wallet,
       applyGlobalActionHash: (hash, options) =>
         handleGlobalActionHash(hash, options),
       handleWalletStateChange: () => handleWalletStateChange(),

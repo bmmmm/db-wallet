@@ -29,7 +29,7 @@
     className: "action-codes-notice card card--flat global-action-panel",
     // After the header (P4.2): a direct <body> child, so the no-wallet CSS
     // (body > :not(#global-action-message)) keeps it visible.
-    anchors: ["#wallet-header", ".top-row", "h1"],
+    anchors: ["#wallet-header"],
   };
 
   function showMessage(message) {
@@ -245,9 +245,7 @@
     clearNoWalletState,
     showNoWalletState,
     buildGlobalActionPreview,
-    showGlobalActionSelection,
     awaitGlobalActionWalletSelection,
     showMessage,
-    clearMessage,
   };
 })();

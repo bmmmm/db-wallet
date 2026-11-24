@@ -276,26 +276,15 @@
       onSave: ({ scopeToggle, typeToggle, amountInput, labelInput }) => {
         const walletNow = ctx.getWallet();
         if (!walletNow) return;
-        const scope = scopeToggle.getScope();
-        const hadNoLocalCodes = !(
-          Array.isArray(walletNow.actionCodes) && walletNow.actionCodes.length
-        );
         commit(
           ctx,
           createActionCode(walletNow, {
-            scope,
+            scope: scopeToggle.getScope(),
             type: typeToggle.getType(),
             amount: amountInput.value,
             label: labelInput.value,
           }),
         );
-        if (scope !== "global" && hadNoLocalCodes) {
-          const details =
-            typeof ctx.container.closest === "function"
-              ? ctx.container.closest("details")
-              : null;
-          if (details) details.open = true;
-        }
         ctx.createOpen = false;
         ctx.refresh();
       },
@@ -338,7 +327,7 @@
     });
   }
 
-  function buildDeleteConfirm(ctx, code, isGlobal) {
+  function buildDeleteConfirm(ctx, code) {
     const deleteBox = document.createElement("div");
     deleteBox.className = "action-code-confirm card card--flat";
 
@@ -504,7 +493,7 @@
     if (ctx.editingId === code.id) {
       card.appendChild(buildEditForm(ctx, code, isGlobal));
     } else if (ctx.pendingDeleteId === code.id) {
-      card.appendChild(buildDeleteConfirm(ctx, code, isGlobal));
+      card.appendChild(buildDeleteConfirm(ctx, code));
     } else {
       const qr = buildQrCard(ctx, code);
       if (qr.error) {

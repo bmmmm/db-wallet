@@ -598,7 +598,5 @@
     init,
     clear,
     openSection,
-    copyLink,
-    shareLink,
   };
 })();
