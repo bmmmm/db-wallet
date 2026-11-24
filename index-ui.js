@@ -649,10 +649,5 @@
   });
 
   // For tests (Node harness): the pure parts of the start page.
-  window.dbWalletIndexUI = {
-    resolveStartTarget,
-    describeStartTarget,
-    hashFromPastedLink,
-    openPastedLink,
-  };
+  window.dbWalletIndexUI = { hashFromPastedLink };
 })();
