@@ -157,7 +157,6 @@
     const elHistoryList = document.getElementById("history-list");
     const logTools = document.getElementById("log-tools");
     const logEditGroup = document.getElementById("log-edit-group");
-    const rawToggle = document.querySelector(".raw-toggle");
     const logEditToggle = document.getElementById("log-edit-toggle");
 
     const btnMigrate = document.getElementById("btn-migrate");
@@ -181,8 +180,6 @@
     const btnModeDiagram = document.getElementById("mode-diagram");
     const btnModeLog = document.getElementById("mode-log");
     const btnModeRaw = document.getElementById("mode-raw");
-    const btnRawCurrent = document.getElementById("raw-scope-current");
-    const btnRawAll = document.getElementById("raw-scope-all");
 
     const requiredEls = [
       elUid,
@@ -200,8 +197,6 @@
       btnModeDiagram,
       btnModeLog,
       btnModeRaw,
-      btnRawCurrent,
-      btnRawAll,
     ];
     if (requiredEls.some((el) => !el)) return;
 
@@ -535,17 +530,13 @@
           elHistoryList,
           logTools,
           logEditGroup,
-          rawToggle,
           logEditToggle,
           btnModeDiagram,
           btnModeLog,
           btnModeRaw,
-          btnRawCurrent,
-          btnRawAll,
         },
         getWallet: () => wallet,
         getSummary,
-        getAllWallets,
         // P4.4: the row actions; actionsCtx is set up further down, before
         // any click can reach these.
         onEditEntry: (root, values) =>
@@ -959,7 +950,7 @@
       if (elCredit) elCredit.textContent = summary.credit;
 
       // syncUi.refresh() runs via historyUi.render()'s onAfterRender callback
-      // (see historyUi.init), which also fires on the mode/raw-scope toggles that
+      // (see historyUi.init), which also fires on the mode toggles that
       // re-render without going through refreshSummary — so the sync line is
       // refreshed on exactly one path. Do NOT add a direct syncUi.refresh() here
       // when historyUi is present: that would rebuild the ASCII timeline + device
