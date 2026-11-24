@@ -7,12 +7,6 @@
 
   let lastQrUrl = "";
 
-  function getBaseUrl() {
-    const href = String(window.location.href || "");
-    const idx = href.indexOf("#");
-    return idx >= 0 ? href.slice(0, idx) : href;
-  }
-
   // Hides and clears the rendered QR, its link and status.
   function clearQr() {
     if (refs && refs.qrBox) refs.qrBox.style.display = "none";
@@ -61,15 +55,18 @@
     if (el) el.textContent = text;
   }
 
+  // Focuses a link field (without scrolling) and selects all of it.
   function selectField(el) {
     if (!el) return;
-    try {
-      el.focus({ preventScroll: true });
-    } catch (e) {
+    if (document.activeElement !== el) {
       try {
-        el.focus();
-      } catch (e2) {
-        // ignore
+        el.focus({ preventScroll: true });
+      } catch (e) {
+        try {
+          el.focus();
+        } catch (e2) {
+          // ignore
+        }
       }
     }
     try {
@@ -181,22 +178,6 @@
     }
   }
 
-  function selectQrUrl() {
-    if (!refs || !refs.qrUrl || !refs.qrUrl.value) return;
-    const el = refs.qrUrl;
-    if (document.activeElement !== el) {
-      try {
-        el.focus({ preventScroll: true });
-      } catch (e) {
-        el.focus();
-      }
-    }
-    el.select();
-    try {
-      el.setSelectionRange(0, el.value.length);
-    } catch (e) {}
-  }
-
   // Width (CSS px) the QR may take: the content box of #qr-box, measured
   // while it is shown. The old estimate (innerWidth - 48) missed the panel
   // padding, so on a 360 px phone `max-width: 100%` squeezed the canvas and
@@ -268,73 +249,31 @@
     lastQrUrl = url;
     if (refs.qrUrl) {
       refs.qrUrl.value = url;
-      selectQrUrl();
+      selectField(refs.qrUrl);
     }
     setStatus(refs.qrUrlStatus, "");
     updateShareButtons();
     setExportUrl("");
   }
 
+  // The PNG is drawn anew at 10 px per module (sharper than the shown QR).
   function downloadQrPng(url) {
     if (!window.qrcodegen || !window.qrcodegen.QrCode) return;
     const canvas = document.createElement("canvas");
     helpers.drawQrToCanvas(canvas, url, { scale: 10 });
-
-    const date = opts.todayDateStr ? opts.todayDateStr() : "date";
-    const wallet = opts.getWallet ? opts.getWallet() : null;
-    const safeUserId = String((wallet && wallet.userId) || "user").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    );
-    const filename = `db-wallet-${safeUserId}-${date}.png`;
-
-    const triggerDownload = (href, fname) => {
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = fname;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    };
-
-    const saveBlob = (blob) => helpers.downloadBlob(blob, filename);
-
-    if (canvas.toBlob) {
-      canvas.toBlob((blob) => {
-        if (blob) saveBlob(blob);
-      }, "image/png");
-    } else {
-      const dataUrl = canvas.toDataURL("image/png");
-      triggerDownload(dataUrl, filename);
-    }
+    const wallet = opts.getWallet();
+    const safeUserId = String((wallet && wallet.userId) || "user").replace(/[^a-zA-Z0-9_-]/g, "_");
+    canvas.toBlob((blob) => {
+      if (blob) helpers.downloadBlob(blob, `db-wallet-${safeUserId}-${opts.todayDateStr()}.png`);
+    }, "image/png");
   }
 
   async function buildQrUrl() {
-    const wallet = opts.getWallet ? opts.getWallet() : null;
-    try {
-      const actionApi = window.dbWalletActionCodes || null;
-      if (actionApi && typeof actionApi.ensureWalletActionCodes === "function") {
-        const res = actionApi.ensureWalletActionCodes(wallet);
-        if (res && res.changed && opts.saveWallet) {
-          opts.saveWallet(wallet);
-          if (opts.actionCodesUi && typeof opts.actionCodesUi.refresh === "function") {
-            opts.actionCodesUi.refresh();
-          }
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-    if (opts.touchLocalDevice) {
-      try {
-        opts.touchLocalDevice();
-      } catch (e) {
-        // ignore
-      }
-    }
+    opts.prepareExport();
+    const wallet = opts.getWallet();
     const theme = opts.getStoredTheme ? opts.getStoredTheme() : null;
     const raw = opts.encodeImportV2Bytes(wallet, theme);
-    const base = getBaseUrl();
+    const base = opts.getBaseUrl();
 
     try {
       const compressed = await opts.gzipCompress(raw);
@@ -358,12 +297,7 @@
       `${reason} Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
       Object.assign({ sticky: true }, notifyOpts),
     );
-    try {
-      refs.elExportUrl.focus();
-      refs.elExportUrl.select();
-    } catch (e) {
-      // ignore
-    }
+    selectField(refs.elExportUrl);
   }
 
   async function showQrExport() {
@@ -472,13 +406,10 @@
       });
     }
 
-    if (refs.elExportUrl) {
-      refs.elExportUrl.addEventListener("focus", () => refs.elExportUrl.select());
-      refs.elExportUrl.addEventListener("click", () => refs.elExportUrl.select());
-    }
-    if (refs.qrUrl) {
-      refs.qrUrl.addEventListener("focus", selectQrUrl);
-      refs.qrUrl.addEventListener("click", selectQrUrl);
+    for (const field of [refs.elExportUrl, refs.qrUrl]) {
+      if (!field) continue;
+      field.addEventListener("focus", () => selectField(field));
+      field.addEventListener("click", () => selectField(field));
     }
     const bind = (btn, fn, field, status) => {
       if (btn) btn.addEventListener("click", () => fn(field, status));

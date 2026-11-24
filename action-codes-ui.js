@@ -34,23 +34,14 @@
   } = api;
 
   function canvasToPngDownload(canvas, filename) {
-    if (!canvas) return;
-    const saveBlob = (blob) => {
-      if (typeof helpers.downloadBlob === "function") helpers.downloadBlob(blob, filename);
-    };
+    canvas.toBlob((blob) => {
+      if (blob) helpers.downloadBlob(blob, filename);
+    }, "image/png");
+  }
 
-    if (canvas.toBlob) {
-      canvas.toBlob((blob) => {
-        if (blob) saveBlob(blob);
-      }, "image/png");
-      return;
-    }
-    const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  // A file-name part: letters, digits, "_" and "-" only.
+  function safeFilePart(text) {
+    return String(text).replace(/[^a-zA-Z0-9_-]/g, "_");
   }
 
   function renderQrToCanvas(canvas, url) {
@@ -393,34 +384,33 @@
     const job = { canvas, url, drawn: false };
     ctx.qrQueue.push(job);
 
+    // Focus (without scrolling) and select the whole link.
     function selectUrl() {
-      try {
-        urlInput.focus({ preventScroll: true });
-      } catch (e) {
-        urlInput.focus();
+      if (document.activeElement !== urlInput) {
+        try {
+          urlInput.focus({ preventScroll: true });
+        } catch (e) {
+          urlInput.focus();
+        }
       }
-      urlInput.select();
       try {
+        urlInput.select();
         urlInput.setSelectionRange(0, urlInput.value.length);
-      } catch (e) {}
+      } catch (e) {
+        // ignore
+      }
     }
 
     urlInput.addEventListener("focus", selectUrl);
     urlInput.addEventListener("click", selectUrl);
 
     const wallet = ctx.getWallet();
-    const safeUserId = String((wallet && wallet.userId) || "user").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    );
+    const safeUserId = safeFilePart((wallet && wallet.userId) || "user");
 
     canvas.addEventListener("click", () => {
       if (!url || !job.drawn) return;
-      const safeCode = String(code.label || `+${code.amount}`)
-        .replace(/[^a-zA-Z0-9_-]/g, "_")
-        .slice(0, 20);
-      const filename = `db-wallet-${safeUserId}-action-${safeCode}.png`;
-      canvasToPngDownload(canvas, filename);
+      const safeCode = safeFilePart(code.label || `+${code.amount}`).slice(0, 20);
+      canvasToPngDownload(canvas, `db-wallet-${safeUserId}-action-${safeCode}.png`);
     });
 
     return { canvas, urlInput };
@@ -654,27 +644,27 @@
       : [];
   }
 
+  // options: container, getWallet, persistWallet(next), getBaseUrl (all
+  // required), panel (optional).
   function initActionCodesUi(options) {
-    const container = options && options.container;
-    if (!container) return { refresh: () => {} };
+    const o = options || {};
+    if (
+      !o.container ||
+      typeof o.getWallet !== "function" ||
+      typeof o.persistWallet !== "function" ||
+      typeof o.getBaseUrl !== "function"
+    ) {
+      return { refresh: () => {} };
+    }
 
     const ctx = {
-      container,
-      getWallet:
-        options && typeof options.getWallet === "function"
-          ? options.getWallet
-          : () => null,
-      persistWallet:
-        options && typeof options.persistWallet === "function"
-          ? options.persistWallet
-          : () => {},
-      getBaseUrl:
-        options && typeof options.getBaseUrl === "function"
-          ? options.getBaseUrl
-          : () => String(window.location.href || "").split("#")[0],
+      container: o.container,
+      getWallet: o.getWallet,
+      persistWallet: o.persistWallet,
+      getBaseUrl: o.getBaseUrl,
       // The <details> around the panel: QR cards are drawn while it is open.
       // Without one they are drawn at once.
-      panel: (options && options.panel) || null,
+      panel: o.panel || null,
       qrQueue: [],
       renderGen: 0,
       showTrimNotice: false,

@@ -61,3 +61,35 @@ test("the QR export keeps no copy of the link in sessionStorage", async () => {
   }
   assert.match(doc.getElementById("qr-url").value, /#i2:/);
 });
+
+test("both exports run the same preparation: device stamped, saved once", async () => {
+  const { makeStorage } = require("./harness");
+  const storage = makeStorage();
+  const w = await bootWalletPage({ hash: "max", storage, seed: seedTwo });
+  const lastSeen = () => {
+    const stored = JSON.parse(storage.getItem(w.dbWalletHelpers.STORAGE_PREFIX + "max"));
+    return stored.devices.find((d) => d.deviceKey === "devA").lastSeenAt;
+  };
+  let saves = 0;
+  const setItem = storage.setItem.bind(storage);
+  storage.setItem = (k, v) => {
+    if (k === w.dbWalletHelpers.STORAGE_PREFIX + "max") saves++;
+    return setItem(k, v);
+  };
+  const D = w._eval("Date");
+  const realNow = D.now;
+  const before = lastSeen();
+  D.now = () => before + 60000;
+  w.dbWalletHelpers.downloadBlob = () => true;
+  w.document.getElementById("btn-export-json").click();
+  assert.equal(lastSeen(), before + 60000);
+  assert.equal(saves, 1);
+  D.now = () => before + 120000;
+  w.document.getElementById("btn-export-link-qr").click();
+  for (let i = 0; i < 500 && !w.document.getElementById("qr-url").value; i++) {
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  assert.equal(lastSeen(), before + 120000);
+  assert.equal(saves, 2);
+  D.now = realNow;
+});

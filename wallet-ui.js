@@ -465,7 +465,8 @@
           qrUrlStatus: document.getElementById("qr-url-status"),
         },
         getWallet: () => wallet,
-        saveWallet: (w) => saveWallet(w),
+        prepareExport,
+        getBaseUrl,
         encodeImportV2Bytes,
         gzipCompress,
         base64UrlEncodeBytes,
@@ -473,16 +474,6 @@
         needsMigration,
         runMigrationDialog,
         getStoredTheme,
-        actionCodesUi,
-        touchLocalDevice: () => {
-          try {
-            if (typeof touchLocalDevice === "function") {
-              if (touchLocalDevice(wallet)) saveWallet(wallet);
-            }
-          } catch (e) {
-            // ignore
-          }
-        },
         downloadCurrentWalletBackup,
       });
     }
@@ -576,28 +567,33 @@
       return idx >= 0 ? href.slice(0, idx) : href;
     }
 
-    function exportJsonData() {
-      const theme = getStoredTheme();
+    // Before every export (QR link, JSON backup): settle the action codes
+    // and stamp this device's "last seen", saved once. The code panel
+    // follows when the codes changed.
+    function prepareExport() {
+      let codesChanged = false;
+      let deviceChanged = false;
       try {
         const actionApi = window.dbWalletActionCodes || null;
-        if (
-          actionApi &&
-          typeof actionApi.ensureWalletActionCodes === "function"
-        ) {
+        if (actionApi && typeof actionApi.ensureWalletActionCodes === "function") {
           const res = actionApi.ensureWalletActionCodes(wallet);
-          if (res && res.changed) saveWallet(wallet);
+          codesChanged = !!(res && res.changed);
         }
       } catch (e) {
         // ignore
       }
       try {
-        if (typeof touchLocalDevice === "function") {
-          if (touchLocalDevice(wallet)) saveWallet(wallet);
-        }
+        deviceChanged = touchLocalDevice(wallet) === true;
       } catch (e) {
         // ignore
       }
-      return storage.walletBackupData(wallet, theme);
+      if (codesChanged || deviceChanged) saveWallet(wallet);
+      if (codesChanged && actionCodesUi) actionCodesUi.refresh();
+    }
+
+    function exportJsonData() {
+      prepareExport();
+      return storage.walletBackupData(wallet, getStoredTheme());
     }
 
     async function switchToUser(nextUserId) {
