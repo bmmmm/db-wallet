@@ -439,6 +439,42 @@ test("index.html#i2:…: the 'open in wallet.html?' question uses the dialog", a
   assert.deepEqual(w._nav.pageLoads, [BASE + "wallet.html#i2:AAAA"]);
 });
 
+test("index.html#…: the question names the local wallet a link belongs to", async () => {
+  const storage = seedStorage({ max: 2 });
+  const src = makeEnv({ storage });
+  const H = src.dbWalletHelpers;
+  const max = src.dbWalletStorage.loadWallet("max");
+  const bytes = src.dbWalletImportV2.encodeImportV2Bytes(max, "");
+  const json = JSON.stringify({ walletId: max.walletId, userId: "max", events: [] });
+  const ac = JSON.stringify({ v: 1, walletId: max.walletId, codeId: "c1", key: "k" });
+  const links = [
+    ["i2u:" + H.base64UrlEncodeBytes(bytes), /^Import Link erkannt\.\n\nLokales Profil: "max"/],
+    ["i2:" + H.base64UrlEncodeBytes(await H.gzipCompress(bytes)), /Lokales Profil: "max"/],
+    ["import:" + H.base64UrlEncode(json), /Lokales Profil: "max"/],
+    ["ac:" + H.base64UrlEncode(ac), /^Action Code Link erkannt\.\n\nLokales Profil: "max"/],
+    ["ac:" + H.base64UrlEncode(ac.replace(max.walletId, "w-other")), /lokal nicht bekannt/],
+    // Cut off: no wallet id, the plain question (wallet.html reports the error).
+    ["i2u:" + H.base64UrlEncodeBytes(bytes.subarray(0, 12)), /^Import Link erkannt\.\n\nIn wallet\.html öffnen\?$/],
+  ];
+  for (const [hash, expected] of links) {
+    let shown;
+    const w = await bootIndex({
+      storage,
+      hash,
+      noWait: true,
+      beforeBoot: (w) => {
+        shown = fakeDialog(w).shown;
+      },
+    });
+    await settle();
+    await settle();
+    assert.equal(shown.length, 1, hash.slice(0, 8));
+    assert.match(shown[0], expected, hash.slice(0, 8));
+    $(w, "confirm-cancel").click();
+    await w._booted;
+  }
+});
+
 test("index.html#i2:…: 'Abbrechen' drops the link from the address bar", async () => {
   const w = await bootIndex({ hash: "i2:AAAA", noWait: true, beforeBoot: (w) => fakeDialog(w) });
   await settle();

@@ -6,8 +6,9 @@
   const themeApi = window.dbWalletTheme || null;
   const importPreview = window.dbWalletImportPreview || null;
   const hashRouter = window.dbWalletHashRouter || null;
+  const actionCodesApi = window.dbWalletActionCodes || null;
 
-  if (!helpers || !storage || !summaryApi || !importV2) {
+  if (!helpers || !storage || !summaryApi || !importV2 || !actionCodesApi) {
     return;
   }
 
@@ -259,19 +260,23 @@
     }, 0);
   }
 
-  async function tryParseWalletIdFromHash(hash) {
-    const raw = String(hash || "");
-    if (!raw) return "";
-
-    if (hashRouter && typeof hashRouter.parseWalletIdFromHash === "function") {
-      try {
-        return await hashRouter.parseWalletIdFromHash(raw);
-      } catch (e) {
-        return "";
+  // The wallet an import or ac: link belongs to, read by the decoders
+  // wallet.html imports with; "" when the link names none or is broken
+  // (wallet.html reports the error once the user opens it there).
+  async function walletIdOfLink(route) {
+    try {
+      let id = "";
+      if (route.kind === "localAction") {
+        const decoded = actionCodesApi.decodeActionHash(route.raw);
+        id = decoded ? decoded.walletId : "";
+      } else {
+        const parsed = await importV2.parseImportHashPayload(route.raw);
+        id = parsed && parsed.remote ? parsed.remote.walletId : "";
       }
+      return typeof id === "string" ? id : "";
+    } catch (e) {
+      return "";
     }
-
-    return "";
   }
 
   function classifyHashValue(raw) {
@@ -295,12 +300,7 @@
     }
     if (route.kind !== "import" && route.kind !== "localAction") return false;
 
-    let walletId = "";
-    try {
-      walletId = await tryParseWalletIdFromHash(route.raw);
-    } catch (e) {
-      walletId = "";
-    }
+    const walletId = await walletIdOfLink(route);
 
     const kind = route.kind === "localAction" ? "Action Code" : "Import";
     const knownUserId = walletId ? findUserIdByWalletId(walletId) : null;
