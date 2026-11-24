@@ -7,18 +7,14 @@
 
   let lastQrUrl = "";
 
-  const QR_SESSION_CACHE_PREFIX = "db-wallet:qr-session:";
-
   function getBaseUrl() {
     const href = String(window.location.href || "");
     const idx = href.indexOf("#");
     return idx >= 0 ? href.slice(0, idx) : href;
   }
 
-  // UI-only reset: hides/clears the rendered QR without touching the session
-  // cache. Used before a fresh render attempt so a valid cache entry survives
-  // long enough for loadCachedQrUrl() to read it.
-  function clearQrUi() {
+  // Hides and clears the rendered QR, its link and status.
+  function clearQr() {
     if (refs && refs.qrBox) refs.qrBox.style.display = "none";
     if (refs && refs.qrHint) refs.qrHint.textContent = "";
     if (refs && refs.qrCanvas) {
@@ -164,21 +160,6 @@
     }
   }
 
-  function invalidateQrCache() {
-    try {
-      if (typeof sessionStorage !== "undefined" && sessionStorage) {
-        sessionStorage.removeItem(qrSessionCacheKey());
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  function clearQr() {
-    clearQrUi();
-    invalidateQrCache();
-  }
-
   function clear() {
     if (!refs) return;
     setExportUrl("");
@@ -197,70 +178,6 @@
       refs.exportOptions.style.display === ""
     ) {
       refs.exportOptions.style.display = "inline-block";
-    }
-  }
-
-  function qrSessionCacheKey() {
-    const wallet = opts && opts.getWallet ? opts.getWallet() : null;
-    const id =
-      wallet && typeof wallet.walletId === "string"
-        ? wallet.walletId
-        : wallet && typeof wallet.userId === "string"
-          ? wallet.userId
-          : "unknown";
-    return QR_SESSION_CACHE_PREFIX + id;
-  }
-
-  function getQrSessionFingerprint() {
-    const wallet = opts && opts.getWallet ? opts.getWallet() : null;
-    let updated = 0;
-    try {
-      const reg = opts.loadRegistry ? opts.loadRegistry() : null;
-      const entry =
-        reg &&
-        wallet &&
-        typeof wallet.userId === "string" &&
-        reg[wallet.userId];
-      if (
-        entry &&
-        typeof entry.lastUpdated === "number" &&
-        Number.isFinite(entry.lastUpdated)
-      ) {
-        updated = entry.lastUpdated;
-      }
-    } catch (e) {
-      // ignore
-    }
-    const theme = opts.getStoredTheme ? opts.getStoredTheme() || "" : "";
-    const walletId = wallet && typeof wallet.walletId === "string" ? wallet.walletId : "";
-    const v = wallet && typeof wallet.v === "number" ? wallet.v : 1;
-    return `${walletId}|${v}|${updated}|${theme}`;
-  }
-
-  function loadCachedQrUrl() {
-    try {
-      if (typeof sessionStorage === "undefined" || !sessionStorage) return "";
-      const raw = sessionStorage.getItem(qrSessionCacheKey());
-      if (!raw) return "";
-      const obj = opts.safeParse ? opts.safeParse(raw) : null;
-      if (!obj || typeof obj !== "object") return "";
-      if (obj.f !== getQrSessionFingerprint()) return "";
-      return typeof obj.url === "string" ? obj.url : "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  function storeCachedQrUrl(url) {
-    if (!url) return;
-    try {
-      if (typeof sessionStorage === "undefined" || !sessionStorage) return;
-      sessionStorage.setItem(
-        qrSessionCacheKey(),
-        JSON.stringify({ f: getQrSessionFingerprint(), url }),
-      );
-    } catch (e) {
-      // ignore
     }
   }
 
@@ -349,7 +266,6 @@
       refs.qrHint.textContent = `QR antippen = als PNG speichern • QR v${qr.version} (L) • ${url.length} Zeichen`;
     }
     lastQrUrl = url;
-    storeCachedQrUrl(url);
     if (refs.qrUrl) {
       refs.qrUrl.value = url;
       selectQrUrl();
@@ -451,22 +367,13 @@
   }
 
   async function showQrExport() {
-    clearQrUi();
+    clearQr();
     // qrcodegen.js loads on first use (P5.6). A failed load leaves the
     // library missing; drawExportQr then reports it below.
     try {
       await helpers.loadQrLibrary();
     } catch (e) {
       // handled by the "QR library missing" path
-    }
-    const cached = loadCachedQrUrl();
-    if (cached) {
-      try {
-        renderQrCode(cached);
-        return;
-      } catch (e) {
-        clearQr();
-      }
     }
     let attempts = 0;
     while (attempts < 2) {

@@ -30,12 +30,7 @@
   const hashRouter = window.dbWalletHashRouter || null;
   if (!helpers || !storage || !importV2 || !summaryApi) return;
 
-  const {
-    base64UrlEncodeBytes,
-    gzipCompress,
-    loadRegistry,
-    safeParse,
-  } = helpers;
+  const { base64UrlEncodeBytes, gzipCompress } = helpers;
 
   const {
     ensureNonReservedUserId,
@@ -477,8 +472,6 @@
         todayDateStr,
         needsMigration,
         runMigrationDialog,
-        loadRegistry,
-        safeParse,
         getStoredTheme,
         actionCodesUi,
         touchLocalDevice: () => {

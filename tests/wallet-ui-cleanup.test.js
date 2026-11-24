@@ -38,3 +38,26 @@ test("Raw-Log shows the open wallet only", async () => {
   w.document.getElementById("btn-drink").click();
   assert.equal(JSON.parse(w.document.getElementById("history").textContent).events.length, 2);
 });
+
+test("the QR export keeps no copy of the link in sessionStorage", async () => {
+  const w = await bootWalletPage({ hash: "max", seed: seedTwo });
+  const doc = w.document;
+  doc.getElementById("btn-export").click();
+  doc.getElementById("btn-export-link-qr").click();
+  for (let i = 0; i < 500 && !doc.getElementById("qr-url").value; i++) {
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  const url = doc.getElementById("qr-url").value;
+  assert.match(url, /#i2:/);
+  const ss = w.sessionStorage;
+  for (let i = 0; i < ss.length; i++) {
+    assert.doesNotMatch(String(ss.getItem(ss.key(i))), /#i2/, ss.key(i));
+  }
+  // A second click builds the link again (fresh device "last seen").
+  doc.getElementById("btn-export-link-qr").click();
+  assert.equal(doc.getElementById("qr-url").value, "", "cleared while building");
+  for (let i = 0; i < 500 && !doc.getElementById("qr-url").value; i++) {
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  assert.match(doc.getElementById("qr-url").value, /#i2:/);
+});
