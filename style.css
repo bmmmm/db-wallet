@@ -15,18 +15,20 @@
         "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas,
         "Liberation Mono", "Courier New", monospace;
     color: var(--text);
-    background:
+    /* Two soft highlights in the theme's accent. Without color-mix() support
+       only the image is dropped, the colour stays. */
+    background-color: var(--bg);
+    background-image:
         radial-gradient(
             circle at 18% 15%,
-            rgba(158, 197, 255, 0.1),
+            color-mix(in srgb, var(--accent) 10%, transparent),
             transparent 35%
         ),
         radial-gradient(
             circle at 80% 0%,
-            rgba(127, 184, 255, 0.14),
+            color-mix(in srgb, var(--accent) 14%, transparent),
             transparent 35%
-        ),
-        var(--bg);
+        );
 }
 
 body {

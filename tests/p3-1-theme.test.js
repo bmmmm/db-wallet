@@ -118,6 +118,27 @@ test("style.css: the focus ring of a clipped <details> summary is drawn inside",
   }
 });
 
+// The page background follows the theme: the two radial highlights are
+// mixed from --accent (no fixed blue from the old theme on every theme).
+// color-mix() sits only in background-image, so a browser without it drops
+// the highlights, not the --bg colour.
+test("style.css: the page background is tinted by the theme, never a fixed colour", () => {
+  const root = cssRules(STYLE_CSS).find((r) => r.selectors.length === 1 && r.selectors[0] === ":root");
+  assert.ok(root, ":root rule missing");
+  assert.match(root.body, /(^|;)\s*background-color:\s*var\(--bg\)\s*;/);
+  assert.doesNotMatch(root.body, /(^|;)\s*background\s*:/, "no background shorthand on :root");
+  const image = /(^|;)\s*background-image:([^;]*);/.exec(root.body);
+  assert.ok(image, "background-image missing");
+  assert.doesNotMatch(image[2], /rgba?\(|#[0-9a-f]{3,8}\b/i, "fixed colour in the background");
+  assert.match(image[2], /radial-gradient/);
+  assert.match(image[2], /color-mix\(in srgb, var\(--accent\)/);
+  for (const r of cssRules(STYLE_CSS)) {
+    for (const d of r.body.split(";")) {
+      if (d.includes("color-mix(")) assert.match(d, /^\s*background-image\s*:/, r.selectors.join(", "));
+    }
+  }
+});
+
 // --- theme.js in a vm ------------------------------------------------------
 
 function loadThemeJs({ light = false, stored = null } = {}) {
