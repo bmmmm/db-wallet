@@ -269,6 +269,8 @@
     return Math.floor(ts / 60000);
   }
 
+  // The chain root of an event: an edit replacement carries supersedes=<root>,
+  // an un-edited event is its own root (dbWalletSummary.rootIdOf is this).
   function eventRootId(e) {
     if (e && typeof e.supersedes === "string" && e.supersedes) return e.supersedes;
     return e && typeof e.id === "string" ? e.id : "";
@@ -762,6 +764,7 @@
     formatCompactEventId,
     cmpStr,
     cmpEventId,
+    eventRootId,
     compareEventsByTime,
     compareEdits,
     editOrderOf,

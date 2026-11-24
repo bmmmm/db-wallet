@@ -64,7 +64,7 @@
     const sorted = wallet.events.slice().sort(helpers.compareEventsByTime);
     const live = summaryApi
       .applyTombstones(sorted)
-      .effectiveEvents.some((e) => e && summaryApi.rootIdOf(e) === eventId);
+      .effectiveEvents.some((e) => e && helpers.eventRootId(e) === eventId);
     if (!live) {
       notify(ctx, "Diese Buchung ist schon entfernt.");
       return false;
@@ -103,7 +103,7 @@
   // behind would keep the pay alive.
   function reopenedByRemoving(wallet, rootId) {
     const without = {
-      events: wallet.events.filter((e) => e && summaryApi.rootIdOf(e) !== rootId),
+      events: wallet.events.filter((e) => e && helpers.eventRootId(e) !== rootId),
     };
     return (
       summaryApi.computeSummarySafe(without).unpaid -
@@ -118,7 +118,7 @@
     return (
       summaryApi
         .applyTombstones(sorted)
-        .effectiveEvents.find((e) => e && summaryApi.rootIdOf(e) === rootId) || null
+        .effectiveEvents.find((e) => e && helpers.eventRootId(e) === rootId) || null
     );
   }
 
@@ -449,7 +449,7 @@
     if (newTs !== target.ts) {
       const movedSameAmount = {
         events: wallet.events
-          .filter((e) => e && summaryApi.rootIdOf(e) !== rootId)
+          .filter((e) => e && helpers.eventRootId(e) !== rootId)
           .concat([
             {
               id: target.id + ".edit-probe",

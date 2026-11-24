@@ -139,3 +139,18 @@ test("undoLastEvent: tombstone, null, or { status: 'failed' } with the append ro
   assert.equal(stored.events.length, 2);
   assert.equal(w.dbWalletSummary.computeSummarySafe(stored).total, 0);
 });
+
+test("perDay carries drinks only; the diagram's [count] is the net drinks, also after an 's'", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const Sum = w.dbWalletSummary;
+  const ts = new Date("2024-03-01T10:00:00").getTime();
+  const s = Sum.computeSummary({
+    events: [
+      { id: "dev.1", t: "d", n: 3, ts },
+      { id: "dev.2", t: "s", n: 2, ts: ts + 60000 },
+      { id: "dev.3", t: "p", ts: ts + 120000 },
+    ],
+  });
+  assert.deepEqual(plain(s.perDay), [{ date: "2024-03-01", drinks: 1, paid: true }]);
+  assert.deepEqual(plain(Sum.formatPerDayDiagram(s.perDay)), ["2024-03-01 [1] 💰 | #"]);
+});

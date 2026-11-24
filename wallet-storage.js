@@ -340,7 +340,7 @@
 
     // Tombstone the entry's ROOT so undoing an edited entry removes the whole
     // logical entry (all its replacements), not just the visible replacement.
-    return { type: "undo", id: summaryApi.rootIdOf(target), event: target, afterDeletion };
+    return { type: "undo", id: helpers.eventRootId(target), event: target, afterDeletion };
   }
 
   // Appends the undo tombstone and saves (appendEvents). Returns the tombstone,
