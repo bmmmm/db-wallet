@@ -217,3 +217,24 @@ test("decode: codec 3 without ck is truncated; a broken extension block throws",
     assert.equal(decoded._extWarning, undefined);
   }
 });
+
+// An ac: link for a wallet this device doesn't have: declining "zur Startseite
+// wechseln?" drops the link like every other declined question, so a reload
+// doesn't ask again.
+test("declining the ac: question without an open wallet removes the link", async () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const asked = [];
+  w.confirm = (m) => {
+    asked.push(m);
+    return false;
+  };
+  const H = w.dbWalletHelpers;
+  const payload = { v: 1, walletId: "AAAAAAAAAAAAAAAA", codeId: "c1", key: "k" };
+  const res = await importHash(w, "ac:" + H.base64UrlEncode(JSON.stringify(payload)));
+  assert.equal(asked.length, 1);
+  assert.match(asked[0], /noch nicht vorhanden/);
+  assert.deepEqual(plain(res), { userId: null, redirectedToPreview: false });
+  assert.equal(w.location.hash, "");
+  assert.ok(!w._nav.entries.some((u) => u.includes("#ac:")), w._nav.entries.join(" "));
+  assert.deepEqual(w._nav.pageLoads, []);
+});

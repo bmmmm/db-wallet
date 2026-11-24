@@ -1663,13 +1663,12 @@
         "Dieses Wallet ist auf diesem Gerät noch nicht vorhanden.\nVor dem Buchen muss es importiert werden.\nJetzt zur Startseite wechseln?",
       );
       if (!shouldGoHome) {
-        if (activeUserId) {
-          replaceHash(activeUserId);
-          return {
-            done: { userId: activeUserId, redirectedToPreview: false },
-          };
-        }
-        return { done: { userId: null, redirectedToPreview: false } };
+        // Drop the declined link (back to the open wallet, or no hash), so a
+        // reload doesn't ask again.
+        replaceHash(activeUserId);
+        return {
+          done: { userId: activeUserId || null, redirectedToPreview: false },
+        };
       }
       window.location.href = "index.html";
       return { done: { userId: null, redirectedToPreview: true } };
