@@ -30,8 +30,6 @@
     normalizeUserId,
   } = helpers;
 
-  // Point the URL at `userId` (or drop the fragment for "") without a history
-  // entry or a hashchange (P2.1): the caller routes exactly once itself.
   // Import failures carry a machine-readable `code` (P2.3); tryImportFromHash
   // maps it through IMPORT_ERROR_MESSAGES instead of matching message text.
   function importError(code, message) {
@@ -76,6 +74,8 @@
       : "";
   }
 
+  // Point the URL at `userId` (or drop the fragment for "") without a history
+  // entry or a hashchange (P2.1): the caller routes exactly once itself.
   function replaceHash(userId) {
     const target = String(userId || "");
     if (helpers.replaceHashSilently && helpers.replaceHashSilently(target)) return;
@@ -941,11 +941,11 @@
     }
 
     // optional extension: tombstones ("xt", v2 — P5.5)
-    // Encoded FIRST among the extension blocks: blocks have no length prefix, so a
-    // forward-compat version bump or a corrupt byte in a later block (ac/sp/dv)
-    // stops the parse where it is. Putting tombstones first means that truncation
-    // can't drop them — and a dropped tombstone resurrects a deleted event, the
-    // worst failure mode of the lot.
+    // Encoded FIRST among the extension blocks: blocks have no length prefix, so
+    // an unknown block or block version (a newer app's export) stops the parse
+    // where it is, and tombstones in front are never lost that way — a dropped
+    // tombstone resurrects a deleted event, the worst failure mode of the lot.
+    // (A cut or corrupt block refuses the whole payload, see decodeV2Extensions.)
     // v2 writes them in canonical order: the minute as a running delta (the
     // first one absolute; minute resolution like the events), then id and ref
     // as device index + seq (writeIdRef) — about 6 bytes instead of about 34.
@@ -1032,12 +1032,12 @@
     }
 
     // optional extension: supersedes links ("se", v1) — maps an edit-replacement
-    // id to its chain root. Written LAST among the extension blocks: blocks have
-    // no length prefix, so an OLD decoder that doesn't know "se" breaks here,
-    // AFTER it has already parsed xt/ac/sp/dv. Losing supersedes only reverts
-    // that old client to the pre-merge-safe edit behavior (it can't converge
-    // concurrent edits, but it already couldn't); a new decoder reads the links
-    // and collapses concurrent edits deterministically.
+    // id to its chain root. Written after xt/ac/sp/dv (gc, dc and ck follow):
+    // blocks have no length prefix, so an OLD decoder that doesn't know "se"
+    // breaks here, AFTER it has already parsed xt/ac/sp/dv. Losing supersedes
+    // only reverts that old client to the pre-merge-safe edit behavior (it can't
+    // converge concurrent edits, but it already couldn't); a new decoder reads
+    // the links and collapses concurrent edits deterministically.
     const superseded = events.filter((e) => e.supersedes);
     if (superseded.length) {
       out.push(115, 101); // "se"
@@ -1105,10 +1105,11 @@
 
     // optional extension: integrity checksum ("ck", v1) — fnv1a64 truncated to
     // 32 bits over every preceding byte. Written ABSOLUTELY LAST so it covers all
-    // other blocks. Hardens the uncompressed i2u: and legacy import: paths that
-    // gzip's CRC doesn't cover: a corrupt byte flips the checksum and the decoder
-    // rejects instead of silently importing wrong data. Old decoders stop at this
-    // unknown block without verifying (graceful).
+    // other blocks. Hardens the uncompressed i2u: path, which gzip's CRC doesn't
+    // cover (import: links are JSON and never carry it): a corrupt byte flips the
+    // checksum and the decoder rejects instead of silently importing wrong data;
+    // codec 3 requires the trailer, so a cut-off link is refused too. Old
+    // decoders stop at this unknown block without verifying (graceful).
     const sum = Number(helpers.fnv1a64(out) & 0xffffffffn);
     out.push(99, 107); // "ck"
     writeVarUint(1, out);
@@ -1436,9 +1437,6 @@
     return userId;
   }
 
-  // Decodes a wallet import hash into a typed payload object, or null if
-  // the hash is not a recognized import format. Async because "i2:" requires
-  // gzip decompression.
   function decodeTokenBytes(token) {
     try {
       return base64UrlDecodeBytes(token);
@@ -1455,6 +1453,9 @@
     }
   }
 
+  // Decodes a wallet import hash into a typed payload object, or null if
+  // the hash is not a recognized import format. Async because "i2:" requires
+  // gzip decompression.
   async function parseImportHashPayload(hash) {
     if (hash.startsWith("i2u:")) {
       const raw = decodeTokenBytes(hash.slice(4));
