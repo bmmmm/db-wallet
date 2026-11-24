@@ -604,8 +604,9 @@
   // Surface persistent storage failures (quota exceeded / disabled storage in
   // private mode) instead of going silent after the first alert. Sets an
   // observable body flag and a persistent banner; cleared on the next good write.
+  // A banner already shown takes the newest failure's text: after "Speicher
+  // voll" a reset in another tab needs "neu laden", not more space.
   function markStorageFailed(failed, message) {
-    if (failed && storageFailedActive) return;
     if (!failed && !storageFailedActive) return;
     storageFailedActive = !!failed;
     try {

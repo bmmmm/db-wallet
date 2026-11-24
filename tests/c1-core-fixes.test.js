@@ -85,3 +85,35 @@ test("an emptied label on a local edit gets the type's default, like create and 
   const global = AC.createActionCode(wallet, { scope: "global", type: "d", amount: "5", label: "" });
   assert.equal(global.code.label, "Drink +5");
 });
+
+test("the storage banner follows the latest failure: full storage, then a reset elsewhere", () => {
+  const banner = { text: null };
+  const messages = {
+    showGlobal: (m, o) => {
+      if (o && o.id === "storage-error-banner") banner.text = String(m);
+    },
+    clearGlobal: (o) => {
+      if (o && o.id === "storage-error-banner") banner.text = null;
+    },
+  };
+  const w = makeEnv({ deviceKey: "devA", globals: { dbWalletMessages: messages } });
+  const S = w.dbWalletStorage;
+  book(w, "anna", "d", 1, Date.now() - DAY);
+  const wallet = S.loadWallet("anna");
+  w.localStorage.quota = 10;
+  assert.equal(S.appendEvents(wallet, [S.newEvent(wallet, "d", 1)]), false);
+  assert.match(banner.text, /Speicher voll/);
+  w.localStorage.quota = Infinity;
+  // Another tab reset the wallet meanwhile: a new walletId in the store.
+  const stored = JSON.parse(w.localStorage.getItem("db-wallet:anna"));
+  stored.walletId = "BBBBBBBBBBBBBBBB";
+  stored.events = [];
+  w.localStorage.setItem("db-wallet:anna", JSON.stringify(stored));
+  assert.equal(S.appendEvents(wallet, [S.newEvent(wallet, "d", 1)]), false);
+  assert.equal(S.getLastSaveError(), "replaced");
+  assert.match(banner.text, /in einem anderen Tab zurückgesetzt/);
+  // A good save clears it.
+  const fresh = S.loadWallet("anna");
+  assert.equal(S.appendEvents(fresh, [S.newEvent(fresh, "d", 1)]), true);
+  assert.equal(banner.text, null);
+});
