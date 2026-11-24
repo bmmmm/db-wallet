@@ -514,7 +514,7 @@ test("storage: walletBackupData is the shape wallet.html exports", () => {
   x.deletedActionCodes = {};
   const data = plain(S.walletBackupData(x, "Paper Mint"));
   assert.deepEqual(Object.keys(data), [
-    "userId", "walletId", "deviceId", "v", "seq", "events", "actionCodes",
+    "userId", "walletId", "v", "seq", "events", "actionCodes",
     "globalActionCodes", "deletedActionCodes", "devices", "theme",
   ]);
   assert.equal(data.theme, "Paper Mint");

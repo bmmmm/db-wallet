@@ -1,13 +1,17 @@
 (function () {
-  // Date formatting + string/event comparators live in wallet-helpers.js (loaded
-  // first) so summary/storage/import share one source of truth. Access them via
-  // window.dbWalletHelpers, matching the module's existing dependency pattern.
+  // Date formatting, the event comparators and the chain root live in
+  // wallet-helpers.js (loaded first on every page, preview.html too) so
+  // summary/storage/import share one source of truth. This file must run
+  // without wallet-storage.js (preview.html does not load it).
+  const helpers = window.dbWalletHelpers || null;
+  if (!helpers) return;
+
   function todayDateStr() {
-    return window.dbWalletHelpers.formatDate(Date.now());
+    return helpers.formatDate(Date.now());
   }
 
   function dateStrFromTimestamp(ts) {
-    return window.dbWalletHelpers.formatDate(ts);
+    return helpers.formatDate(ts);
   }
 
   let computeSummarySafeLogged = false;
@@ -15,21 +19,14 @@
   // The chain root of an event: an edit replacement carries supersedes=<rootId>,
   // so all replacements of one logical entry share a root. An un-edited event is
   // its own root.
-  function rootIdOf(e) {
-    if (e && typeof e.supersedes === "string" && e.supersedes) {
-      return e.supersedes;
-    }
-    return e && typeof e.id === "string" ? e.id : "";
+  const rootIdOf = helpers.eventRootId;
+
+  // The count of a d/s/g event: a whole number, at least 1.
+  function countOf(e) {
+    return typeof e.n === "number" && isFinite(e.n) ? Math.max(1, Math.round(e.n)) : 1;
   }
 
   function applyTombstones(events) {
-    const helpers = window.dbWalletHelpers || null;
-    const cmp =
-      helpers && typeof helpers.compareEventsByTime === "function"
-        ? helpers.compareEventsByTime
-        : null;
-    const editCmp =
-      helpers && typeof helpers.compareEdits === "function" ? helpers.compareEdits : null;
     const list = Array.isArray(events) ? events : [];
 
     const tombstones = [];
@@ -91,14 +88,7 @@
       const pool = reps.length ? reps : members;
       let winner = pool[0];
       for (let i = 1; i < pool.length; i++) {
-        const better = editCmp
-          ? editCmp(pool[i], winner) > 0
-          : cmp
-            ? cmp(pool[i], winner) > 0
-            : (pool[i].ts || 0) > (winner.ts || 0) ||
-              ((pool[i].ts || 0) === (winner.ts || 0) &&
-                String(pool[i].id) > String(winner.id));
-        if (better) winner = pool[i];
+        if (helpers.compareEdits(pool[i], winner) > 0) winner = pool[i];
       }
       winnerByRoot.set(root, winner);
     }
@@ -186,8 +176,9 @@
     };
   }
 
-  // Also returns the sorted events.
-  // Extension: now also supports credits ("g").
+  // Folds the events in canonical order (helpers.compareEventsByTime) after
+  // applyTombstones; returns the totals, the per-day drinks and the visible
+  // and effective events in that order.
   // Balance logic:
   //  - "d" (drink)    => balance += n
   //  - "s" (subtract) => balance -= n
@@ -197,7 +188,6 @@
   //  - unpaid  = max(balance, 0)       (open drinks)
   //  - credit  = max(-balance, 0)      (remaining credit in drinks)
   function computeSummary(wallet) {
-    const helpers = window.dbWalletHelpers || null;
     const eventsSorted = wallet.events.slice().sort(helpers.compareEventsByTime);
     const tombstoneRes = applyTombstones(eventsSorted);
     const eventsEffective = tombstoneRes.effectiveEvents;
@@ -213,20 +203,15 @@
         perDayMap.set(key, {
           date: key,
           drinks: 0,
-          drinkCount: 0,
           paid: false,
         });
       }
       const day = perDayMap.get(key);
 
       if (e.t === "d") {
-        const n =
-          typeof e.n === "number" && isFinite(e.n)
-            ? Math.max(1, Math.round(e.n))
-            : 1;
+        const n = countOf(e);
         total += n;
         day.drinks += n;
-        day.drinkCount += n;
         balance += n;
       } else if (e.t === "s") {
         // 's' (subtract) is import/legacy only — the action layer never produces
@@ -238,17 +223,10 @@
         // than are open cannot create Guthaben); from an already-negative balance
         // it holds at that prior credit (an 's' never deepens credit). Symmetric
         // counterpart to the `total < 0` clamp below.
-        const n =
-          typeof e.n === "number" && isFinite(e.n)
-            ? Math.max(1, Math.round(e.n))
-            : 1;
+        const n = countOf(e);
         const balanceBefore = balance;
         total -= n;
         day.drinks -= n;
-        // Keep drinkCount (the bracketed label) net so it agrees with the bar,
-        // which is drawn from day.drinks; otherwise an undone day shows e.g. "[3]"
-        // with a shorter/empty bar.
-        day.drinkCount -= n;
         balance -= n;
         const balanceFloor = Math.min(balanceBefore, 0);
         if (balance < balanceFloor) balance = balanceFloor;
@@ -261,10 +239,7 @@
           balance = 0;
         }
       } else if (e.t === "g") {
-        const n =
-          typeof e.n === "number" && isFinite(e.n)
-            ? Math.max(1, Math.round(e.n))
-            : 1;
+        const n = countOf(e);
         // Gutschriften offset the balance (credit) but deliberately do NOT touch
         // total or the per-day drink count — credit is not drink consumption.
         // Do not "symmetrize" the d/s/g branches: that would double-count.
@@ -274,7 +249,6 @@
 
     for (const d of perDayMap.values()) {
       if (d.drinks < 0) d.drinks = 0;
-      if (d.drinkCount < 0) d.drinkCount = 0;
     }
     if (total < 0) total = 0;
 
@@ -305,19 +279,6 @@
       wallet.v > 0
         ? wallet.v
         : 1;
-    let didLog = false;
-
-    function logOnce(err, label) {
-      if (didLog || computeSummarySafeLogged) return;
-      didLog = true;
-      computeSummarySafeLogged = true;
-      console.error(
-        "dbWalletSummary.computeSummarySafe failed, falling back.",
-        label || "",
-        err,
-      );
-    }
-
     try {
       const normalized = normalizeWalletForSummary(wallet);
       const base = computeSummary({ events: normalized.events });
@@ -332,29 +293,13 @@
         eventsEffectiveSorted: base.eventsEffectiveSorted,
       };
     } catch (e) {
-      logOnce(e, "normalize");
-    }
-
-    try {
-      if (wallet && Array.isArray(wallet.events)) {
-        const base = computeSummary(wallet);
-        return {
-          userId,
-          v,
-          total: base.total,
-          unpaid: base.unpaid,
-          credit: base.credit,
-          perDay: base.perDay,
-          eventsSorted: base.eventsSorted,
-          eventsEffectiveSorted: base.eventsEffectiveSorted,
-        };
+      // Zeros, logged once per page. A second pass over the raw events
+      // cannot succeed where the clean ones failed (normalizeWalletForSummary
+      // itself never throws).
+      if (!computeSummarySafeLogged) {
+        computeSummarySafeLogged = true;
+        console.error("dbWalletSummary.computeSummarySafe failed, falling back to zeros.", e);
       }
-    } catch (e) {
-      logOnce(e, "legacy");
-    }
-
-    if (!didLog) {
-      logOnce(new Error("summary fallback to zeros"), "empty");
     }
 
     return {
@@ -372,42 +317,35 @@
   // "2026-11-17 12:03 · 2 Getränke": one visible entry, for the history rows
   // and the confirm dialogs (P4.4).
   function formatEntryText(e) {
-    const n =
-      typeof e.n === "number" && isFinite(e.n)
-        ? Math.max(1, Math.round(e.n))
-        : 1;
+    const n = countOf(e);
     let what;
     if (e.t === "p") what = "Bezahlung";
     else if (e.t === "g") what = `Guthaben +${n}`;
     else if (e.t === "s") what = `${n} zurückgenommen`;
     else what = `${n} ${n === 1 ? "Getränk" : "Getränke"}`;
-    return `${window.dbWalletHelpers.formatDateTime(e.ts)} · ${what}`;
+    return `${helpers.formatDateTime(e.ts)} · ${what}`;
   }
 
-  // Renders the per-day diagram lines. FROZEN contract: returns an ARRAY of line
-  // strings, one per input entry, in the SAME order as `perDay` (no reversing —
-  // the caller decides display order). Logic is byte-identical to the historic
-  // inline blocks in wallet-history-ui.js and import-preview.js so every consumer
-  // stays in sync.
+  // The per-day diagram lines ("<date> [<drinks>]<💰> | ###", the bar capped
+  // at 50): an ARRAY of strings, one per entry of `perDay` in the same order
+  // (the caller decides the display order). wallet-history-ui.js and
+  // import-preview.js both render through this.
   function formatPerDayDiagram(perDay) {
     const list = Array.isArray(perDay) ? perDay : [];
     return list.map((d) => {
-      const drinkCount =
-        typeof d.drinkCount === "number" && Number.isFinite(d.drinkCount)
-          ? d.drinkCount
-          : typeof d.drinks === "number" && Number.isFinite(d.drinks)
-            ? Math.max(0, Math.round(d.drinks))
-            : 0;
-      const bar = "#".repeat(Math.max(0, Math.min(d.drinks, 50)));
+      const drinks =
+        typeof d.drinks === "number" && Number.isFinite(d.drinks)
+          ? Math.max(0, Math.round(d.drinks))
+          : 0;
+      const bar = "#".repeat(Math.min(drinks, 50));
       const paidMark = d.paid ? " 💰" : "";
-      return `${d.date} [${drinkCount}]${paidMark} | ${bar}`;
+      return `${d.date} [${drinks}]${paidMark} | ${bar}`;
     });
   }
 
   window.dbWalletSummary = {
     todayDateStr,
     dateStrFromTimestamp,
-    normalizeWalletForSummary,
     rootIdOf,
     applyTombstones,
     computeSummary,

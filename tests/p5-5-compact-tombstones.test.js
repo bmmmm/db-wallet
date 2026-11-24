@@ -237,8 +237,7 @@ function book(w, userId, type, n) {
 function remove(w, userId, rootId) {
   const S = w.dbWalletStorage;
   const wallet = S.loadWallet(userId);
-  assert.ok(S.appendTombstone(wallet, rootId));
-  assert.equal(S.saveWallet(wallet), true);
+  assert.equal(S.appendEvents(wallet, [S.buildTombstoneEvent(wallet, rootId)]), true);
 }
 
 test("two devices delete on both sides and converge; a round trip re-mints nothing", () => {

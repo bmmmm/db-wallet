@@ -12,6 +12,9 @@
     safeParse,
     safeLocalStorageGetItem,
     safeLocalStorageSetItem,
+    cmpStr,
+    formatCompactEventId,
+    isReservedHashPrefix,
   } = helpers;
 
   const themeApi = window.dbWalletTheme || null;
@@ -32,12 +35,7 @@
 
   function isValidUserId(userId) {
     const raw = typeof userId === "string" ? userId.trim() : "";
-    if (!raw) return false;
-    const router = window.dbWalletHashRouter || null;
-    if (router && typeof router.isReservedHashPrefix === "function") {
-      if (router.isReservedHashPrefix(raw)) return false;
-    }
-    return true;
+    return !!raw && !isReservedHashPrefix(raw);
   }
 
   function userIdExists(userId) {
@@ -60,7 +58,7 @@
     if (!raw) {
       return makeUniqueUserId("user-" + randomId());
     }
-    if (helpers.isReservedHashPrefix(raw)) {
+    if (isReservedHashPrefix(raw)) {
       return makeUniqueUserId("user-" + raw);
     }
     if (!isReservedStorageKey(STORAGE_PREFIX + raw)) {
@@ -135,7 +133,7 @@
 
     const items = Array.from(byKey.values()).sort((a, b) => {
       if (a.lastSeenAt !== b.lastSeenAt) return b.lastSeenAt - a.lastSeenAt;
-      return a.deviceKey.localeCompare(b.deviceKey);
+      return cmpStr(a.deviceKey, b.deviceKey);
     });
 
     // Deterministic symbol de-duplication:
@@ -244,18 +242,6 @@
     return maxSeq;
   }
 
-  // Highest event ts currently in the log (0 when none). Used to stamp locally
-  // built tombstones strictly after the newest event so they always sort last.
-  function maxEventTs(wallet) {
-    let maxTs = 0;
-    for (const e of (wallet && wallet.events) || []) {
-      if (e && typeof e.ts === "number" && Number.isFinite(e.ts) && e.ts > maxTs) {
-        maxTs = e.ts;
-      }
-    }
-    return maxTs;
-  }
-
   function ensureDeviceSeq(wallet) {
     if (!wallet || typeof wallet !== "object") return;
     const deviceKey = getDeviceKey();
@@ -275,32 +261,18 @@
     }
   }
 
-  function buildTombstoneEvent(wallet, refId, ts) {
+  // The tombstone of a delete/undo: `refId` is the entry's root id. Its ts
+  // counts nowhere (P5.5: the fold ignores the order of tombstones, undo
+  // finds the newest own event by seq), so it is simply now.
+  function buildTombstoneEvent(wallet, refId) {
     const ref = typeof refId === "string" ? refId.trim() : "";
     if (!ref) return null;
-    // With an explicit ts (e.g. a decoded remote tombstone keeping its wire ts)
-    // honor it verbatim. Otherwise default to strictly after the newest event so
-    // locally built delete/undo tombstones always sort last, even against future-
-    // dated entries or a backward-skewed clock. Callers no longer scan for this.
-    const stamp =
-      typeof ts === "number" && Number.isFinite(ts)
-        ? Math.floor(ts)
-        : Math.max(Date.now(), maxEventTs(wallet) + 1);
     return {
       id: nextEventId(wallet),
       t: "x",
       ref,
-      ts: stamp,
+      ts: Date.now(),
     };
-  }
-
-  function appendTombstone(wallet, refId, ts) {
-    if (!wallet || typeof wallet !== "object") return null;
-    if (!Array.isArray(wallet.events)) wallet.events = [];
-    const ev = buildTombstoneEvent(wallet, refId, ts);
-    if (!ev) return null;
-    wallet.events.push(ev);
-    return ev;
   }
 
   // This device's newest event: the one with the highest seq on its deviceKey
@@ -322,7 +294,8 @@
   // Pure resolution of what an undo would act on — shared by undoLastEvent and
   // the UI's pre-undo confirm so the confirm always matches the actual outcome.
   // Returns { type: "undo", id, event, afterDeletion } or null if nothing to
-  // undo. Undo is MONOTONIC (it removes the last effective entry); it never
+  // undo: `event` is the newest visible entry, `id` its ROOT id (what the
+  // tombstone refs, so the whole edit chain goes). Undo is MONOTONIC (it removes the last effective entry); it never
   // neutralizes its own trailing tombstone, otherwise repeated presses would
   // ping-pong the last entry instead of walking back through the log. The
   // afterDeletion flag lets the UI confirm when the previous action was a delete
@@ -333,16 +306,10 @@
     if (!events.length) return null;
 
     const sorted = events.slice().sort(helpers.compareEventsByTime);
-    const summaryApi = window.dbWalletSummary || null;
-    const tomb =
-      summaryApi && typeof summaryApi.applyTombstones === "function"
-        ? summaryApi.applyTombstones(sorted)
-        : null;
-
-    const effective =
-      tomb && Array.isArray(tomb.effectiveEvents)
-        ? tomb.effectiveEvents
-        : sorted.filter((e) => e && e.t !== "x");
+    // Read at call time: wallet.html loads wallet-summary.js after this file.
+    const summaryApi = window.dbWalletSummary;
+    const tomb = summaryApi.applyTombstones(sorted);
+    const effective = tomb.effectiveEvents;
     if (!effective.length) return null;
     const target = effective[effective.length - 1];
     if (!target || typeof target.id !== "string" || !target.id) return null;
@@ -359,61 +326,49 @@
       lastAppended && typeof lastAppended.ref === "string"
         ? lastAppended.ref.trim()
         : "";
-    const neutralized = tomb && tomb.neutralized ? tomb.neutralized : null;
+    const neutralized = tomb.neutralized;
     const afterDeletion = !!(
       lastAppended &&
       lastAppended.t === "x" &&
       typeof lastAppended.id === "string" &&
       lastAppended.id &&
-      (!neutralized ||
-        (!neutralized.has(lastAppended.id) && !neutralized.has(lastRef)))
+      !neutralized.has(lastAppended.id) &&
+      !neutralized.has(lastRef)
     );
 
     // Tombstone the entry's ROOT so undoing an edited entry removes the whole
     // logical entry (all its replacements), not just the visible replacement.
-    const rootId =
-      summaryApi && typeof summaryApi.rootIdOf === "function"
-        ? summaryApi.rootIdOf(target)
-        : typeof target.supersedes === "string" && target.supersedes
-          ? target.supersedes
-          : target.id;
-    return { type: "undo", id: rootId, event: target, afterDeletion };
+    return { type: "undo", id: helpers.eventRootId(target), event: target, afterDeletion };
   }
 
-  // Returns the tombstone event on success, null when there is nothing to undo,
-  // and { status: "failed" } when the write failed — so the caller can tell a
-  // real save failure apart from an empty log and surface a dialog. (The success
-  // path keeps returning the event itself for existing consumers.) The tombstone
-  // ts default (strictly after the newest event) now lives in buildTombstoneEvent.
-  // `plan` is optional: undoLast passes its already-resolved target to avoid a
-  // second resolveUndoTarget pass; without one we resolve here.
+  // Appends the undo tombstone and saves (appendEvents). Returns the tombstone,
+  // null when there is nothing to undo, or { status: "failed" } when the save
+  // failed (the append is rolled back). `plan` is optional: undoLast passes the
+  // target it already resolved for its confirm.
   function undoLastEvent(wallet, plan) {
     const target = plan || resolveUndoTarget(wallet);
     if (!target) return null;
-
-    const before = wallet.events.slice();
-    const tombstone = appendTombstone(wallet, target.id);
+    const tombstone = buildTombstoneEvent(wallet, target.id);
     if (!tombstone) return null;
-    ensureDeviceSeq(wallet);
-    if (!saveWallet(wallet)) {
-      wallet.events = before; // roll back optimistic append on a failed write
-      return { status: "failed" };
-    }
+    if (!appendEvents(wallet, [tombstone])) return { status: "failed" };
     return tombstone;
+  }
+
+  // The device's next seq; a wallet without a counter for the device starts
+  // above its highest id.
+  function deviceSeq(wallet, deviceKey) {
+    if (!wallet.seq || typeof wallet.seq !== "object") wallet.seq = {};
+    if (typeof wallet.seq[deviceKey] !== "number") {
+      wallet.seq[deviceKey] = maxSeqForDevice(wallet, deviceKey) + 1;
+    }
+    return wallet.seq[deviceKey];
   }
 
   function nextEventId(wallet) {
     const deviceKey = getDeviceKey();
-    if (!wallet.seq || typeof wallet.seq !== "object") {
-      wallet.seq = {};
-    }
-    if (typeof wallet.seq[deviceKey] !== "number") {
-      wallet.seq[deviceKey] = maxSeqForDevice(wallet, deviceKey) + 1;
-    }
-
-    const seq = wallet.seq[deviceKey];
+    const seq = deviceSeq(wallet, deviceKey);
     wallet.seq[deviceKey] = seq + 1;
-    return `${deviceKey}.${seq.toString(36)}`;
+    return formatCompactEventId(deviceKey, seq);
   }
 
   // An edit must be the later edit (helpers.compareEdits: the higher seq) than
@@ -429,11 +384,7 @@
       const order = helpers.editOrderOf(e);
       if (order && order.seq < helpers.EDIT_SEQ_LIMIT && order.seq > max) max = order.seq;
     }
-    if (!wallet.seq || typeof wallet.seq !== "object") wallet.seq = {};
-    if (typeof wallet.seq[deviceKey] !== "number") {
-      wallet.seq[deviceKey] = maxSeqForDevice(wallet, deviceKey) + 1;
-    }
-    if (wallet.seq[deviceKey] <= max) wallet.seq[deviceKey] = max + 1;
+    if (deviceSeq(wallet, deviceKey) <= max) wallet.seq[deviceKey] = max + 1;
   }
 
   // Canonical event factory — a fresh id + timestamp for a drink/pay/credit.
@@ -556,7 +507,6 @@
       const fresh = {
         userId,
         walletId: randomWalletId(),
-        deviceId: randomId(),
         v: 2,
         seq: {},
         events: [],
@@ -570,7 +520,6 @@
     if (!Array.isArray(obj.events)) obj.events = [];
     if (!Array.isArray(obj.actionCodes)) obj.actionCodes = [];
     if (!Array.isArray(obj.devices)) obj.devices = [];
-    if (!obj.deviceId) obj.deviceId = randomId();
     const mintedWalletId = !obj.walletId;
     if (mintedWalletId) obj.walletId = randomWalletId();
     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
@@ -602,17 +551,14 @@
   let storageFailedActive = false;
 
   // Surface persistent storage failures (quota exceeded / disabled storage in
-  // private mode) instead of going silent after the first alert. Sets an
-  // observable body flag and a persistent banner; cleared on the next good write.
+  // private mode) instead of going silent after the first alert: a persistent
+  // banner, cleared on the next good write.
+  // A banner already shown takes the newest failure's text: after "Speicher
+  // voll" a reset in another tab needs "neu laden", not more space.
   function markStorageFailed(failed, message) {
-    if (failed && storageFailedActive) return;
     if (!failed && !storageFailedActive) return;
     storageFailedActive = !!failed;
     try {
-      if (document && document.body && document.body.dataset) {
-        if (failed) document.body.dataset.storageFailed = "1";
-        else delete document.body.dataset.storageFailed;
-      }
       const msgApi = window.dbWalletMessages || null;
       if (msgApi) {
         if (failed) {
@@ -806,8 +752,8 @@
       : "";
   }
 
-  // opts.quiet: skip the generic one-time alert on failure (the banner/body
-  // flag is still set). For callers that report the failure themselves, e.g.
+  // opts.quiet: skip the generic one-time alert on failure (the banner is
+  // still shown). For callers that report the failure themselves, e.g.
   // the import, which must not claim success after a failed save.
   // opts.allowWalletIdChange: this save intentionally replaces the stored
   // wallet with a different walletId (reset). Without it, a save whose
@@ -917,7 +863,7 @@
                 ) + 1;
             }
             nextSeqByDevice.set(deviceKey, next + 1);
-            return `${deviceKey}.${next.toString(36)}`;
+            return formatCompactEventId(deviceKey, next);
           };
           // Only THIS device mints ids in its own seq space, so a real two-tab
           // collision is always on the local deviceKey. A clash on a foreign (or
@@ -1009,13 +955,11 @@
     return loadedIds.every((id) => stored.has(id));
   }
 
-  function getAllWallets() {
-    // null-prototype: imported wallet userIds become bracket-assigned keys here,
-    // so a "__proto__"/"constructor" userId must create an ordinary own property
-    // rather than poison the prototype chain.
-    const all = Object.create(null);
-    const seenUserIds = new Set();
-
+  // Calls visit(userId, record) for every stored wallet until it returns
+  // true. The userId is the key's name — loadWallet opens the wallet under it
+  // whatever the record's own userId field says; keys are unique, so no wallet
+  // comes twice. Internal keys and non-wallet values are skipped.
+  function eachStoredWallet(visit) {
     let len = 0;
     try {
       len =
@@ -1023,9 +967,8 @@
           ? localStorage.length
           : 0;
     } catch (e) {
-      return all;
+      return;
     }
-
     for (let i = 0; i < len; i++) {
       let key = null;
       try {
@@ -1033,33 +976,25 @@
       } catch (e) {
         continue;
       }
-      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-
-      const raw = safeLocalStorageGetItem(key);
-      if (!raw) continue;
-
-      const obj = safeParse(raw);
-      if (!obj || typeof obj !== "object" || !Array.isArray(obj.events)) {
-        continue; // skip non-wallet keys like registry/theme
-      }
-
-      const userIdFromKey = key.slice(STORAGE_PREFIX.length);
-      const userId =
-        typeof obj.userId === "string"
-          ? STORAGE_PREFIX + obj.userId === key
-            ? obj.userId
-            : userIdFromKey
-          : userIdFromKey;
+      if (!key || !key.startsWith(STORAGE_PREFIX) || isReservedStorageKey(key)) continue;
+      const userId = key.slice(STORAGE_PREFIX.length);
       if (!userId) continue;
-      if (isReservedStorageKey(STORAGE_PREFIX + userId)) continue;
-
-      if (seenUserIds.has(userId)) continue;
-      seenUserIds.add(userId);
-      const loaded = loadWallet(userId, obj);
-      if (!loaded) continue;
-      all[userId] = loaded;
+      const raw = safeLocalStorageGetItem(key);
+      const obj = raw ? safeParse(raw) : null;
+      if (!obj || typeof obj !== "object" || !Array.isArray(obj.events)) continue;
+      if (visit(userId, obj) === true) return;
     }
+  }
 
+  function getAllWallets() {
+    // null-prototype: imported wallet userIds become bracket-assigned keys here,
+    // so a "__proto__"/"constructor" userId must create an ordinary own property
+    // rather than poison the prototype chain.
+    const all = Object.create(null);
+    eachStoredWallet((userId, obj) => {
+      const loaded = loadWallet(userId, obj);
+      if (loaded) all[userId] = loaded;
+    });
     return all;
   }
 
@@ -1070,7 +1005,6 @@
     return {
       userId: w.userId,
       walletId: w.walletId,
-      deviceId: w.deviceId,
       v: w.v,
       seq: w.seq,
       events: w.events,
@@ -1090,41 +1024,13 @@
 
   function findUserIdByWalletId(walletId) {
     if (!walletId) return null;
-    let len = 0;
-    try {
-      len =
-        typeof localStorage !== "undefined" && localStorage
-          ? localStorage.length
-          : 0;
-    } catch (e) {
-      return null;
-    }
-
-    for (let i = 0; i < len; i++) {
-      let key = null;
-      try {
-        key = localStorage.key(i);
-      } catch (e) {
-        continue;
-      }
-      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-
-      const raw = safeLocalStorageGetItem(key);
-      if (!raw) continue;
-
-      const obj = safeParse(raw);
-      if (!obj || typeof obj !== "object" || !Array.isArray(obj.events)) {
-        continue;
-      }
-      if (obj.walletId === walletId) {
-        const userId =
-          typeof obj.userId === "string"
-            ? obj.userId
-            : key.slice(STORAGE_PREFIX.length);
-        return userId || null;
-      }
-    }
-    return null;
+    let found = null;
+    eachStoredWallet((userId, obj) => {
+      if (obj.walletId !== walletId) return false;
+      found = userId;
+      return true;
+    });
+    return found;
   }
 
   function walletIdForUserId(userId) {
@@ -1136,8 +1042,6 @@
   }
 
   window.dbWalletStorage = {
-    DEVICE_KEY_STORAGE,
-    THEME_KEY_STORAGE,
     isReservedStorageKey,
     ensureNonReservedUserId,
     getDeviceKey,
@@ -1149,7 +1053,6 @@
     parseCompactEventId,
     ensureDeviceSeq,
     buildTombstoneEvent,
-    appendTombstone,
     resolveUndoTarget,
     undoLastEvent,
     nextEventId,
