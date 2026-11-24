@@ -245,7 +245,14 @@
 
   function readString(bytes, offset) {
     const [len, next] = readVarUint(bytes, offset);
-    const str = stringDecoder.decode(sliceChecked(bytes, next, len));
+    const raw = sliceChecked(bytes, next, len);
+    let str;
+    try {
+      str = stringDecoder.decode(raw);
+    } catch (e) {
+      // Node's TypeError carries its own `code`; map it to ours.
+      throw importError("corrupt", "Invalid UTF-8 string");
+    }
     return [str, next + len];
   }
 
@@ -481,230 +488,224 @@
   }
 
   // Reads the optional trailing extension blocks ("ac", "gc", "sp", "dv", "xt",
-  // "se", "dc") and mutates decoded in place. Tolerates parse errors for forward-compat.
-  // deviceKeys is the header's device table (the compact ids of "xt" v2).
+  // "se", "dc", "ck") and mutates decoded in place. deviceKeys is the header's
+  // device table (the compact ids of "xt" v2). Forward compatibility is the
+  // `break` on an unknown block or block version (blocks have no length prefix,
+  // so a newer app's block ends the parse there). A block that fails to parse
+  // throws: that is broken or cut-off data, and a partial import would lose
+  // tombstones (a deleted booking comes back).
   function decodeV2Extensions(bytes, startOffset, decoded, deviceKeys) {
     let offset = startOffset;
-    try {
-      while (offset + 1 < bytes.length) {
-        if (
-          bytes[offset] === 97 && // "a"
-          bytes[offset + 1] === 99 // "c"
-        ) {
-          offset += 2;
-          const [acVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          // Unknown version: stop extension parsing rather than continuing with a
-          // desynced cursor (blocks have no length prefix to skip over).
-          if (acVersion !== 1 && acVersion !== 2) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const actionCodes = [];
-          for (let i = 0; i < count; i++) {
-            let code;
-            [code, offset] = readActionCodeEntry(bytes, offset, acVersion === 2);
-            actionCodes.push(code);
+    while (offset + 1 < bytes.length) {
+      if (
+        bytes[offset] === 97 && // "a"
+        bytes[offset + 1] === 99 // "c"
+      ) {
+        offset += 2;
+        const [acVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        // Unknown version: stop extension parsing rather than continuing with a
+        // desynced cursor (blocks have no length prefix to skip over).
+        if (acVersion !== 1 && acVersion !== 2) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        const actionCodes = [];
+        for (let i = 0; i < count; i++) {
+          let code;
+          [code, offset] = readActionCodeEntry(bytes, offset, acVersion === 2);
+          actionCodes.push(code);
+        }
+        decoded.actionCodes = actionCodes;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 103 && // "g"
+        bytes[offset + 1] === 99 // "c"
+      ) {
+        offset += 2;
+        const [gcVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (gcVersion !== 1) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        const globalActionCodes = [];
+        for (let i = 0; i < count; i++) {
+          let code;
+          [code, offset] = readActionCodeEntry(bytes, offset, true);
+          // Global codes carry no key. Exports written before P1.3 contain an
+          // invented random key here (and lost the scope); drop it and
+          // restore the scope so old exports import as proper global codes.
+          delete code.key;
+          code.scope = "global";
+          globalActionCodes.push(code);
+        }
+        decoded.globalActionCodes = globalActionCodes;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 115 && // "s"
+        bytes[offset + 1] === 112 // "p"
+      ) {
+        offset += 2;
+        const [spVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (spVersion !== 1) break;
+        let deviceId;
+        [deviceId, offset] = readString(bytes, offset);
+        if (deviceId) decoded.deviceId = deviceId;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 100 && // "d"
+        bytes[offset + 1] === 118 // "v"
+      ) {
+        offset += 2;
+        const [dvVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (dvVersion !== 1) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        const devices = [];
+        for (let i = 0; i < count; i++) {
+          let deviceKey;
+          [deviceKey, offset] = readString(bytes, offset);
+
+          const [symCode, o11] = readVarUint(bytes, offset);
+          offset = o11;
+          const symbol =
+            symCode >= 1 && symCode <= DEVICE_SYMBOLS.length
+              ? DEVICE_SYMBOLS[symCode - 1]
+              : null;
+
+          const [lastSeenAt, o12] = readVarUint(bytes, offset);
+          offset = o12;
+
+          devices.push({
+            deviceKey,
+            symbol,
+            lastSeenAt,
+          });
+        }
+        decoded.devices = devices;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 120 && // "x"
+        bytes[offset + 1] === 116 // "t"
+      ) {
+        offset += 2;
+        const [xtVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (xtVersion !== 1 && xtVersion !== 2) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        // v1: id and ref as strings, the exact ts in ms. v2 (P5.5): the minute
+        // as a running delta (the first one absolute), then id and ref via
+        // readIdRef; the ts decodes to the full minute.
+        let tsMin = 0;
+        for (let i = 0; i < count; i++) {
+          let id, ref, tsMs;
+          if (xtVersion === 1) {
+            [id, offset] = readString(bytes, offset);
+            [ref, offset] = readString(bytes, offset);
+            [tsMs, offset] = readVarUint(bytes, offset);
+          } else {
+            let delta;
+            [delta, offset] = readVarUint(bytes, offset);
+            tsMin += delta;
+            tsMs = tsMin * 60000;
+            if (tsMs > Number.MAX_SAFE_INTEGER) {
+              throw importError("corrupt", "Timestamp out of range");
+            }
+            [id, offset] = readIdRef(bytes, offset, deviceKeys);
+            [ref, offset] = readIdRef(bytes, offset, deviceKeys);
           }
-          decoded.actionCodes = actionCodes;
-          continue;
-        }
 
-        if (
-          bytes[offset] === 103 && // "g"
-          bytes[offset + 1] === 99 // "c"
-        ) {
-          offset += 2;
-          const [gcVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (gcVersion !== 1) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const globalActionCodes = [];
-          for (let i = 0; i < count; i++) {
-            let code;
-            [code, offset] = readActionCodeEntry(bytes, offset, true);
-            // Global codes carry no key. Exports written before P1.3 contain an
-            // invented random key here (and lost the scope); drop it and
-            // restore the scope so old exports import as proper global codes.
-            delete code.key;
-            code.scope = "global";
-            globalActionCodes.push(code);
-          }
-          decoded.globalActionCodes = globalActionCodes;
-          continue;
-        }
-
-        if (
-          bytes[offset] === 115 && // "s"
-          bytes[offset + 1] === 112 // "p"
-        ) {
-          offset += 2;
-          const [spVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (spVersion !== 1) break;
-          let deviceId;
-          [deviceId, offset] = readString(bytes, offset);
-          if (deviceId) decoded.deviceId = deviceId;
-          continue;
-        }
-
-        if (
-          bytes[offset] === 100 && // "d"
-          bytes[offset + 1] === 118 // "v"
-        ) {
-          offset += 2;
-          const [dvVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (dvVersion !== 1) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const devices = [];
-          for (let i = 0; i < count; i++) {
-            let deviceKey;
-            [deviceKey, offset] = readString(bytes, offset);
-
-            const [symCode, o11] = readVarUint(bytes, offset);
-            offset = o11;
-            const symbol =
-              symCode >= 1 && symCode <= DEVICE_SYMBOLS.length
-                ? DEVICE_SYMBOLS[symCode - 1]
-                : null;
-
-            const [lastSeenAt, o12] = readVarUint(bytes, offset);
-            offset = o12;
-
-            devices.push({
-              deviceKey,
-              symbol,
-              lastSeenAt,
+          // Skip self-referential tombstones (a tombstone deleting itself is
+          // meaningless) — cheap guard against malformed/crafted xt entries.
+          if (id && ref && id !== ref) {
+            decoded.events.push({
+              id,
+              t: "x",
+              ref,
+              ts: tsMs,
             });
           }
-          decoded.devices = devices;
-          continue;
         }
-
-        if (
-          bytes[offset] === 120 && // "x"
-          bytes[offset + 1] === 116 // "t"
-        ) {
-          offset += 2;
-          const [xtVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (xtVersion !== 1 && xtVersion !== 2) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          // v1: id and ref as strings, the exact ts in ms. v2 (P5.5): the minute
-          // as a running delta (the first one absolute), then id and ref via
-          // readIdRef; the ts decodes to the full minute.
-          let tsMin = 0;
-          for (let i = 0; i < count; i++) {
-            let id, ref, tsMs;
-            if (xtVersion === 1) {
-              [id, offset] = readString(bytes, offset);
-              [ref, offset] = readString(bytes, offset);
-              [tsMs, offset] = readVarUint(bytes, offset);
-            } else {
-              let delta;
-              [delta, offset] = readVarUint(bytes, offset);
-              tsMin += delta;
-              tsMs = tsMin * 60000;
-              if (tsMs > Number.MAX_SAFE_INTEGER) {
-                throw importError("corrupt", "Timestamp out of range");
-              }
-              [id, offset] = readIdRef(bytes, offset, deviceKeys);
-              [ref, offset] = readIdRef(bytes, offset, deviceKeys);
-            }
-
-            // Skip self-referential tombstones (a tombstone deleting itself is
-            // meaningless) — cheap guard against malformed/crafted xt entries.
-            if (id && ref && id !== ref) {
-              decoded.events.push({
-                id,
-                t: "x",
-                ref,
-                ts: tsMs,
-              });
-            }
-          }
-          continue;
-        }
-
-        if (
-          bytes[offset] === 115 && // "s"
-          bytes[offset + 1] === 101 // "e"
-        ) {
-          offset += 2;
-          const [seVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (seVersion !== 1) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          const supById = new Map();
-          for (let i = 0; i < count; i++) {
-            let id, sup;
-            [id, offset] = readString(bytes, offset);
-            [sup, offset] = readString(bytes, offset);
-
-            if (id && sup && id !== sup) supById.set(id, sup);
-          }
-          if (supById.size && Array.isArray(decoded.events)) {
-            for (const ev of decoded.events) {
-              if (ev && ev.t !== "x" && typeof ev.id === "string" && supById.has(ev.id)) {
-                ev.supersedes = supById.get(ev.id);
-              }
-            }
-          }
-          continue;
-        }
-
-        if (
-          bytes[offset] === 100 && // "d"
-          bytes[offset + 1] === 99 // "c"
-        ) {
-          offset += 2;
-          const [dcVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (dcVersion !== 1) break;
-          const [count, o9] = readVarUint(bytes, offset);
-          offset = o9;
-          // null-prototype: the ids become keys.
-          const deleted = Object.create(null);
-          for (let i = 0; i < count; i++) {
-            let id;
-            [id, offset] = readString(bytes, offset);
-            const [at, o11] = readVarUint(bytes, offset);
-            offset = o11;
-            if (id) deleted[id] = Math.max(deleted[id] || 0, at);
-          }
-          decoded.deletedActionCodes = deleted;
-          continue;
-        }
-
-        if (
-          bytes[offset] === 99 && // "c"
-          bytes[offset + 1] === 107 // "k"
-        ) {
-          // Just consume the trailer here; the checksum is verified independently
-          // of this cursor in decodeImportV2Bytes (a corrupt upstream tag/version
-          // byte would make this loop break before ever reaching ck).
-          offset += 2;
-          const [ckVersion, o8] = readVarUint(bytes, offset);
-          offset = o8;
-          if (ckVersion !== 1) break;
-          offset += 4;
-          continue;
-        }
-
-        break;
+        continue;
       }
-    } catch (e) {
-      console.warn("db-wallet: import-v2 extension parse failed", e);
-      // Flag the loss so the import flow can warn the user that some action
-      // codes / devices / tombstones were dropped, instead of reporting a clean
-      // success. Dropped tombstones in particular resurrect deleted events.
-      if (decoded && typeof decoded === "object") {
-        decoded._extWarning = true;
+
+      if (
+        bytes[offset] === 115 && // "s"
+        bytes[offset + 1] === 101 // "e"
+      ) {
+        offset += 2;
+        const [seVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (seVersion !== 1) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        const supById = new Map();
+        for (let i = 0; i < count; i++) {
+          let id, sup;
+          [id, offset] = readString(bytes, offset);
+          [sup, offset] = readString(bytes, offset);
+
+          if (id && sup && id !== sup) supById.set(id, sup);
+        }
+        if (supById.size && Array.isArray(decoded.events)) {
+          for (const ev of decoded.events) {
+            if (ev && ev.t !== "x" && typeof ev.id === "string" && supById.has(ev.id)) {
+              ev.supersedes = supById.get(ev.id);
+            }
+          }
+        }
+        continue;
       }
+
+      if (
+        bytes[offset] === 100 && // "d"
+        bytes[offset + 1] === 99 // "c"
+      ) {
+        offset += 2;
+        const [dcVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (dcVersion !== 1) break;
+        const [count, o9] = readVarUint(bytes, offset);
+        offset = o9;
+        // null-prototype: the ids become keys.
+        const deleted = Object.create(null);
+        for (let i = 0; i < count; i++) {
+          let id;
+          [id, offset] = readString(bytes, offset);
+          const [at, o11] = readVarUint(bytes, offset);
+          offset = o11;
+          if (id) deleted[id] = Math.max(deleted[id] || 0, at);
+        }
+        decoded.deletedActionCodes = deleted;
+        continue;
+      }
+
+      if (
+        bytes[offset] === 99 && // "c"
+        bytes[offset + 1] === 107 // "k"
+      ) {
+        // Just consume the trailer here; the checksum is verified independently
+        // of this cursor in decodeImportV2Bytes (a corrupt upstream tag/version
+        // byte would make this loop break before ever reaching ck).
+        offset += 2;
+        const [ckVersion, o8] = readVarUint(bytes, offset);
+        offset = o8;
+        if (ckVersion !== 1) break;
+        offset += 4;
+        continue;
+      }
+
+      break;
     }
   }
 
@@ -731,31 +732,30 @@
     // Verify the integrity checksum INDEPENDENTLY of the extension-block cursor:
     // if the payload ends with a "ck" trailer (99,107, version=1, 4 checksum
     // bytes), fnv1a64 over everything before it must match. Doing it here — not
-    // inside the tolerant extension loop — means a corrupt upstream tag/version
-    // byte (which would make that loop break early) can't slip a corrupt payload
-    // through. Payloads without a ck trailer (older encoders) skip the check.
-    if (bytes.length >= 7) {
-      const tlen = bytes.length;
-      if (
-        bytes[tlen - 7] === 99 &&
-        bytes[tlen - 6] === 107 &&
-        bytes[tlen - 5] === 1 &&
-        helpers &&
-        typeof helpers.fnv1a64 === "function"
-      ) {
-        const stored =
-          ((bytes[tlen - 4] << 24) |
-            (bytes[tlen - 3] << 16) |
-            (bytes[tlen - 2] << 8) |
-            bytes[tlen - 1]) >>>
-          0;
-        const actual = Number(
-          helpers.fnv1a64(bytes.subarray(0, tlen - 7)) & 0xffffffffn,
-        );
-        if (stored !== actual) {
-          throw importError("checksum", "Import checksum mismatch");
-        }
+    // in the extension loop — means a corrupt upstream tag/version byte (which
+    // would make that loop break early) can't slip a corrupt payload through.
+    // Codec 2 payloads without a ck trailer (encoders before 4c46261) skip the
+    // check. Every codec 3 encoder writes ck, so a codec 3 payload without it
+    // was cut off — e.g. an i2u: link, which has no gzip CRC.
+    const tlen = bytes.length;
+    const hasChecksum =
+      tlen >= 7 &&
+      bytes[tlen - 7] === 99 &&
+      bytes[tlen - 6] === 107 &&
+      bytes[tlen - 5] === 1;
+    if (hasChecksum) {
+      const stored =
+        ((bytes[tlen - 4] << 24) |
+          (bytes[tlen - 3] << 16) |
+          (bytes[tlen - 2] << 8) |
+          bytes[tlen - 1]) >>>
+        0;
+      const actual = Number(helpers.fnv1a64(bytes.subarray(0, tlen - 7)) & 0xffffffffn);
+      if (stored !== actual) {
+        throw importError("checksum", "Import checksum mismatch");
       }
+    } else if (bytes[3] === 3) {
+      throw importError("truncated", "Codec 3 payload without checksum");
     }
 
     const header = decodeV2Header(bytes, 4);
@@ -1462,7 +1462,7 @@
     replaceHash(userId);
     helpers.notify(
       remote && remote._extWarning
-        ? "Getränkedaten importiert ✅\nHinweis: Ein Teil der Daten (Zusatzdaten oder Einträge ohne gültige ID) konnte nicht vollständig importiert und wurde übersprungen."
+        ? "Getränkedaten importiert ✅\nHinweis: Einträge ohne gültige ID wurden übersprungen."
         : "Getränkedaten importiert ✅",
       remote && remote._extWarning ? { sticky: true } : undefined,
     );
