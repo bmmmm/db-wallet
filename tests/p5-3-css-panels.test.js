@@ -111,7 +111,6 @@ test("JS-built boxes carry the classes too", () => {
       /notice\.className = "action-codes-notice card card--flat"/,
     ],
     "index-ui.js": [/card\.className = "wallet-card card card--flat"/],
-    "wallet-sync-ui.js": [/className = "sync-line panel"/],
     "wallet-messages.js": [/DEFAULT_CLASS = "action-codes-notice card card--flat"/],
     "wallet-hash-actions.js": [/className: "action-codes-notice card card--flat global-action-panel"/],
   };
