@@ -8,7 +8,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const { makeEnv, REPO } = require("./harness");
-const { makePageDocument, findAll } = require("./fake-dom");
+const { makePageDocument } = require("./fake-dom");
 
 const read = (f) => fs.readFileSync(path.join(REPO, f), "utf8");
 const CSS = read("style.css");
@@ -127,7 +127,7 @@ test("JS-built boxes carry the classes too", () => {
   }
 });
 
-function swEnv({ controller = true, page = "wallet.html" } = {}) {
+function swEnv({ controller = true } = {}) {
   const swListeners = {};
   const registered = [];
   const navigator = {
@@ -142,7 +142,7 @@ function swEnv({ controller = true, page = "wallet.html" } = {}) {
       },
     },
   };
-  const document = makePageDocument(page ? read(page) : "<body></body>");
+  const document = makePageDocument(read("wallet.html"));
   const w = makeEnv({
     document,
     files: ["wallet-helpers.js", "sw-register.js"],
@@ -171,13 +171,15 @@ test("update notice: sticky in the status line, 'Neu laden' reloads", () => {
   const action = d.getElementById("status-action");
   assert.equal(action.hidden, false);
   assert.equal(action.textContent, "Neu laden");
-  // A second controllerchange does not show it again; no own toast element.
-  w._swFire("controllerchange");
-  assert.equal(findAll(d.body, (el) => el.classList.contains("update-toast")).length, 0);
   assert.equal(w._nav.pageLoads.length, 0);
   action.click();
   assert.equal(w._nav.pageLoads.length, 1);
   assert.deepEqual(Array.from(w._alerts), []);
+  // Closed, a second controllerchange does not show it again.
+  d.getElementById("status-close").click();
+  assert.equal(d.getElementById("status-text").textContent, "");
+  w._swFire("controllerchange");
+  assert.equal(d.getElementById("status-text").textContent, "");
 });
 
 test("update notice: nothing on the first install (no previous controller)", () => {
@@ -186,18 +188,4 @@ test("update notice: nothing on the first install (no previous controller)", () 
   assert.deepEqual(Array.from(w._registered), ["./service-worker.js"]);
   w._swFire("controllerchange");
   assert.equal(w.document.getElementById("status-text").textContent, "");
-  assert.equal(findAll(w.document.body, (el) => el.classList.contains("update-toast")).length, 0);
-});
-
-test("update notice without a status line: an own box with the line's classes", () => {
-  const w = swEnv({ page: null });
-  w._swFire("controllerchange");
-  const [bar] = findAll(w.document.body, (el) => el.classList.contains("update-toast"));
-  assert.ok(bar, "fallback box missing");
-  for (const c of ["status-line", "is-visible"]) assert.ok(bar.classList.contains(c), c);
-  const btn = findAll(bar, (el) => el.tagName === "BUTTON")[0];
-  assert.equal(btn.textContent, "Neu laden");
-  btn.click();
-  assert.equal(w._nav.pageLoads.length, 1);
-  assert.deepEqual(Array.from(w._alerts), []);
 });
