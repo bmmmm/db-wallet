@@ -141,7 +141,7 @@ test("style.css: the page background is tinted by the theme, never a fixed colou
 
 // --- theme.js in a vm ------------------------------------------------------
 
-function loadThemeJs({ light = false, stored = null } = {}) {
+function loadThemeJs({ light = false, stored = null, label = null } = {}) {
   const store = new Map();
   if (stored) store.set("db-wallet:theme", stored);
   const attrs = {};
@@ -185,7 +185,8 @@ function loadThemeJs({ light = false, stored = null } = {}) {
       },
       querySelector: (sel) => (sel === 'meta[name="theme-color"]' ? meta : null),
       querySelectorAll: (sel) => (sel === ".theme-btn" ? buttons : []),
-      getElementById: (id) => (id === "theme-buttons" ? container : null),
+      getElementById: (id) =>
+        id === "theme-buttons" ? container : id === "current-theme-name" ? label : null,
       createElement: mkEl,
     },
   };
@@ -243,4 +244,22 @@ test("OS switch is followed only while nothing is stored", () => {
   env.ctx.dbWalletTheme.applyTheme("Slate Sunrise");
   env.listeners[0]();
   assert.equal(env.attrs["data-theme"], "Slate Sunrise");
+});
+
+// wallet.html shows the theme's name in the panel summary; it must follow
+// every change, the OS switch without a stored theme too (theme.js applies
+// it, wallet-ui.js only knew about clicks).
+test("#current-theme-name follows the selector and the OS switch", () => {
+  const label = { textContent: "Lilac Carbon" };
+  const env = loadThemeJs({ light: false, label });
+  env.ctx.dbWalletTheme.initThemeSelector();
+  assert.equal(label.textContent, "Lilac Carbon");
+  env.ctx.matchMedia = (q) => ({ matches: q.includes("light") });
+  env.listeners[0]();
+  assert.equal(env.attrs["data-theme"], "Paper Mint");
+  assert.equal(label.textContent, "Paper Mint");
+  env.buttons.find((b) => b.dataset.theme === "Teal Ember")._click();
+  assert.equal(label.textContent, "Teal Ember");
+  env.ctx.dbWalletTheme.applyTheme("Nord Glow"); // legacy alias (import)
+  assert.equal(label.textContent, "Lilac Carbon");
 });

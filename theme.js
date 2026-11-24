@@ -76,6 +76,8 @@
         }
     }
 
+    // Marks the theme's button and shows its name in wallet.html's panel
+    // summary (#current-theme-name) — for every change, the OS switch too.
     function highlightActiveTheme(name) {
         const buttons = document.querySelectorAll(".theme-btn");
         buttons.forEach((btn) => {
@@ -83,6 +85,8 @@
             btn.classList.toggle("active", on);
             btn.setAttribute("aria-pressed", on ? "true" : "false");
         });
+        const label = document.getElementById("current-theme-name");
+        if (label) label.textContent = name;
     }
 
     // opts.persist === false: show the theme without storing it (the OS
