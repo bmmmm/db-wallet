@@ -93,6 +93,31 @@ test("style.css: one visible :focus-visible ring, no outline:none, no fixed cyan
   assert.doesNotMatch(STYLE_CSS, /rgba\(\s*125,\s*211,\s*252/);
 });
 
+// Top-level and @media-nested rules as {selectors, body}; comments dropped.
+function cssRules(css) {
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  return Array.from(src.matchAll(/([^{}]+)\{([^{}]*)\}/g), (m) => ({
+    selectors: m[1].replace(/@media[^{]*$/, "").split(",").map((x) => x.trim().replace(/\s+/g, " ")),
+    body: m[2],
+  }));
+}
+
+// The three collapsible blocks clip their content (overflow: hidden, for the
+// rounded corners), which also clips a focus ring drawn outside the summary
+// (:focus-visible, outline-offset 2px). Their summaries draw it inside.
+test("style.css: the focus ring of a clipped <details> summary is drawn inside", () => {
+  const all = cssRules(STYLE_CSS);
+  const panels = ["action-codes", "wallet-actions", "theme"];
+  for (const p of panels) {
+    const clip = all.find((r) => r.selectors.includes(`.${p}-panel`) && /overflow:\s*hidden/.test(r.body));
+    assert.ok(clip, `.${p}-panel no longer clips: drop this test`);
+    const ring = all.find((r) => r.selectors.includes(`.${p}-summary:focus-visible`));
+    assert.ok(ring, `.${p}-summary:focus-visible rule missing`);
+    const off = /outline-offset:\s*(-?\d+)px/.exec(ring.body);
+    assert.ok(off && Number(off[1]) <= -2, `.${p}-summary: outline-offset must be <= -2px (ring width)`);
+  }
+});
+
 // --- theme.js in a vm ------------------------------------------------------
 
 function loadThemeJs({ light = false, stored = null } = {}) {

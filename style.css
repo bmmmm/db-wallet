@@ -515,10 +515,13 @@ hr {
     color: var(--accent-strong);
 }
 
+/* The panels clip (overflow: hidden), which would cut off a ring outside
+   the summary: draw it inside. */
 .action-codes-summary:focus-visible,
 .wallet-actions-summary:focus-visible,
 .theme-summary:focus-visible {
     border-radius: 10px;
+    outline-offset: -2px;
 }
 
 .action-codes-panel[open] .action-codes-summary::after,
