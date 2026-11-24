@@ -196,6 +196,37 @@ test("sync line: stale partner → red with a visible 'Zum Export' button", asyn
   assert.equal($(w, "export-options").style.display, "inline-block", "export opened");
 });
 
+test("sync line: '✅ passt' confirms the partner as in sync now", async () => {
+  const w = await bootWalletPage({ hash: "max", seed: seedPeer(20) });
+  $(w, "btn-drink").click();
+  assert.match(find(syncLine(w), (el) => el.classList.contains("sync-delta")).textContent, /Δ: \+1 Events/);
+  find(syncLine(w), (el) => el.classList.contains("sync-reset")).click();
+  assert.match(syncText(w), /Sync aktuell \(0 Tage – B\)/);
+  assert.equal(syncLine(w).classList.contains("is-red"), false);
+  assert.equal(goExport(w).hidden, true);
+  assert.equal(find(syncLine(w), (el) => el.classList.contains("sync-delta")).hidden, true);
+  const peer = w.dbWalletStorage.loadWallet("max").syncPeers.devB;
+  assert.equal(peer.label, "B", "the label stays");
+  assert.ok(Date.now() - peer.updatedAt < DAY);
+  assert.equal(peer.commonEventCount, w.dbWalletStorage.loadWallet("max").events.length);
+});
+
+test("sync line: a partner without a label is shown and confirmed as 'Remote'", async () => {
+  const w = await bootWalletPage({
+    hash: "max",
+    seed: (e) => {
+      const S = e.dbWalletStorage;
+      const x = S.loadWallet("max");
+      x.syncPeers = { devB: { updatedAt: Date.now() - 20 * DAY, commonEventCount: 0 } };
+      S.saveWallet(x);
+    },
+  });
+  assert.match(syncText(w), /Sync veraltet \(20 Tage – devB\)/);
+  find(syncLine(w), (el) => el.classList.contains("sync-reset")).click();
+  assert.match(syncText(w), /Sync aktuell \(0 Tage – Remote\)/);
+  assert.equal(w.dbWalletStorage.loadWallet("max").syncPeers.devB.label, "Remote");
+});
+
 test("sync UI: classes instead of inline styles", () => {
   const src = fs.readFileSync(path.join(REPO, "wallet-sync-ui.js"), "utf8");
   assert.doesNotMatch(src, /\.style\./);

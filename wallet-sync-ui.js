@@ -1,4 +1,7 @@
 (function () {
+  const helpers = window.dbWalletHelpers;
+  if (!helpers) return;
+
   let opts = null;
 
   let syncStatusLine = null;
@@ -11,34 +14,6 @@
   let syncLineLegend = null;
   let btnSyncReset = null;
   let btnGoExport = null;
-
-  // Canonical list lives in dbWalletHelpers; the literal is only a fallback for
-  // the (never-in-practice) case where helpers failed to load.
-  const DEVICE_SYMBOLS =
-    (window.dbWalletHelpers && window.dbWalletHelpers.DEVICE_SYMBOLS) ||
-    ["L", "M", "D", "K", "T", "*"];
-
-  // German date/time like the rest of the UI (toLocaleString() follows the
-  // browser locale and gave English dates next to German labels).
-  function formatSeen(tsMs) {
-    const h = window.dbWalletHelpers;
-    if (h && typeof h.formatDateTime === "function") return h.formatDateTime(tsMs);
-    return new Date(tsMs).toLocaleString("de-DE");
-  }
-
-  function ensureLine() {
-    if (!opts) return null;
-    if (syncStatusLine && syncStatusLine.isConnected) return syncStatusLine;
-
-    syncStatusLine = document.getElementById("sync-status-line");
-    if (!syncStatusLine && opts.topRow && opts.topRow.parentNode) {
-      syncStatusLine = document.createElement("section");
-      syncStatusLine.id = "sync-status-line";
-      syncStatusLine.className = "sync-line panel";
-      opts.topRow.insertAdjacentElement("afterend", syncStatusLine);
-    }
-    return syncStatusLine;
-  }
 
   // P4.7: the line is only shown once there is something to show — a sync
   // partner, i.e. after the first import from another device. A fresh wallet
@@ -53,21 +28,16 @@
     return el;
   }
 
+  // Runs once per page; #sync-status-line (with its heading #sync-title)
+  // stands in wallet.html, the body below the heading is built here.
   function init(nextOpts) {
     opts = nextOpts || null;
-    syncLineLevel = "unknown";
-    syncLinePeerKey = "";
-
-    const line = ensureLine();
-    if (!line) return;
+    const line = document.getElementById("sync-status-line");
+    if (!opts || !line) return;
+    syncStatusLine = line;
 
     // Not a live region (P4.1): it is rebuilt on every render, which would
     // re-announce the whole timeline; the status line (#status-text) speaks.
-    // The block's heading (#sync-title) stays; only the body is rebuilt.
-    const old = line.querySelector ? line.querySelector(".sync-body") : null;
-    if (old && old.parentNode) old.parentNode.removeChild(old);
-    setVisible(line, false);
-
     const body = makeEl("div", "sync-body");
     const syncLeft = makeEl("div", "sync-main");
     syncLineText = makeEl("div", "sync-text");
@@ -98,16 +68,12 @@
     line.appendChild(body);
 
     const openExport = () => {
-      if (opts && typeof opts.openExportSection === "function") {
-        opts.openExportSection();
-      }
+      if (typeof opts.openExportSection === "function") opts.openExportSection();
     };
 
-    line.addEventListener("click", (e) => {
-      if (e && e.target && btnSyncReset && btnSyncReset.contains(e.target)) return;
-      if (e && e.target && btnGoExport && btnGoExport.contains(e.target)) return;
-      if (syncLineLevel !== "red") return;
-      openExport();
+    // The buttons stop their clicks, so this is a click on the line itself.
+    line.addEventListener("click", () => {
+      if (syncLineLevel === "red") openExport();
     });
 
     btnGoExport.addEventListener("click", (e) => {
@@ -117,11 +83,9 @@
 
     btnSyncReset.addEventListener("click", (e) => {
       if (e && typeof e.stopPropagation === "function") e.stopPropagation();
-      if (!opts || typeof opts.getWallet !== "function") return;
       const wallet = opts.getWallet();
-      if (!wallet || !Array.isArray(wallet.events)) return;
-      const syncApi = opts.syncApi || null;
-      if (!syncApi || typeof syncApi.ensureSyncPeers !== "function") return;
+      const syncApi = opts.syncApi;
+      if (!syncApi || !wallet || !Array.isArray(wallet.events)) return;
 
       const peers = syncApi.ensureSyncPeers(wallet);
       const peerKey = syncLinePeerKey || "remote";
@@ -130,114 +94,71 @@
         existing && typeof existing === "object" && !Array.isArray(existing)
           ? existing
           : {};
-
-      if (!peer.label) {
-        peer.label =
-          existing &&
-          typeof existing.label === "string" &&
-          existing.label.trim()
-            ? existing.label.trim()
-            : "Remote";
-      }
-
+      if (!peer.label) peer.label = "Remote";
       peer.updatedAt = Date.now();
       peer.commonEventCount = wallet.events.length;
-      peer.peerEventCount = wallet.events.length;
       peers[peerKey] = peer;
 
-      if (opts.saveWallet) opts.saveWallet(wallet);
+      opts.saveWallet(wallet);
       refresh();
     });
   }
 
-  function showUnknown(line) {
+  // No partner (yet): the line stays hidden, its content is not updated.
+  function hide(line) {
     syncLineLevel = "unknown";
     syncLinePeerKey = "";
-    syncLineText.textContent = "❔ Sync-Status: unbekannt";
-    syncLineTimeline.textContent = "Sync: ?";
-    syncLineDelta.textContent = "";
-    syncLineDelta.hidden = true;
-    syncLineLegend.textContent = "";
-    syncLineLegend.hidden = true;
-    btnGoExport.hidden = true;
-    line.title = "";
-    line.classList.remove("is-red");
     setVisible(line, false);
   }
 
   function refresh() {
-    const line = ensureLine();
-    if (!line || !opts || typeof opts.getWallet !== "function") return;
-    if (!syncLineText) return; // init() did not run
+    const line = syncStatusLine;
+    if (!line || !syncLineText) return; // init() did not run
 
     const wallet = opts.getWallet();
     const syncApi = opts.syncApi || null;
-
     if (!syncApi) {
-      showUnknown(line);
+      hide(line);
       return;
     }
 
-    try {
-      if (typeof syncApi.ensureSyncPeers === "function") {
-        syncApi.ensureSyncPeers(wallet);
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    const active =
-      typeof syncApi.pickActivePeer === "function"
-        ? syncApi.pickActivePeer(wallet)
-        : null;
-
+    syncApi.ensureSyncPeers(wallet);
+    // pickActivePeer only returns a peer with updatedAt > 0, so ageDays is
+    // a number and the light is green, yellow or red.
+    const active = syncApi.pickActivePeer(wallet);
     if (!active) {
-      showUnknown(line);
+      hide(line);
       return;
     }
 
     setVisible(line, true);
     syncLinePeerKey = active.peerKey;
     const peer = active.peer;
-    const labelRaw = peer && typeof peer.label === "string" ? peer.label.trim() : "";
-    const label = labelRaw || syncLinePeerKey || "Remote";
+    const labelRaw = typeof peer.label === "string" ? peer.label.trim() : "";
+    const label = labelRaw || syncLinePeerKey;
 
-    const ageDays =
-      typeof syncApi.computeAgeDays === "function" ? syncApi.computeAgeDays(peer) : null;
-    const light =
-      typeof syncApi.computeTrafficLight === "function"
-        ? syncApi.computeTrafficLight(ageDays)
-        : { level: "unknown", icon: "❔" };
-
-    syncLineLevel = light.level || "unknown";
-    const daysText =
-      typeof ageDays === "number" && Number.isFinite(ageDays)
-        ? `${ageDays} ${ageDays === 1 ? "Tag" : "Tage"}`
-        : "—";
+    const ageDays = syncApi.computeAgeDays(peer);
+    const light = syncApi.computeTrafficLight(ageDays);
+    syncLineLevel = light.level;
+    const daysText = `${ageDays} ${ageDays === 1 ? "Tag" : "Tage"}`;
 
     if (syncLineLevel === "green") {
       syncLineText.textContent = `${light.icon} Sync aktuell (${daysText} – ${label})`;
     } else if (syncLineLevel === "yellow") {
       syncLineText.textContent = `${light.icon} Sync alt (${daysText} – ${label})`;
-    } else if (syncLineLevel === "red") {
-      syncLineText.textContent = `${light.icon} Sync veraltet (${daysText} – ${label}) → jetzt synchronisieren`;
     } else {
-      syncLineText.textContent = `${light.icon} Sync-Status: unbekannt`;
+      syncLineText.textContent = `${light.icon} Sync veraltet (${daysText} – ${label}) → jetzt synchronisieren`;
     }
 
     const localSymbol =
-      opts.getLocalSymbol && typeof opts.getLocalSymbol === "function"
-        ? opts.getLocalSymbol()
-        : "";
-
-    syncLineTimeline.textContent =
-      typeof syncApi.buildAsciiTimeline === "function"
-        ? syncApi.buildAsciiTimeline(wallet, peer, { maxLen: 30, localSymbol })
-        : "Sync: ?";
+      typeof opts.getLocalSymbol === "function" ? opts.getLocalSymbol() : "";
+    syncLineTimeline.textContent = syncApi.buildAsciiTimeline(wallet, peer, {
+      maxLen: 30,
+      localSymbol,
+    });
 
     try {
       const common =
-        peer &&
         typeof peer.commonEventCount === "number" &&
         Number.isFinite(peer.commonEventCount)
           ? Math.max(0, Math.floor(peer.commonEventCount))
@@ -258,7 +179,7 @@
         if (!d || typeof d !== "object") continue;
         if (typeof d.symbol === "string" && d.symbol) bySymbol.set(d.symbol, d);
       }
-      const ordered = DEVICE_SYMBOLS.map((s) => bySymbol.get(s)).filter(Boolean);
+      const ordered = helpers.DEVICE_SYMBOLS.map((s) => bySymbol.get(s)).filter(Boolean);
       if (!ordered.length) {
         syncLineLegend.textContent = "";
         syncLineLegend.hidden = true;
@@ -272,7 +193,7 @@
           span.textContent = d.symbol + (idx === ordered.length - 1 ? "" : " ");
           const ts =
             typeof d.lastSeenAt === "number" && Number.isFinite(d.lastSeenAt)
-              ? formatSeen(d.lastSeenAt)
+              ? helpers.formatDateTime(d.lastSeenAt)
               : "";
           span.title = `Geräte-ID: ${d.deviceKey}${ts ? `\nZuletzt gesehen: ${ts}` : ""}`;
           syncLineLegend.appendChild(span);

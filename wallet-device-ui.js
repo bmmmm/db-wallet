@@ -5,11 +5,9 @@
   // group. The explanation is visible text, not a title tooltip (touch
   // devices never show those). Styling lives in style.css (.device-*).
 
-  // Canonical list lives in dbWalletHelpers; the literal is only a fallback for
-  // the (never-in-practice) case where helpers failed to load.
-  const DEVICE_SYMBOLS =
-    (window.dbWalletHelpers && window.dbWalletHelpers.DEVICE_SYMBOLS) ||
-    ["L", "M", "D", "K", "T", "*"];
+  const helpers = window.dbWalletHelpers;
+  if (!helpers) return;
+  const DEVICE_SYMBOLS = helpers.DEVICE_SYMBOLS;
 
   const OPTIONS_ID = "device-symbol-options";
 
@@ -28,25 +26,6 @@
     render();
   }
 
-  function ensureRoot() {
-    if (!opts) return null;
-    if (rootEl && rootEl.isConnected) return rootEl;
-
-    const existing = document.getElementById("device-symbol-selector");
-    if (existing) {
-      rootEl = existing;
-      return rootEl;
-    }
-    // Pages without the placeholder: append next to the user id.
-    if (!opts.elUid || !opts.elUid.parentNode) return null;
-    const root = document.createElement("div");
-    root.id = "device-symbol-selector";
-    root.className = "device-selector";
-    opts.elUid.parentNode.appendChild(root);
-    rootEl = root;
-    return rootEl;
-  }
-
   function call(name, arg) {
     return opts && typeof opts[name] === "function" ? opts[name](arg) : undefined;
   }
@@ -60,7 +39,7 @@
   }
 
   function render() {
-    const root = ensureRoot();
+    const root = rootEl;
     if (!root || !opts) return;
 
     if (!docListenerBound) {
@@ -150,13 +129,10 @@
     }
   }
 
-  function collapse() {
-    expanded = false;
-    render();
-  }
-
+  // #device-symbol-selector stands in wallet.html's header.
   function init(nextOpts) {
     opts = nextOpts || null;
+    rootEl = document.getElementById("device-symbol-selector");
     expanded = false;
     pendingFocus = null;
     render();
@@ -165,6 +141,5 @@
   window.dbWalletDeviceUI = {
     init,
     render,
-    collapse,
   };
 })();

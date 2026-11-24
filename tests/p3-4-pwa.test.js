@@ -71,9 +71,18 @@ test("every icon link on the app pages exists, is deployed and precached", () =>
   }
 });
 
-test("colors.html/colors.css are no longer precached (E6)", () => {
-  assert.ok(!APP_SHELL.includes("colors.html"));
-  assert.ok(!APP_SHELL.includes("colors.css"));
+// Catches a link to a removed file too (colors.html/colors.css are gone).
+test("every local href/src on the app pages exists, is deployed and precached", () => {
+  const bad = [];
+  for (const page of PAGES) {
+    for (const m of read(page).matchAll(/\b(?:href|src)="([^"#:]+)"/g)) {
+      const f = m[1].replace(/^\.\//, "");
+      if (!fs.existsSync(path.join(REPO, f))) bad.push(`${page}: ${f} missing`);
+      else if (!deployed(f)) bad.push(`${page}: ${f} not deployed`);
+      else if (!APP_SHELL.includes(f)) bad.push(`${page}: ${f} not in APP_SHELL`);
+    }
+  }
+  assert.deepEqual(bad, []);
 });
 
 function pngInfo(buf) {

@@ -14,41 +14,24 @@
   const UPDATE_LABEL = "Neu laden";
 
   // P5.3: the notice goes to the page's status line (sticky, with a reload
-  // button) instead of an inline-styled toast that ignored the theme and sat
-  // on top of the line's own notices. A later notice may replace it — the
-  // new version is active already, the next page load gets it anyway.
-  // Without the line (or the helpers) it builds an own box with the line's
-  // classes, so style.css still styles it.
-  function showUpdateToast() {
-    if (notified || !document.body) return;
+  // button). Only index.html and wallet.html load this script; both have the
+  // line and load wallet-helpers.js first. A later notice may replace it —
+  // the new version is active already, the next page load gets it anyway.
+  function showUpdateNotice() {
+    const helpers = window.dbWalletHelpers;
+    if (notified || !helpers) return;
     notified = true;
-    const reload = () => location.reload();
-    const helpers = window.dbWalletHelpers || null;
-    if (helpers && typeof helpers.notify === "function" && document.getElementById("status-line")) {
-      helpers.notify(UPDATE_TEXT, { sticky: true, action: { label: UPDATE_LABEL, run: reload } });
-      return;
-    }
-    const bar = document.createElement("div");
-    bar.className = "status-line update-toast is-visible";
-    const text = document.createElement("span");
-    text.className = "status-text";
-    text.setAttribute("role", "status");
-    text.textContent = UPDATE_TEXT;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "status-action";
-    btn.textContent = UPDATE_LABEL;
-    btn.addEventListener("click", reload);
-    bar.appendChild(text);
-    bar.appendChild(btn);
-    document.body.appendChild(bar);
+    helpers.notify(UPDATE_TEXT, {
+      sticky: true,
+      action: { label: UPDATE_LABEL, run: () => location.reload() },
+    });
   }
 
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     // Only notify when an EXISTING controller was replaced by a new deploy —
-    // never on the first install. A toast (not an auto-reload) so we don't
+    // never on the first install. A notice (not an auto-reload) so we don't
     // interrupt an in-progress booking.
-    if (hadController) showUpdateToast();
+    if (hadController) showUpdateNotice();
   });
 
   window.addEventListener("load", () => {

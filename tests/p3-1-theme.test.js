@@ -76,13 +76,22 @@ for (const name of NAMES) {
   });
 }
 
-test("style.css :root fallback equals Lilac Carbon", () => {
+// One copy of the theme values: bare :root (no data-theme yet) gets Lilac
+// Carbon from its rule in themes.css, style.css defines no theme token.
+test("Lilac Carbon is the :root fallback, defined once in themes.css", () => {
+  const css = THEMES_CSS.replace(/\/\*[\s\S]*?\*\//g, "");
+  const blocks = Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].split(",").map((x) => x.trim()));
+  const lilac = blocks.find((sels) => sels.includes(':root[data-theme="Lilac Carbon"]'));
+  assert.ok(lilac && lilac.includes(":root"), "the Lilac Carbon rule must also select bare :root");
+  assert.equal(blocks.filter((sels) => sels.includes(":root")).length, 1);
   const root = /(^|\n):root\s*\{([^}]*)\}/.exec(STYLE_CSS);
   assert.ok(root, ":root block not found");
-  const decls = parseDecls(root[2]);
-  const lilac = THEMES["Lilac Carbon"];
-  for (const k of Object.keys(lilac)) {
-    assert.equal(decls[k], lilac[k], k);
+  const tokens = Object.keys(parseDecls(root[2])).filter((k) => k in THEMES["Lilac Carbon"]);
+  assert.deepEqual(tokens, [], "theme tokens in style.css :root");
+  for (const page of ["index.html", "wallet.html", "preview.html"]) {
+    const html = read(page);
+    const at = (f) => html.indexOf(`<link rel="stylesheet" href="${f}" />`);
+    assert.ok(at("style.css") >= 0 && at("themes.css") > at("style.css"), page);
   }
 });
 
@@ -93,35 +102,55 @@ test("style.css: one visible :focus-visible ring, no outline:none, no fixed cyan
   assert.doesNotMatch(STYLE_CSS, /rgba\(\s*125,\s*211,\s*252/);
 });
 
-test("colors.html swatch labels match themes.css", () => {
-  const html = read("colors.html");
-  const slug = (n) => n.toLowerCase().replace(/ /g, "-");
-  for (const name of NAMES) {
-    const start = html.indexOf(`data-scheme="${slug(name)}"`);
-    assert.ok(start > 0, name);
-    const end = html.indexOf("</section>", start);
-    const part = html.slice(start, end);
-    const pairs = {};
-    for (const m of part.matchAll(
-      /<div class="token">([a-z-]+)<\/div>\s*<div class="value">(#[0-9a-fA-F]{6})<\/div>/g,
-    )) {
-      pairs["--" + m[1]] = m[2].toLowerCase();
-    }
-    for (const k of ["--bg", "--panel", "--border", "--accent", "--accent-strong", ...TEXT_VARS]) {
-      assert.equal(pairs[k], THEMES[name][k], `${name} ${k}`);
-    }
+// Top-level and @media-nested rules as {selectors, body}; comments dropped.
+function cssRules(css) {
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  return Array.from(src.matchAll(/([^{}]+)\{([^{}]*)\}/g), (m) => ({
+    selectors: m[1].replace(/@media[^{]*$/, "").split(",").map((x) => x.trim().replace(/\s+/g, " ")),
+    body: m[2],
+  }));
+}
+
+// The three collapsible blocks clip their content (overflow: hidden, for the
+// rounded corners), which also clips a focus ring drawn outside the summary
+// (:focus-visible, outline-offset 2px). Their summaries draw it inside.
+test("style.css: the focus ring of a clipped <details> summary is drawn inside", () => {
+  const all = cssRules(STYLE_CSS);
+  const panels = ["action-codes", "wallet-actions", "theme"];
+  for (const p of panels) {
+    const clip = all.find((r) => r.selectors.includes(`.${p}-panel`) && /overflow:\s*hidden/.test(r.body));
+    assert.ok(clip, `.${p}-panel no longer clips: drop this test`);
+    const ring = all.find((r) => r.selectors.includes(`.${p}-summary:focus-visible`));
+    assert.ok(ring, `.${p}-summary:focus-visible rule missing`);
+    const off = /outline-offset:\s*(-?\d+)px/.exec(ring.body);
+    assert.ok(off && Number(off[1]) <= -2, `.${p}-summary: outline-offset must be <= -2px (ring width)`);
   }
 });
 
-test("app pages: theme note no longer links colors.html (E6)", () => {
-  for (const f of ["index.html", "wallet.html"]) {
-    assert.doesNotMatch(read(f), /href="colors\.html"/, f);
+// The page background follows the theme: the two radial highlights are
+// mixed from --accent (no fixed blue from the old theme on every theme).
+// color-mix() sits only in background-image, so a browser without it drops
+// the highlights, not the --bg colour.
+test("style.css: the page background is tinted by the theme, never a fixed colour", () => {
+  const root = cssRules(STYLE_CSS).find((r) => r.selectors.length === 1 && r.selectors[0] === ":root");
+  assert.ok(root, ":root rule missing");
+  assert.match(root.body, /(^|;)\s*background-color:\s*var\(--bg\)\s*;/);
+  assert.doesNotMatch(root.body, /(^|;)\s*background\s*:/, "no background shorthand on :root");
+  const image = /(^|;)\s*background-image:([^;]*);/.exec(root.body);
+  assert.ok(image, "background-image missing");
+  assert.doesNotMatch(image[2], /rgba?\(|#[0-9a-f]{3,8}\b/i, "fixed colour in the background");
+  assert.match(image[2], /radial-gradient/);
+  assert.match(image[2], /color-mix\(in srgb, var\(--accent\)/);
+  for (const r of cssRules(STYLE_CSS)) {
+    for (const d of r.body.split(";")) {
+      if (d.includes("color-mix(")) assert.match(d, /^\s*background-image\s*:/, r.selectors.join(", "));
+    }
   }
 });
 
 // --- theme.js in a vm ------------------------------------------------------
 
-function loadThemeJs({ light = false, stored = null } = {}) {
+function loadThemeJs({ light = false, stored = null, label = null } = {}) {
   const store = new Map();
   if (stored) store.set("db-wallet:theme", stored);
   const attrs = {};
@@ -165,7 +194,8 @@ function loadThemeJs({ light = false, stored = null } = {}) {
       },
       querySelector: (sel) => (sel === 'meta[name="theme-color"]' ? meta : null),
       querySelectorAll: (sel) => (sel === ".theme-btn" ? buttons : []),
-      getElementById: (id) => (id === "theme-buttons" ? container : null),
+      getElementById: (id) =>
+        id === "theme-buttons" ? container : id === "current-theme-name" ? label : null,
       createElement: mkEl,
     },
   };
@@ -223,4 +253,22 @@ test("OS switch is followed only while nothing is stored", () => {
   env.ctx.dbWalletTheme.applyTheme("Slate Sunrise");
   env.listeners[0]();
   assert.equal(env.attrs["data-theme"], "Slate Sunrise");
+});
+
+// wallet.html shows the theme's name in the panel summary; it must follow
+// every change, the OS switch without a stored theme too (theme.js applies
+// it, wallet-ui.js only knew about clicks).
+test("#current-theme-name follows the selector and the OS switch", () => {
+  const label = { textContent: "Lilac Carbon" };
+  const env = loadThemeJs({ light: false, label });
+  env.ctx.dbWalletTheme.initThemeSelector();
+  assert.equal(label.textContent, "Lilac Carbon");
+  env.ctx.matchMedia = (q) => ({ matches: q.includes("light") });
+  env.listeners[0]();
+  assert.equal(env.attrs["data-theme"], "Paper Mint");
+  assert.equal(label.textContent, "Paper Mint");
+  env.buttons.find((b) => b.dataset.theme === "Teal Ember")._click();
+  assert.equal(label.textContent, "Teal Ember");
+  env.ctx.dbWalletTheme.applyTheme("Nord Glow"); // legacy alias (import)
+  assert.equal(label.textContent, "Lilac Carbon");
 });
