@@ -61,10 +61,6 @@
         return prefersLight() ? DEFAULT_LIGHT_THEME : DEFAULT_DARK_THEME;
     }
 
-    function getCurrentTheme() {
-        return getStoredTheme() || getDefaultTheme();
-    }
-
     function setThemeColorMeta(name) {
         const color = THEME_BG[name];
         if (!color) return;
@@ -112,18 +108,12 @@
         return applyTheme(stored || getDefaultTheme(), { persist: !!stored });
     }
 
-    function initThemeSelector(options = {}) {
-        const container =
-            options.container ||
-            document.getElementById(options.containerId || "theme-buttons");
+    function initThemeSelector() {
+        const container = document.getElementById("theme-buttons");
         if (!container) return;
 
         container.innerHTML = "";
-        const names = Array.isArray(options.names)
-            ? options.names
-            : SELECTABLE_THEME_NAMES;
-
-        names.forEach((themeName) => {
+        SELECTABLE_THEME_NAMES.forEach((themeName) => {
             const btn = document.createElement("button");
             btn.type = "button";
             btn.className = "theme-btn";
@@ -138,15 +128,11 @@
 
     window.dbWalletTheme = {
         THEME_KEY,
-        SELECTABLE_THEME_NAMES,
         THEME_BG,
         canonicalThemeName,
         isSelectableThemeName,
         getStoredTheme,
-        getDefaultTheme,
-        getCurrentTheme,
         applyTheme,
-        highlightActiveTheme,
         initThemeSelector,
     };
 
