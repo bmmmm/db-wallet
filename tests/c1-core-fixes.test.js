@@ -186,3 +186,42 @@ test("findUserIdByWalletId names the wallet by its key, like getAllWallets", () 
   assert.equal(S.loadWallet("anna").walletId, stored.walletId);
   assert.equal(S.findUserIdByWalletId("ZZZZZZZZZZZZZZZZ"), null);
 });
+
+test("decodeActionHash reads only address and key, also from a legacy v1 payload", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const AC = w.dbWalletActionCodes;
+  const legacy = AC.encodeActionHash({
+    v: 1,
+    walletId: "AAAAAAAAAAAAAAAA",
+    codeId: "code-legacy",
+    key: "key-legacy",
+    type: "d",
+    ts: 123,
+  });
+  assert.deepEqual(plain(AC.decodeActionHash(legacy)), {
+    walletId: "AAAAAAAAAAAAAAAA",
+    codeId: "code-legacy",
+    key: "key-legacy",
+  });
+  assert.equal(AC.decodeActionHash("ac:"), null);
+  assert.equal(AC.decodeActionHash("acg:x"), null);
+});
+
+test("global code amounts clamp to 1..100 (junk = 1) wherever a code is built or stored", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const AC = w.dbWalletActionCodes;
+  assert.equal(AC.buildGlobalCode({ type: "d", amount: "x" }).amount, 1);
+  assert.equal(AC.buildGlobalCode({ type: "d", amount: 500 }).amount, 100);
+  const stored = AC.normalizeGlobalActionCodes([
+    { id: "global:a", type: "g", amount: 0, label: "", createdAt: 1, updatedAt: 1 },
+  ]);
+  assert.equal(stored[0].amount, 1);
+  assert.equal(stored[0].label, "Guthaben +1");
+  const wallet = w.dbWalletStorage.loadWallet("anna");
+  const g = AC.createActionCode(wallet, { scope: "global", type: "d", amount: "7", label: "" });
+  const edited = AC.editActionCode(g.wallet, g.code.id, { type: "d", amount: "250", label: "" });
+  assert.equal(edited.code.amount, 100);
+  assert.equal(edited.code.label, "Drink +100");
+  const url = AC.buildActionUrl(edited.wallet, { scope: "global", type: "d", amount: "junk" }, "");
+  assert.equal(AC.decodeGlobalActionHash(url.slice(1)).n, 1);
+});

@@ -12,7 +12,7 @@
   const SOFT_LIMIT = 6;
   const HARD_LIMIT = 10;
 
-  const { base64UrlEncode, base64UrlDecode, safeParse, randomToken } = helpers;
+  const { base64UrlEncode, base64UrlDecode, safeParse, randomToken, cmpStr } = helpers;
 
   const MAX_AMOUNT =
     typeof helpers.MAX_EVENT_AMOUNT === "number" ? helpers.MAX_EVENT_AMOUNT : 1e9;
@@ -43,6 +43,12 @@
     const rounded = Math.round(n);
     const clamped = Math.min(GLOBAL_ACTION_MAX_AMOUNT, Math.max(1, rounded));
     return clamped;
+  }
+
+  // A stored or built global code's amount: clamped to 1..100, 1 for junk.
+  function globalAmount(value) {
+    const n = clampGlobalAmount(value);
+    return n === null ? 1 : n;
   }
 
   function normalizeGlobalAmount(value) {
@@ -122,8 +128,7 @@
 
   function buildGlobalCode(data, now = Date.now()) {
     const type = normalizeType(data && data.type);
-    const amountRaw = clampGlobalAmount(data && data.amount);
-    const amount = amountRaw === null ? 1 : amountRaw;
+    const amount = globalAmount(data && data.amount);
     const labelRaw = data && typeof data.label === "string" ? data.label : "";
     const label =
       String(labelRaw || "").trim() || defaultLabelForType(type, amount);
@@ -206,7 +211,7 @@
     if (ac !== bc) return bc - ac;
     const aid = a && typeof a.id === "string" ? a.id : "";
     const bid = b && typeof b.id === "string" ? b.id : "";
-    return aid.localeCompare(bid);
+    return cmpStr(aid, bid);
   }
 
   // `idPrefix` is for the global wrapper: an id minted here (missing or
@@ -230,10 +235,7 @@
       } else if (!code.createdAt) {
         code.createdAt = code.updatedAt;
       }
-      if (!code.label) {
-        const typeLabel = code.type === "d" ? "Drink" : "Guthaben";
-        code.label = `${typeLabel} +${code.amount}`;
-      }
+      if (!code.label) code.label = defaultLabelForType(code.type, code.amount);
 
       let id = code.id;
       while (seen.has(id)) {
@@ -264,8 +266,7 @@
     const out = normalized.map((c) => {
       delete c.key;
       c.scope = "global";
-      const amount = clampGlobalAmount(c.amount);
-      c.amount = amount === null ? 1 : amount;
+      c.amount = globalAmount(c.amount);
       return c;
     });
     if (typeof normalized._dbwTrimmed === "number") {
@@ -469,14 +470,9 @@
       typeof payload.walletId === "string" ? payload.walletId : "";
     const codeId = typeof payload.codeId === "string" ? payload.codeId : "";
     const key = typeof payload.key === "string" ? payload.key : "";
-    const v =
-      typeof payload.v === "number" && Number.isFinite(payload.v)
-        ? payload.v
-        : 1;
-    const out = { v, walletId, codeId, key };
-    const type = typeof payload.type === "string" ? payload.type.trim() : "";
-    if (type === "d" || type === "g") out.type = type;
-    return out;
+    // Only the address and the secret: a booking takes the stored code's type
+    // and amount, so whatever else an old (v1) payload carried is ignored.
+    return { walletId, codeId, key };
   }
 
   function ensureWalletActionCodes(wallet) {
@@ -575,8 +571,7 @@
       applyActionCodeEdits(current, change, now);
     } else {
       current.type = normalizeType(change && change.type);
-      const amount = clampGlobalAmount(change && change.amount);
-      current.amount = amount === null ? 1 : amount;
+      current.amount = globalAmount(change && change.amount);
       const label = String((change && change.label) || "").trim();
       current.label = label || defaultLabelForType(current.type, current.amount);
       current.updatedAt = now;
@@ -599,11 +594,10 @@
     const base = String(baseUrl || "");
     if (normalizeScope(code && code.scope) === "global") {
       const label = code && typeof code.label === "string" ? code.label.trim() : "";
-      const amount = clampGlobalAmount(code && code.amount);
       const payload = {
         v: GLOBAL_ACTION_VERSION,
         t: normalizeType(code && code.type),
-        n: amount === null ? 1 : amount,
+        n: globalAmount(code && code.amount),
       };
       if (label) payload.l = label;
       const hash = encodeGlobalActionHash(payload);
