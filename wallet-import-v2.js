@@ -1550,11 +1550,7 @@
       const built = buildImportedWallet(remote);
       const theme =
         remote && typeof remote.theme === "string" ? remote.theme : "";
-      const ok = openPreview({
-        source: "hash",
-        wallet: built.wallet,
-        theme,
-      });
+      const ok = openPreview({ wallet: built.wallet, theme });
       if (ok) return { userId: null, redirectedToPreview: true };
       return leaveCancelledImport(options);
     }

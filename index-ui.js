@@ -463,11 +463,7 @@
         const wallet = built.wallet;
 
         if (mode === "preview" && openPreview) {
-          openPreview({
-            source: "json",
-            wallet,
-            theme: importedTheme,
-          });
+          openPreview({ wallet, theme: importedTheme });
           return;
         }
 

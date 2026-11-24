@@ -529,6 +529,37 @@ test("import choice: no inline styles left in import-preview.js", () => {
   assert.match(CSS, /\.import-choice-cancel\s*\{[^}]*box-sizing:\s*border-box;[^}]*margin:\s*0/);
 });
 
+// preview.html: the cached payload renders read-only; its theme is shown but
+// never stored, and a name outside the theme whitelist is ignored.
+function previewPage(payload) {
+  const document = makePageDocument(read("preview.html"));
+  document.body.dataset.page = "preview";
+  const w = makeEnv({
+    document,
+    url: BASE + "preview.html#tok",
+    files: ["theme.js", "wallet-helpers.js", "wallet-summary.js", "import-preview.js"],
+  });
+  w.sessionStorage.setItem("db-wallet:import-cache:tok", JSON.stringify(payload));
+  document._fire("DOMContentLoaded");
+  const text = (id) => document.getElementById(id).textContent;
+  return { w, document, text };
+}
+
+test("preview page: renders the payload, shows its theme without storing it", () => {
+  const src = makeEnv({ deviceKey: "devA" });
+  const wallet = src.dbWalletStorage.loadWallet("max");
+  src.dbWalletStorage.appendEvents(wallet, [src.dbWalletStorage.newEvent(wallet, "d", 3)]);
+  const { w, document, text } = previewPage({ wallet: plain(wallet), theme: "Cyan Mist" });
+  assert.equal(text("uid"), "max");
+  assert.equal(text("unpaid"), "3");
+  assert.equal(document.documentElement.getAttribute("data-theme"), "Teal Ember");
+  assert.equal(w.localStorage.getItem("db-wallet:theme"), null);
+
+  const bad = previewPage({ wallet: plain(wallet), theme: "x\" onload=\"" });
+  assert.equal(bad.document.documentElement.getAttribute("data-theme"), "Lilac Carbon");
+  assert.equal(bad.w.localStorage.getItem("db-wallet:theme"), null);
+});
+
 test("the no-wallet CSS keeps an open <dialog> visible", () => {
   const rule = CSS.match(/body\[data-no-wallet="1"\] > ([^{]+)\{/);
   assert.match(rule[1], /:not\(dialog\)/);

@@ -104,7 +104,7 @@
         btn.appendChild(st);
         return btn;
       };
-      const btnPersist = makeChoice("Lokal importieren", "(wie bisher)");
+      const btnPersist = makeChoice("Lokal importieren", "(auf diesem Gerät speichern)");
       const btnPreview = makeChoice("Nur ansehen", "(Read-Only, nicht speichern)");
 
       const btnCancel = document.createElement("button");
@@ -197,35 +197,6 @@
     return true;
   }
 
-  function computeSummary(wallet) {
-    return summaryApi.computeSummarySafe(wallet);
-  }
-
-  function formatPerDayDiagram(perDay) {
-    return summaryApi.formatPerDayDiagram(perDay);
-  }
-
-  function applyThemeTransient(themeName) {
-    const api = window.dbWalletTheme || null;
-    const canonical =
-      api && typeof api.canonicalThemeName === "function"
-        ? api.canonicalThemeName(themeName)
-        : String(themeName || "").trim();
-    if (!canonical) return false;
-    // Gate on the theme whitelist exactly like theme.js applyTheme: an imported
-    // wallet's theme string is attacker-controlled, so an out-of-whitelist value
-    // must be ignored, not written raw as a data-theme attribute.
-    if (
-      api &&
-      typeof api.isSelectableThemeName === "function" &&
-      !api.isSelectableThemeName(canonical)
-    ) {
-      return false;
-    }
-    document.documentElement.setAttribute("data-theme", canonical);
-    return true;
-  }
-
   function renderPreviewPage(token) {
     const payload = cacheGet(token);
     const wallet = payload && payload.wallet ? payload.wallet : null;
@@ -262,11 +233,13 @@
       return;
     }
 
-    if (theme) {
-      applyThemeTransient(theme);
-    }
+    // theme.js (in preview.html's <head>) checks the name against its
+    // whitelist — the imported theme string is untrusted — and persist:false
+    // keeps the user's own stored theme.
+    const themeApi = window.dbWalletTheme || null;
+    if (theme && themeApi) themeApi.applyTheme(theme, { persist: false });
 
-    const summary = computeSummary(wallet);
+    const summary = summaryApi.computeSummarySafe(wallet);
 
     if (elUid) elUid.textContent = summary.userId || "unbekannt";
     if (elWalletVersion) elWalletVersion.textContent = `v${summary.v || 1}`;
@@ -278,7 +251,7 @@
       if (!summary.perDay.length) {
         elHistory.textContent = "Noch keine Drinks geloggt. ✨";
       } else {
-        const lines = formatPerDayDiagram(summary.perDay.slice().reverse());
+        const lines = summaryApi.formatPerDayDiagram(summary.perDay.slice().reverse());
         elHistory.textContent = lines.join("\n");
       }
     }
@@ -293,9 +266,5 @@
   window.dbWalletImportPreview = {
     chooseImportMode,
     openPreview,
-    cacheSet,
-    cacheGet,
-    cacheDelete,
-    computeSummary,
   };
 })();
