@@ -93,32 +93,6 @@ test("style.css: one visible :focus-visible ring, no outline:none, no fixed cyan
   assert.doesNotMatch(STYLE_CSS, /rgba\(\s*125,\s*211,\s*252/);
 });
 
-test("colors.html swatch labels match themes.css", () => {
-  const html = read("colors.html");
-  const slug = (n) => n.toLowerCase().replace(/ /g, "-");
-  for (const name of NAMES) {
-    const start = html.indexOf(`data-scheme="${slug(name)}"`);
-    assert.ok(start > 0, name);
-    const end = html.indexOf("</section>", start);
-    const part = html.slice(start, end);
-    const pairs = {};
-    for (const m of part.matchAll(
-      /<div class="token">([a-z-]+)<\/div>\s*<div class="value">(#[0-9a-fA-F]{6})<\/div>/g,
-    )) {
-      pairs["--" + m[1]] = m[2].toLowerCase();
-    }
-    for (const k of ["--bg", "--panel", "--border", "--accent", "--accent-strong", ...TEXT_VARS]) {
-      assert.equal(pairs[k], THEMES[name][k], `${name} ${k}`);
-    }
-  }
-});
-
-test("app pages: theme note no longer links colors.html (E6)", () => {
-  for (const f of ["index.html", "wallet.html"]) {
-    assert.doesNotMatch(read(f), /href="colors\.html"/, f);
-  }
-});
-
 // --- theme.js in a vm ------------------------------------------------------
 
 function loadThemeJs({ light = false, stored = null } = {}) {
