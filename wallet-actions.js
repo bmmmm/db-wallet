@@ -4,12 +4,7 @@
   const summaryApi = window.dbWalletSummary || null;
   if (!helpers || !storage || !summaryApi) return;
 
-  const {
-    randomId,
-    randomWalletId,
-    safeLocalStorageRemoveItem,
-    MAX_EVENT_AMOUNT,
-  } = helpers;
+  const { randomId, randomWalletId, MAX_EVENT_AMOUNT } = helpers;
   const {
     saveWallet,
     newEvent,
@@ -345,14 +340,6 @@
         "Zurücksetzen fehlgeschlagen: Speichern nicht möglich (Speicher voll oder blockiert). Das Wallet ist unverändert.",
       );
       return false;
-    }
-    // Drop the pre-v2 storage key of this wallet, if any (migration leftover).
-    if (
-      typeof wallet.userId === "string" &&
-      wallet.userId &&
-      !wallet.userId.includes(":")
-    ) {
-      safeLocalStorageRemoveItem(wallet.userId);
     }
     ctx.setWallet(next);
     ctx.refreshActionCodesUi();

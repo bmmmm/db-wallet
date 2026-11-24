@@ -54,3 +54,16 @@ test("deleting a moved pay names the drinks it re-opens (same count as undo)", (
   assert.equal(w.dbWalletActions.deleteEntry(ctx, pay.id), true);
   assert.match(state.confirms[state.confirms.length - 1], /danach sind 2 Getränke wieder offen/);
 });
+
+test("reset leaves a bare localStorage key of the same name alone (another app's)", () => {
+  // bmmmm.github.io is one origin for every Pages project: "test" may be
+  // another app's key, the wallet lives under "db-wallet:test".
+  const w = makeEnv({ deviceKey: "devA" });
+  const S = w.dbWalletStorage;
+  w.localStorage.setItem("test", "other app");
+  book(w, "test", "d", 1, Date.now() - DAY);
+  const { ctx, state } = makeActionsCtx(w, S.loadWallet("test"));
+  assert.equal(w.dbWalletActions.resetWallet(ctx), true);
+  assert.equal(state.wallet.events.length, 0);
+  assert.equal(w.localStorage.getItem("test"), "other app");
+});
