@@ -1380,12 +1380,12 @@
       const remoteEvents = Array.isArray(remote && remote.events)
         ? remote.events
         : [];
-      const peerEventCount = remoteEvents.length;
 
       peer.updatedAt = Date.now();
-      peer.peerEventCount = peerEventCount;
-      // One-way import: common = remote events (all now in local), not merged length — otherwise local-only events never show as sync-delta.
-      peer.commonEventCount = Math.min(peerEventCount, local.events.length);
+      // One-way import: common = remote events (all now in local), not merged
+      // length — otherwise local-only events never show as sync-delta. (The
+      // sync line reads only this and updatedAt.)
+      peer.commonEventCount = Math.min(remoteEvents.length, local.events.length);
       local.syncPeers[peerKey] = peer;
     } catch (e) {
       console.warn("db-wallet: import sync-peer tracking failed", e);
