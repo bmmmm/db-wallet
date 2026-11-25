@@ -461,3 +461,18 @@ test("wallet.html: storage full at the migration save — nothing lost, the page
   assertNoDuplicates(after.events, "stored");
   assert.equal(summaryOf(w, after).total, V1_SUMMARY.total + 1);
 });
+
+test("the migration UI is gone: no button, no version label, no prompt", () => {
+  const hits = (f, re) => (read(f).match(re) || []).join(" ");
+  assert.equal(hits("wallet.html", /btn-migrate|wallet-version/g), "");
+  assert.equal(hits("style.css", /#btn-migrate|\.wallet-version/g), "");
+  assert.equal(hits("wallet-ui.js", /prompt\(/g), "");
+  assert.equal(
+    hits("wallet-ui.js", /runMigrationDialog|migrateWalletNow|needsMigration|getWalletVersion|btnMigrate|elWalletVersion|updateHeaderUi/g),
+    "",
+  );
+  assert.equal(hits("wallet-export-ui.js", /needsMigration|runMigrationDialog|nach Migration/g), "");
+  assert.equal(hits("wallet-actions.js", /updateHeaderUi/g), "");
+  // The migration itself stays: the import merge and loadWallet use it.
+  assert.match(read("migration.js"), /window\.dbWalletMigrateV1toV2 = /);
+});

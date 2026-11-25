@@ -91,7 +91,6 @@ test("JS: every display toggle treats an unset inline display as hidden", () => 
 test("style.css hides what the pages used to hide inline", () => {
   const css = read("style.css");
   for (const id of [
-    "btn-migrate",
     "pay-options",
     "export-options",
     "export-url",

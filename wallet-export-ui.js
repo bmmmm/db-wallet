@@ -292,69 +292,42 @@
     } catch (e) {
       // handled by the "QR library missing" path
     }
-    let attempts = 0;
-    while (attempts < 2) {
-      attempts++;
-      let url = "";
-      try {
-        url = await buildQrUrl();
-        renderQrCode(url);
-        return;
-      } catch (e) {
-        clearQr();
-        console.error("QR export failed", e);
+    let url = "";
+    try {
+      url = await buildQrUrl();
+      renderQrCode(url);
+      return;
+    } catch (e) {
+      clearQr();
+      console.error("QR export failed", e);
 
-        const msg = String(e && e.message ? e.message : e || "");
-        if (msg.includes("QR library missing")) {
-          if (url) {
-            showCompactLinkInstead(url, "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt).", {
-              kind: "error",
-            });
-          } else {
-            helpers.notify("QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt).", {
-              kind: "error",
-            });
-          }
-          return;
+      const msg = String(e && e.message ? e.message : e || "");
+      if (msg.includes("QR library missing")) {
+        if (url) {
+          showCompactLinkInstead(url, "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt).", {
+            kind: "error",
+          });
+        } else {
+          helpers.notify("QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt).", {
+            kind: "error",
+          });
         }
-
-        if (msg.includes("Data too long")) {
-          if (opts.needsMigration && opts.needsMigration()) {
-            const migrated = opts.runMigrationDialog(
-              "Zu groß für QR-Export mit v1-Daten. Bitte migrieren.",
-              true,
-            );
-            if (!migrated) return;
-            continue;
-          }
-          if (url) {
-            showCompactLinkInstead(url, "Zu groß für einen QR-Code.");
-          } else {
-            helpers.notify("Zu groß für QR-Export. Nutze den JSON-Download.", {
-              kind: "error",
-            });
-          }
-          return;
-        }
-
-        if (opts.needsMigration && opts.needsMigration()) {
-          const migrated = opts.runMigrationDialog(
-            "QR-Export ist zu groß oder instabil mit v1-Daten. Bitte migrieren.",
-            true,
-          );
-          if (!migrated) return;
-          continue;
-        }
-        helpers.notify("QR-Code konnte nicht erzeugt werden.", { kind: "error" });
         return;
       }
+
+      if (msg.includes("Data too long")) {
+        if (url) {
+          showCompactLinkInstead(url, "Zu groß für einen QR-Code.");
+        } else {
+          helpers.notify("Zu groß für QR-Export. Nutze den JSON-Download.", {
+            kind: "error",
+          });
+        }
+        return;
+      }
+
+      helpers.notify("QR-Code konnte nicht erzeugt werden.", { kind: "error" });
     }
-    // Reached only if every attempt (incl. post-migration retries) failed
-    // without returning — never leave the user without feedback.
-    helpers.notify(
-      "QR-Code konnte nach Migration nicht erzeugt werden. Bitte den JSON-Download nutzen.",
-      { kind: "error" },
-    );
   }
 
   function init(nextOpts) {
