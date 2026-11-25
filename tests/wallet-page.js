@@ -25,7 +25,10 @@ const PAGE_FILES = pageFiles(HTML);
 const BASE = "https://example.invalid/wallet.html";
 
 // opts: hash (start fragment, without "#"), storage, deviceKey, seed(w) to
-// prepare storage before the boot (runs in a throwaway env on the same storage).
+// prepare storage before the boot (runs in a throwaway env on the same storage),
+// beforeBoot(w) on the page's own env right before DOMContentLoaded (for a boot
+// that waits for the user, e.g. the acg: wallet choice: start bootWalletPage
+// without awaiting it, answer on that env, then await it).
 // For another release (scripts/upgrade-check.js; `seed` still runs this repo's
 // modules — prepare `storage` yourself instead):
 //   root            — directory of wallet.html and the scripts, default REPO;
@@ -71,6 +74,7 @@ async function bootWalletPage(opts = {}) {
     },
   });
   w._uidWrites = () => uidWrites;
+  if (opts.beforeBoot) opts.beforeBoot(w);
   await Promise.all(document._fire("DOMContentLoaded"));
   return w;
 }
@@ -112,4 +116,27 @@ async function flushHashChanges(w) {
   throw new Error("flushHashChanges: the hashchange handlers kept queueing new ones");
 }
 
-module.exports = { bootWalletPage, flushHashChanges, emulateScriptLoads, pageFiles, PAGE_FILES, BASE };
+// Seed for bootWalletPage: wallet "max" with one booking of n drinks; n = 0
+// saves it empty.
+function seedOpen(n) {
+  return (e) => {
+    const S = e.dbWalletStorage;
+    const x = S.loadWallet("max");
+    if (n > 0) S.appendEvents(x, [S.newEvent(x, "d", n)]);
+    else S.saveWallet(x);
+  };
+}
+
+// The text of the page's status line (#status-text, helpers.notify).
+const statusText = (w) => w.document.getElementById("status-text").textContent;
+
+module.exports = {
+  bootWalletPage,
+  flushHashChanges,
+  emulateScriptLoads,
+  pageFiles,
+  seedOpen,
+  statusText,
+  PAGE_FILES,
+  BASE,
+};

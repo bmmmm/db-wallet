@@ -8,25 +8,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { bootWalletPage } = require("./wallet-page");
-const { makeEnv, plain, REPO } = require("./harness");
+const { bootWalletPage, seedOpen, statusText } = require("./wallet-page");
+const { makeEnv, plain, settle, REPO } = require("./harness");
 const { makeFakeDocument } = require("./fake-dom");
 
 const read = (f) => fs.readFileSync(path.join(REPO, f), "utf8");
 const $ = (w, id) => w.document.getElementById(id);
-const statusText = (w) => $(w, "status-text").textContent;
 const isError = (w) => $(w, "status-line").classList.contains("is-error");
-const settle = () => new Promise((r) => setTimeout(r, 0));
-
-function seedOpen(n) {
-  return (e) => {
-    const S = e.dbWalletStorage;
-    const x = S.loadWallet("max");
-    if (n > 0) S.appendEvents(x, [S.newEvent(x, "d", n)]);
-    else S.saveWallet(x);
-  };
-}
-
 // Gives the page's #confirm-dialog the two methods of HTMLDialogElement the
 // helper uses, and records what it showed.
 function fakeDialog(w) {

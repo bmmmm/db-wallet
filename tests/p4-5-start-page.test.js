@@ -9,7 +9,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { makeEnv, makeStorage, plain, REPO } = require("./harness");
+const { makeEnv, makeStorage, plain, settle, waitFor, REPO } = require("./harness");
 const { makePageDocument, makeFakeDocument, FakeElement, find, findAll } = require("./fake-dom");
 
 const read = (f) => fs.readFileSync(path.join(REPO, f), "utf8");
@@ -20,7 +20,6 @@ const INDEX_FILES = Array.from(INDEX_HTML.matchAll(/<script src="(?:\.\/)?([^"]+
   .map((m) => m[1])
   .filter((f) => !INDEX_SKIP.has(f));
 const BASE = "https://example.invalid/";
-const settle = () => new Promise((r) => setTimeout(r, 0));
 
 // Seeds wallets (name → number of drinks) on a fresh storage.
 function seedStorage(wallets) {
@@ -429,6 +428,10 @@ test("index.html#i2:…: the 'open in wallet.html?' question uses the dialog", a
       shown = fakeDialog(w).shown;
     },
   });
+  // The question waits for the link's wallet id; an i2: link is gunzipped
+  // first, on real time. Clicking before it is shown answers nothing, and the
+  // boot would wait forever.
+  await waitFor(() => shown.length, "the import question");
   await settle();
   assert.equal(shown.length, 1);
   assert.match(shown[0], /Import Link erkannt/);
@@ -466,7 +469,7 @@ test("index.html#…: the question names the local wallet a link belongs to", as
         shown = fakeDialog(w).shown;
       },
     });
-    await settle();
+    await waitFor(() => shown.length, "the question for " + hash.slice(0, 8));
     await settle();
     assert.equal(shown.length, 1, hash.slice(0, 8));
     assert.match(shown[0], expected, hash.slice(0, 8));
@@ -476,8 +479,15 @@ test("index.html#…: the question names the local wallet a link belongs to", as
 });
 
 test("index.html#i2:…: 'Abbrechen' drops the link from the address bar", async () => {
-  const w = await bootIndex({ hash: "i2:AAAA", noWait: true, beforeBoot: (w) => fakeDialog(w) });
-  await settle();
+  let shown;
+  const w = await bootIndex({
+    hash: "i2:AAAA",
+    noWait: true,
+    beforeBoot: (w) => {
+      shown = fakeDialog(w).shown;
+    },
+  });
+  await waitFor(() => shown.length, "the import question");
   $(w, "confirm-cancel").click();
   await w._booted;
   assert.deepEqual(w._nav.pageLoads, []);

@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bootWalletPage, BASE } = require("./wallet-page");
-const { makeEnv, plain } = require("./harness");
+const { makeEnv, plain, waitFor } = require("./harness");
 
 function seed700(e) {
   const S = e.dbWalletStorage;
@@ -20,14 +20,6 @@ function seed700(e) {
     evs.push(ev);
   }
   assert.equal(S.appendEvents(wallet, evs), true);
-}
-
-async function waitFor(pred, what) {
-  for (let i = 0; i < 500; i++) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error("timeout waiting for " + what);
 }
 
 test("700 events: QR too large, export offers a working i2: link", async () => {

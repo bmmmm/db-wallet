@@ -44,4 +44,8 @@ jobs:
       - name: Run node tests
         run: |
           node --version
-          node --test tests/
+          # A test whose await never settles fails after 60 s with its name;
+          # --test-force-exit ends the run even if it left a handle open
+          # (otherwise the runner waits for the child at 0 % CPU until the
+          # job timeout).
+          node --test --test-timeout=60000 --test-force-exit tests/

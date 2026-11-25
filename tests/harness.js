@@ -258,4 +258,33 @@ function plain(v) {
   return v === undefined ? undefined : JSON.parse(JSON.stringify(v));
 }
 
-module.exports = { makeEnv, makeStorage, makeNav, plain, REPO, DEFAULT_FILES };
+// The stored record of wallet `userId` in `storage`, parsed; null if none.
+function persisted(storage, userId) {
+  const raw = storage.getItem("db-wallet:" + userId);
+  return raw ? JSON.parse(raw) : null;
+}
+
+// Lets what a click or a call started run to its end: promise chains, a
+// confirm dialog's answer, an emulated <script> load (one setImmediate), a
+// setTimeout(0) (focus after a render). Work on real time (gzip in the
+// export, a debounce) is not covered: wait for its outcome with waitFor.
+async function settle() {
+  for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setTimeout(r, 5));
+}
+
+// Polls pred() until it returns something truthy and returns that value. It
+// waits by time, not by a number of turns (a loaded machine stretches every
+// turn), and fails after `ms` saying what it waited for — well before the
+// test timeout, so a stuck page fails with a message instead of hanging.
+async function waitFor(pred, what, ms = 10000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const value = pred();
+    if (value) return value;
+    if (Date.now() >= end) throw new Error(`waitFor: ${what} - not reached within ${ms} ms`);
+    await new Promise((r) => setTimeout(r, 2));
+  }
+}
+
+module.exports = { makeEnv, makeStorage, makeNav, plain, persisted, settle, waitFor, REPO, DEFAULT_FILES };

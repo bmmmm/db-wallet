@@ -9,8 +9,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { bootWalletPage } = require("./wallet-page");
-const { makeEnv, makeStorage, plain, REPO } = require("./harness");
+const { bootWalletPage, seedOpen } = require("./wallet-page");
+const { makeEnv, makeStorage, plain, settle, waitFor, REPO } = require("./harness");
 const { makeActionsCtx } = require("./actions-ctx");
 
 function status(w) {
@@ -21,14 +21,6 @@ function status(w) {
     visible: line.classList.contains("is-visible"),
     error: line.classList.contains("is-error"),
     action: d.getElementById("status-action"),
-  };
-}
-
-function seedOpen(n) {
-  return (e) => {
-    const S = e.dbWalletStorage;
-    const x = S.loadWallet("max");
-    S.appendEvents(x, [S.newEvent(x, "d", n)]);
   };
 }
 
@@ -189,17 +181,6 @@ function shareFake() {
       clipboard: { writeText: () => Promise.resolve() },
     },
   };
-}
-
-const settle = () => new Promise((r) => setTimeout(r, 5));
-
-// The QR link is built asynchronously (gzip on real time).
-async function waitFor(pred, what) {
-  for (let i = 0; i < 500; i++) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 2));
-  }
-  throw new Error("timeout waiting for " + what);
 }
 
 test("O3.4: the first Teilen explains the link first, then shares on request", async () => {
