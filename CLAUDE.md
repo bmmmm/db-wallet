@@ -33,7 +33,7 @@ Kein Build-Schritt. Direkt die HTML-Dateien bearbeiten.
 Logic tests in Node (no npm, only `node:test`/`node:vm`; CI runs the same command):
 
 ```bash
-node --test tests/
+node --test --test-timeout=60000 --test-force-exit tests/
 ```
 
 `tests/harness.js` loads the original modules into a `vm` context with a fresh
@@ -48,11 +48,19 @@ silently, navigations to another page land in `w._nav.pageLoads`.
 flat element per id/class of a real page. `tests/wallet-page.js` boots `wallet.html`'s
 scripts in page order on that DOM (`bootWalletPage`, `flushHashChanges`).
 `tests/actions-ctx.js` is a DOM-free ctx stub for `dbWalletActions`.
+Shared steps: `settle()` (promise chains, a dialog answer, an emulated script load),
+`waitFor(pred, what)` for work on real time (gzip, a debounce — never a fixed number
+of `settle()`s: a loaded machine stretches every turn) and `persisted(storage, userId)`
+in `harness.js`; `seedOpen(n)`, `statusText(w)` and the `beforeBoot` hook in
+`wallet-page.js`.
 vm objects have foreign prototypes — compare via `plain()`/JSON, not `deepStrictEqual`.
 `tests/` is not deployed (Pages copies an allowlist).
 
 Verify browser-only changes: open `wallet.html` and run `await dbWalletSelfCheck.run()` in the console
-(returns `{ok, checks}`). Caveat: the Service Worker serves scripts/CSS cache-first (pages
+(returns `{ok, checks, errors}`). It is a smoke test of what needs a real browser
+(storage, gzip, history, the lazy QR script, the page state, the Service Worker); a
+check whose feature is missing counts as `skipped` (the SW checks run only on
+https/localhost). The logic lives in `tests/`. Caveat: the Service Worker serves scripts/CSS cache-first (pages
 network-first with a 3 s timeout) and CSP blocks `eval`, so a normal reload serves stale
 scripts after an edit — unregister the SW + clear caches, or serve on a fresh port. The
 precache requests use `cache: "reload"` (since P3.4), so a re-registering SW no longer
@@ -87,7 +95,7 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas` + `loadQrLibrary` (injects `qrcodegen.js` on first use — no page loads it; the action-code panel draws its QRs only while `#action-codes-panel` is open), `downloadBlob` = the one Blob-download path, revokes late (`downloadJson` builds on it); `notify`/`confirmDialog`/`whenConfirmed`; shared UI steps `selectField`, `downloadCanvasPng`, `safeFilePart`, `onEnterOrSpace`; `RESERVED_HASH_PREFIXES`/`isReservedHashPrefix`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Migration v1→v2 (`dbWalletMigrateV1toV2`, `dbWalletNeedsMigration`): still in `loadWallet` und im Import-Merge, keine UI |
 | `hash-router.js` | `classifyHash` — der einzige Hash-Klassifizierer (`#<name>`, `ac:`/`acg:`/`import:`/`i2:`/`i2u:`) |
-| `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |
+| `self-check.js` | Browser-Smoke-Test (`dbWalletSelfCheck.run()`, 7 Checks), lazy-loaded; die Logik testen `tests/` |
 | `self-check-loader.js` | Stub on `wallet.html`: `dbWalletSelfCheck.run()` loads `self-check.js` on first call |
 | `manifest.json` | PWA Manifest |
 | `themes.css` | Theme-Paletten (Lilac Carbon nur dort, als `:root`-Default) |

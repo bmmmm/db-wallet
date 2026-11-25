@@ -165,22 +165,26 @@ python3 -m http.server 8080   # → http://localhost:8080
 **Tests in Node** (ohne npm, nur `node:test`; läuft auch in der CI):
 
 ```bash
-node --test tests/
+node --test --test-timeout=60000 --test-force-exit tests/
 ```
 
 Die Tests laden die Originalmodule in einen `vm`-Kontext mit eigenem
-`localStorage` (`tests/harness.js`) und prüfen Datenschicht, Codec, Import und
-das Action-Code-Panel.
+`localStorage` (`tests/harness.js`) und prüfen Datenschicht, Codec, Import,
+Migration, Sync und die Seiten `wallet.html`/`index.html` auf einem kleinen
+Fake-DOM.
 
 **Self-Check** in der Browser-Konsole auf `wallet.html` (der erste Aufruf lädt
 `self-check.js` nach):
 
 ```js
-await dbWalletSelfCheck.run()   // → { ok, checks }
+await dbWalletSelfCheck.run()   // → { ok, checks, errors }
 ```
 
-Prüft u. a. Storage-Roundtrip, Import v2, Migration (v1→v2), Hash-Parsing,
-Summary-Parität, Event-Ordering, Tombstones/Undo und Action-Code-Payloads.
+Ein Smoke-Test für das, was nur ein echter Browser zeigt: Storage-Roundtrip,
+natives gzip, `replaceState` ohne History-Eintrag, das nachgeladene QR-Skript,
+der Seitenzustand laut CSS und der Service Worker samt Cache. Fehlt eine
+Browser-Funktion (etwa ein Service Worker auf `http://` außerhalb von
+`localhost`), zählt der Check als `skipped`.
 
 > Der Service-Worker cached die App-Shell cache-first. Nach einem Edit ggf. den
 > SW abmelden + Caches leeren oder auf einem frischen Port servieren, sonst läuft
