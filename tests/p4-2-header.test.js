@@ -241,5 +241,6 @@ test("the no-wallet notice lands after the header, as a <body> child", async () 
   assert.ok(header >= 0);
   assert.equal(kids[header + 1].id, "global-action-message");
   const msgs = fs.readFileSync(path.join(REPO, "wallet-messages.js"), "utf8");
-  assert.match(msgs, /\["#wallet-header", "\.top-row", "h1"\]/);
+  // The default (the storage banner) lands after either page's header.
+  assert.match(msgs, /\["#wallet-header", "#index-header"\]/);
 });

@@ -854,10 +854,11 @@ async function s6(oldRoot, newRoot) {
   if (!drawn) qrNotes.push(`QR nicht gezeichnet; Nutzer sieht: ${seen.join(", ") || "nichts"}`);
   if (qrErrors.length) qrNotes.push(`Exceptions: ${errText(qrErrors)}`);
   const linkShown = !!(qrUrl && /#i2u?:/.test(qrUrl.value || ""));
-  // The plain link button (what the QR error points to).
+  // Without a QR the link: older releases behind the plain link button (what
+  // their QR error points to), newer ones put it into #export-url themselves.
   const exportUrl = doc.getElementById("export-url");
   if (!drawn) {
-    click(w, "btn-export-link");
+    if (doc.getElementById("btn-export-link")) click(w, "btn-export-link");
     await until(() => exportUrl && exportUrl.value);
     const kind = exportUrl && /#(i2u?|import):/.exec(exportUrl.value || "");
     qrNotes.push(`Button „Link“ liefert ${kind ? `einen #${kind[1]}:-Link` : "keinen Link"}`);

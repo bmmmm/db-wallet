@@ -44,6 +44,5 @@
 
   window.dbWalletHashRouter = {
     classifyHash,
-    isReservedHashPrefix,
   };
 })();

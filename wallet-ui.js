@@ -2,25 +2,8 @@
   // theme.js loads synchronously in <head>, before every deferred script.
   const themeApi = window.dbWalletTheme || null;
   if (!themeApi) return;
-  const { canonicalThemeName, getStoredTheme, initThemeSelector } = themeApi;
-
-  function updateCurrentThemeLabel() {
-    const el = document.getElementById("current-theme-name");
-    if (!el) return;
-    const stored = getStoredTheme() || "";
-    const attr = String(
-      document.documentElement.getAttribute("data-theme") || "",
-    ).trim();
-    const theme = stored || attr || "Lilac Carbon";
-    const canonical = canonicalThemeName(theme);
-    el.textContent = canonical || theme || "Lilac Carbon";
-  }
-
-  const applyTheme = (name) => {
-    const ok = themeApi.applyTheme(name);
-    updateCurrentThemeLabel();
-    return ok;
-  };
+  // theme.js shows the theme's name (#current-theme-name) on every change.
+  const { applyTheme, getStoredTheme, initThemeSelector } = themeApi;
 
   const helpers = window.dbWalletHelpers || null;
   const storage = window.dbWalletStorage || null;
@@ -341,18 +324,6 @@
     }
 
     initThemeSelector();
-    updateCurrentThemeLabel();
-    const themeButtons = document.getElementById("theme-buttons");
-    if (themeButtons) {
-      themeButtons.addEventListener("click", (e) => {
-        const btn =
-          e && e.target && typeof e.target.closest === "function"
-            ? e.target.closest(".theme-btn")
-            : null;
-        if (!btn) return;
-        setTimeout(updateCurrentThemeLabel, 0);
-      });
-    }
 
     const deviceUi = window.dbWalletDeviceUI || null;
     const syncUi = window.dbWalletSyncUI || null;
@@ -697,8 +668,8 @@
       if (isActiveWallet && !options.skipPersist) {
         // appendEvents snapshots + pushes + persists + rolls back atomically, so
         // a failed write leaves the balance untouched instead of rolling back
-        // silently. Surface the failure — wording mirrors wallet-actions.js's
-        // persistMutation alert — instead of pretending the booking happened.
+        // silently. Surface the failure — the same wording as a failed booking
+        // in wallet-actions.js — instead of pretending the booking happened.
         if (!appendEvents(wallet, [event])) {
           if (storage.getLastSaveError() === "replaced") {
             storage.notifyWalletReplaced();

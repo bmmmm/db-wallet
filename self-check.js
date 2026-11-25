@@ -107,16 +107,15 @@
       );
     }
 
-    if (hashRouter) {
+    if (helpers && typeof helpers.isReservedHashPrefix === "function") {
       const prefixes = ["ac:", "acg:", "import:", "i2:", "i2u:"];
       const ok =
-        typeof hashRouter.isReservedHashPrefix === "function" &&
-        prefixes.every((p) => hashRouter.isReservedHashPrefix(p + "x")) &&
-        !hashRouter.isReservedHashPrefix("peter") &&
-        !hashRouter.isReservedHashPrefix("");
+        prefixes.every((p) => helpers.isReservedHashPrefix(p + "x")) &&
+        !helpers.isReservedHashPrefix("peter") &&
+        !helpers.isReservedHashPrefix("");
       addCheck(
         result,
-        "hashRouter.isReservedHashPrefix covers all prefixes",
+        "helpers.isReservedHashPrefix covers all prefixes",
         ok,
         ok ? "ok" : "mismatch",
       );
@@ -687,8 +686,8 @@
             ? window.dbWalletMigrateV1toV2
             : null;
         const parseCompact =
-          storage && typeof storage.parseCompactEventId === "function"
-            ? storage.parseCompactEventId
+          helpers && typeof helpers.parseCompactEventId === "function"
+            ? helpers.parseCompactEventId
             : null;
 
         if (needsMigration && migrate && parseCompact) {

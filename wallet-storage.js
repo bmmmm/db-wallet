@@ -1050,7 +1050,6 @@
     setLocalDeviceSymbol,
     touchLocalDevice,
     mergeWalletDevices,
-    parseCompactEventId,
     ensureDeviceSeq,
     buildTombstoneEvent,
     resolveUndoTarget,

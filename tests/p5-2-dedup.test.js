@@ -35,7 +35,9 @@ test("reserved hash prefixes live only in wallet-helpers.js", () => {
   const R = w.dbWalletHashRouter;
   const kinds = ["ac:x", "acg:x", "import:x", "i2u:x", "i2:x"].map((h) => R.classifyHash(h).kind);
   assert.deepEqual(kinds, ["localAction", "globalAction", "import", "import", "import"]);
-  assert.equal(typeof R.isReservedHashPrefix, "function");
+  // No re-export either: the check itself is helpers.isReservedHashPrefix.
+  assert.equal(R.isReservedHashPrefix, undefined);
+  assert.equal(w.dbWalletStorage.parseCompactEventId, undefined);
   const S = w.dbWalletStorage;
   for (const p of ["ac:", "acg:", "import:", "i2u:", "i2:"]) {
     assert.ok(!S.ensureNonReservedUserId(p + "x").startsWith(p), p);
