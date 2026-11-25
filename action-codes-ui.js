@@ -483,6 +483,7 @@
     const btnEdit = document.createElement("button");
     btnEdit.type = "button";
     btnEdit.textContent = "Bearbeiten";
+    btnEdit.setAttribute("aria-expanded", ctx.editingId === code.id ? "true" : "false");
     btnEdit.addEventListener("click", () => {
       ctx.editingId = code.id;
       ctx.pendingDeleteId = "";
@@ -623,6 +624,7 @@
       ctx.pendingFocus = { what: ctx.createOpen ? "form" : "add" };
       ctx.refresh();
     });
+    btnAdd.setAttribute("aria-expanded", ctx.createOpen ? "true" : "false");
     ctx.focusRefs.add = btnAdd;
 
     toolbar.appendChild(btnAdd);

@@ -163,6 +163,18 @@
     clearQr();
   }
 
+  // The export options (hidden by style.css, so an inline "" is closed);
+  // "Export" says whether they are open (aria-expanded).
+  function optionsOpen() {
+    const d = refs.exportOptions.style.display;
+    return d !== "none" && d !== "";
+  }
+
+  function setOptionsOpen(open) {
+    refs.exportOptions.style.display = open ? "inline-block" : "none";
+    if (refs.btnExport) refs.btnExport.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
   function openSection() {
     if (!refs || !refs.btnExport || !refs.exportOptions) return;
     try {
@@ -170,12 +182,7 @@
     } catch (e) {
       // ignore
     }
-    if (
-      refs.exportOptions.style.display === "none" ||
-      refs.exportOptions.style.display === ""
-    ) {
-      refs.exportOptions.style.display = "inline-block";
-    }
+    if (!optionsOpen()) setOptionsOpen(true);
   }
 
   // Width (CSS px) the QR may take: the content box of #qr-box, measured
@@ -384,13 +391,10 @@
     if (refs.btnExport) {
       refs.btnExport.addEventListener("click", () => {
         if (!refs.exportOptions) return;
-        if (
-          refs.exportOptions.style.display === "none" ||
-          refs.exportOptions.style.display === ""
-        ) {
-          refs.exportOptions.style.display = "inline-block";
+        if (!optionsOpen()) {
+          setOptionsOpen(true);
         } else {
-          refs.exportOptions.style.display = "none";
+          setOptionsOpen(false);
           clear();
         }
       });
