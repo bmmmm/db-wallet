@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const { bootWalletPage } = require("./wallet-page");
-const { REPO } = require("./harness");
+const { REPO, waitFor } = require("./harness");
 
 const read = (f) => fs.readFileSync(path.join(REPO, f), "utf8");
 
@@ -51,9 +51,7 @@ test("the QR export keeps no copy of the link in sessionStorage", async () => {
   const doc = w.document;
   doc.getElementById("btn-export").click();
   doc.getElementById("btn-export-link-qr").click();
-  for (let i = 0; i < 500 && !doc.getElementById("qr-url").value; i++) {
-    await new Promise((r) => setTimeout(r, 2));
-  }
+  await waitFor(() => doc.getElementById("qr-url").value, "qr url");
   const url = doc.getElementById("qr-url").value;
   assert.match(url, /#i2:/);
   const ss = w.sessionStorage;
@@ -63,9 +61,7 @@ test("the QR export keeps no copy of the link in sessionStorage", async () => {
   // A second click builds the link again (fresh device "last seen").
   doc.getElementById("btn-export-link-qr").click();
   assert.equal(doc.getElementById("qr-url").value, "", "cleared while building");
-  for (let i = 0; i < 500 && !doc.getElementById("qr-url").value; i++) {
-    await new Promise((r) => setTimeout(r, 2));
-  }
+  await waitFor(() => doc.getElementById("qr-url").value, "qr url");
   assert.match(doc.getElementById("qr-url").value, /#i2:/);
 });
 
@@ -93,9 +89,7 @@ test("both exports run the same preparation: device stamped, saved once", async 
   assert.equal(saves, 1);
   D.now = () => before + 120000;
   w.document.getElementById("btn-export-link-qr").click();
-  for (let i = 0; i < 500 && !w.document.getElementById("qr-url").value; i++) {
-    await new Promise((r) => setTimeout(r, 2));
-  }
+  await waitFor(() => w.document.getElementById("qr-url").value, "qr url");
   assert.equal(lastSeen(), before + 120000);
   assert.equal(saves, 2);
   D.now = realNow;

@@ -5,19 +5,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bootWalletPage } = require("./wallet-page");
+const { waitFor } = require("./harness");
 
 function seedOne(e) {
   const S = e.dbWalletStorage;
   const x = S.loadWallet("max");
   S.appendEvents(x, [S.newEvent(x, "d", 1)]);
-}
-
-async function waitFor(pred, what) {
-  for (let i = 0; i < 500; i++) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 2));
-  }
-  throw new Error("timeout waiting for " + what);
 }
 
 // A 360 px phone at dpr 2: the panels leave 272 px for #qr-box (measured in

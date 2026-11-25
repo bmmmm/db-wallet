@@ -112,4 +112,27 @@ async function flushHashChanges(w) {
   throw new Error("flushHashChanges: the hashchange handlers kept queueing new ones");
 }
 
-module.exports = { bootWalletPage, flushHashChanges, emulateScriptLoads, pageFiles, PAGE_FILES, BASE };
+// Seed for bootWalletPage: wallet "max" with one booking of n drinks; n = 0
+// saves it empty.
+function seedOpen(n) {
+  return (e) => {
+    const S = e.dbWalletStorage;
+    const x = S.loadWallet("max");
+    if (n > 0) S.appendEvents(x, [S.newEvent(x, "d", n)]);
+    else S.saveWallet(x);
+  };
+}
+
+// The text of the page's status line (#status-text, helpers.notify).
+const statusText = (w) => w.document.getElementById("status-text").textContent;
+
+module.exports = {
+  bootWalletPage,
+  flushHashChanges,
+  emulateScriptLoads,
+  pageFiles,
+  seedOpen,
+  statusText,
+  PAGE_FILES,
+  BASE,
+};

@@ -9,7 +9,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { makeEnv, makeStorage, plain, REPO } = require("./harness");
+const { makeEnv, makeStorage, plain, settle, REPO } = require("./harness");
 const { makePageDocument, makeFakeDocument, FakeElement, find, findAll } = require("./fake-dom");
 
 const read = (f) => fs.readFileSync(path.join(REPO, f), "utf8");
@@ -20,7 +20,6 @@ const INDEX_FILES = Array.from(INDEX_HTML.matchAll(/<script src="(?:\.\/)?([^"]+
   .map((m) => m[1])
   .filter((f) => !INDEX_SKIP.has(f));
 const BASE = "https://example.invalid/";
-const settle = () => new Promise((r) => setTimeout(r, 0));
 
 // Seeds wallets (name → number of drinks) on a fresh storage.
 function seedStorage(wallets) {

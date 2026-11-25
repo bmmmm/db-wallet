@@ -9,13 +9,11 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { bootWalletPage } = require("./wallet-page");
-const { makeEnv, makeStorage, plain, REPO } = require("./harness");
+const { bootWalletPage, statusText } = require("./wallet-page");
+const { makeEnv, makeStorage, plain, settle, REPO } = require("./harness");
 const { findAll, find } = require("./fake-dom");
 
 const $ = (w, id) => w.document.getElementById(id);
-const statusText = (w) => $(w, "status-text").textContent;
-const settle = () => new Promise((r) => setTimeout(r, 0));
 const DAY = 86400000;
 
 function rows(w) {

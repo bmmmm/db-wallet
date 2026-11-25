@@ -10,7 +10,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bootWalletPage, BASE } = require("./wallet-page");
-const { makeEnv } = require("./harness");
+const { makeEnv, settle, waitFor } = require("./harness");
 
 function seedOne(e) {
   // The one-time share hint (O3.4, tested in p4-1) is already seen here.
@@ -19,16 +19,6 @@ function seedOne(e) {
   const x = S.loadWallet("max");
   S.appendEvents(x, [S.newEvent(x, "d", 1)]);
 }
-
-async function waitFor(pred, what) {
-  for (let i = 0; i < 500; i++) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 2));
-  }
-  throw new Error("timeout waiting for " + what);
-}
-
-const settle = () => new Promise((r) => setTimeout(r, 5));
 
 // The link field gets the compact link when the data does not fit a QR
 // (P2.5); a QR library that refuses every text gets there without 700 events.

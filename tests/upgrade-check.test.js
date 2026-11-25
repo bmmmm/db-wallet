@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { REPO } = require("./harness");
+const { REPO, waitFor } = require("./harness");
 const { bootWalletPage, PAGE_FILES } = require("./wallet-page");
 const os = require("os");
 const { runScenarios, exitCode } = require("../scripts/scenarios-upgrade");
@@ -66,14 +66,17 @@ test("bootWalletPage: root + scriptSource serve the page scripts and the lazy qr
   const panel = w.document.getElementById("action-codes-panel");
   panel.open = true;
   panel.dispatch("toggle");
-  for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
+  await waitFor(() => asked.length > PAGE_FILES.length, "the lazy qrcodegen.js load");
   assert.deepEqual(asked.slice(PAGE_FILES.length), ["qrcodegen.js"]);
 });
 
 test("CLI: without a ref it prints the usage and exits 2", () => {
+  // spawnSync blocks the whole test process: a stuck child must not hang it.
   const res = spawnSync(process.execPath, [path.join(REPO, "scripts", "upgrade-check.js")], {
     encoding: "utf8",
+    timeout: 30000,
   });
+  assert.ifError(res.error);
   assert.equal(res.status, 2);
   assert.match(res.stderr, /Aufruf: node scripts\/upgrade-check\.js <alter-ref>/);
   assert.equal(res.stdout, "");

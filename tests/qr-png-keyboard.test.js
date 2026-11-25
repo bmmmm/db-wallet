@@ -6,24 +6,11 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { REPO } = require("./harness");
+const { REPO, settle, waitFor } = require("./harness");
 const { bootWalletPage } = require("./wallet-page");
 const { findAll } = require("./fake-dom");
 
 const HTML = fs.readFileSync(path.join(REPO, "wallet.html"), "utf8");
-const tick = () => new Promise((r) => setImmediate(r));
-async function settle() {
-  for (let i = 0; i < 6; i++) await tick();
-}
-
-async function waitFor(pred, what) {
-  for (let i = 0; i < 500; i++) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 2));
-  }
-  throw new Error("timeout waiting for " + what);
-}
-
 function seedCode(e) {
   const S = e.dbWalletStorage;
   const AC = e.dbWalletActionCodes;
