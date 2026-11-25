@@ -25,7 +25,10 @@ const PAGE_FILES = pageFiles(HTML);
 const BASE = "https://example.invalid/wallet.html";
 
 // opts: hash (start fragment, without "#"), storage, deviceKey, seed(w) to
-// prepare storage before the boot (runs in a throwaway env on the same storage).
+// prepare storage before the boot (runs in a throwaway env on the same storage),
+// beforeBoot(w) on the page's own env right before DOMContentLoaded (for a boot
+// that waits for the user, e.g. the acg: wallet choice: start bootWalletPage
+// without awaiting it, answer on that env, then await it).
 // For another release (scripts/upgrade-check.js; `seed` still runs this repo's
 // modules — prepare `storage` yourself instead):
 //   root            — directory of wallet.html and the scripts, default REPO;
@@ -71,6 +74,7 @@ async function bootWalletPage(opts = {}) {
     },
   });
   w._uidWrites = () => uidWrites;
+  if (opts.beforeBoot) opts.beforeBoot(w);
   await Promise.all(document._fire("DOMContentLoaded"));
   return w;
 }
