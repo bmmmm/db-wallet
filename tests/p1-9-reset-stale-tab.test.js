@@ -2,7 +2,7 @@
 // Two "tabs" = two module instances (makeEnv) over one shared localStorage.
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { makeEnv, makeStorage, plain } = require("./harness");
+const { makeEnv, makeStorage, persisted, plain } = require("./harness");
 const { makeActionsCtx } = require("./actions-ctx");
 
 function twoTabs() {
@@ -25,10 +25,6 @@ function bookTwoThenOpenBoth(tabA, tabB) {
   return { walletA, walletB, oldWalletId: walletA.walletId };
 }
 
-function persisted(storage) {
-  return JSON.parse(storage.getItem("db-wallet:dora"));
-}
-
 test("reset in tab A, stale tab B books: reset stays, B's save is refused", () => {
   const { storage, tabA, tabB } = twoTabs();
   const { walletA, walletB, oldWalletId } = bookTwoThenOpenBoth(tabA, tabB);
@@ -42,7 +38,7 @@ test("reset in tab A, stale tab B books: reset stays, B's save is refused", () =
   assert.equal(ok, false, "stale tab B must not save over the reset wallet");
   assert.equal(walletB.events.length, 2, "appendEvents rolls back B's booking");
 
-  const after = persisted(storage);
+  const after = persisted(storage, "dora");
   assert.equal(after.walletId, newWalletId);
   assert.equal(after.events.length, 0, "old events must not come back");
 });
@@ -64,7 +60,7 @@ test("stale tab B plain saveWallet after reset: false, one German message", () =
   const SA = tabA.dbWalletStorage;
   const next = state.wallet;
   assert.equal(SA.appendEvents(next, [SA.newEvent(next, "d", 1)]), true);
-  const after = persisted(storage);
+  const after = persisted(storage, "dora");
   assert.equal(after.walletId, next.walletId);
   assert.equal(after.events.length, 1);
 });
@@ -76,7 +72,7 @@ test("same walletId: two-tab reconcile still unions both tabs' bookings", () => 
   const SB = tabB.dbWalletStorage;
   assert.equal(SA.appendEvents(walletA, [SA.newEvent(walletA, "d", 1)]), true);
   assert.equal(SB.appendEvents(walletB, [SB.newEvent(walletB, "g", 5)]), true);
-  const after = persisted(storage);
+  const after = persisted(storage, "dora");
   assert.equal(after.events.length, 4);
   assert.equal(new Set(after.events.map((e) => e.id)).size, 4);
   assert.equal(tabB._alerts.length, 0);
@@ -114,7 +110,7 @@ test("deleted and re-created wallet under the same name: stale tab can't merge i
   assert.equal(SA.appendEvents(fresh, [SA.newEvent(fresh, "g", 3)]), true);
 
   assert.equal(tabB.dbWalletStorage.saveWallet(walletB), false);
-  const after = persisted(storage);
+  const after = persisted(storage, "dora");
   assert.equal(after.walletId, fresh.walletId);
   assert.equal(after.events.length, 1);
 });
@@ -133,7 +129,7 @@ test("allowWalletIdChange: an intentional walletId switch may overwrite", () => 
     actionCodes: [],
   };
   assert.equal(S.saveWallet(replacement, { allowWalletIdChange: true }), true);
-  const after = persisted(storage);
+  const after = persisted(storage, "dora");
   assert.equal(after.walletId, replacement.walletId);
   assert.equal(after.events.length, 0);
 });

@@ -26,10 +26,18 @@ test("hash router: a 65+ char id is not a valid user id (same cap as normalizeUs
 test("reserved hash prefixes live only in wallet-helpers.js", () => {
   const w = makeEnv();
   assert.deepEqual(plain(w.dbWalletHelpers.RESERVED_HASH_PREFIXES), ["ac:", "acg:", "import:", "i2u:", "i2:"]);
+  // No own spelling of an import prefix (any quote, any chain or list) and no
+  // own copy of the list; the router names only ac:/acg: to tell them apart.
   for (const f of ["hash-router.js", "wallet-storage.js"]) {
-    assert.doesNotMatch(src(f), /startsWith\("i2u:"\)\s*\|\|/, f + " has its own prefix chain");
-    assert.doesNotMatch(src(f), /\[\s*"ac:",\s*"acg:"/, f + " has its own prefix list");
+    assert.doesNotMatch(src(f), /["'`](?:import|i2u?):/, f + " spells an import prefix itself");
+    assert.doesNotMatch(src(f), /\[\s*["'`]ac:["'`]\s*,\s*["'`]acg:/, f + " has its own prefix list");
   }
+  const R = w.dbWalletHashRouter;
+  const kinds = ["ac:x", "acg:x", "import:x", "i2u:x", "i2:x"].map((h) => R.classifyHash(h).kind);
+  assert.deepEqual(kinds, ["localAction", "globalAction", "import", "import", "import"]);
+  // No re-export either: the check itself is helpers.isReservedHashPrefix.
+  assert.equal(R.isReservedHashPrefix, undefined);
+  assert.equal(w.dbWalletStorage.parseCompactEventId, undefined);
   const S = w.dbWalletStorage;
   for (const p of ["ac:", "acg:", "import:", "i2u:", "i2:"]) {
     assert.ok(!S.ensureNonReservedUserId(p + "x").startsWith(p), p);

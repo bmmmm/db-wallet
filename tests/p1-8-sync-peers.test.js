@@ -45,3 +45,10 @@ test("loadWallet returns syncPeers as a null-prototype map", () => {
   assert.equal(Object.getPrototypeOf(peers), null);
   assert.ok(Object.prototype.hasOwnProperty.call(peers, "devR"));
 });
+
+test("an import records only what the sync line reads", () => {
+  const w = makeEnv({ deviceKey: "devA" });
+  const peer = importFrom(w, "devR").wallet.syncPeers.devR;
+  assert.deepEqual(Object.keys(peer).sort(), ["commonEventCount", "label", "updatedAt"]);
+  assert.equal(peer.commonEventCount, 1);
+});

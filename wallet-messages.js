@@ -17,7 +17,7 @@
     const className = opts.className || DEFAULT_CLASS;
     const anchors = Array.isArray(opts.anchors) && opts.anchors.length
       ? opts.anchors
-      : ["#wallet-header", ".top-row", "h1"];
+      : ["#wallet-header", "#index-header"];
 
     let el = document.getElementById(id);
     if (!el) {

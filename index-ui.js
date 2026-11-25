@@ -6,8 +6,9 @@
   const themeApi = window.dbWalletTheme || null;
   const importPreview = window.dbWalletImportPreview || null;
   const hashRouter = window.dbWalletHashRouter || null;
+  const actionCodesApi = window.dbWalletActionCodes || null;
 
-  if (!helpers || !storage || !summaryApi || !importV2) {
+  if (!helpers || !storage || !summaryApi || !importV2 || !actionCodesApi) {
     return;
   }
 
@@ -95,9 +96,10 @@
     };
   }
 
+  // Only db-wallet's own keys: the origin is shared with the account's other
+  // Pages apps, so a bare `userId` key belongs to one of them.
   function removeUserData(userId) {
     safeLocalStorageRemoveItem(STORAGE_PREFIX + userId);
-    safeLocalStorageRemoveItem(userId);
     const nextReg = loadRegistry();
     if (nextReg && typeof nextReg === "object" && nextReg[userId]) {
       delete nextReg[userId];
@@ -258,19 +260,23 @@
     }, 0);
   }
 
-  async function tryParseWalletIdFromHash(hash) {
-    const raw = String(hash || "");
-    if (!raw) return "";
-
-    if (hashRouter && typeof hashRouter.parseWalletIdFromHash === "function") {
-      try {
-        return await hashRouter.parseWalletIdFromHash(raw);
-      } catch (e) {
-        return "";
+  // The wallet an import or ac: link belongs to, read by the decoders
+  // wallet.html imports with; "" when the link names none or is broken
+  // (wallet.html reports the error once the user opens it there).
+  async function walletIdOfLink(route) {
+    try {
+      let id = "";
+      if (route.kind === "localAction") {
+        const decoded = actionCodesApi.decodeActionHash(route.raw);
+        id = decoded ? decoded.walletId : "";
+      } else {
+        const parsed = await importV2.parseImportHashPayload(route.raw);
+        id = parsed && parsed.remote ? parsed.remote.walletId : "";
       }
+      return typeof id === "string" ? id : "";
+    } catch (e) {
+      return "";
     }
-
-    return "";
   }
 
   function classifyHashValue(raw) {
@@ -294,12 +300,7 @@
     }
     if (route.kind !== "import" && route.kind !== "localAction") return false;
 
-    let walletId = "";
-    try {
-      walletId = await tryParseWalletIdFromHash(route.raw);
-    } catch (e) {
-      walletId = "";
-    }
+    const walletId = await walletIdOfLink(route);
 
     const kind = route.kind === "localAction" ? "Action Code" : "Import";
     const knownUserId = walletId ? findUserIdByWalletId(walletId) : null;
@@ -462,11 +463,7 @@
         const wallet = built.wallet;
 
         if (mode === "preview" && openPreview) {
-          openPreview({
-            source: "json",
-            wallet,
-            theme: importedTheme,
-          });
+          openPreview({ wallet, theme: importedTheme });
           return;
         }
 
@@ -569,11 +566,7 @@
     if (!ok) return;
 
     // Re-read: another tab may have added or removed a wallet meanwhile.
-    collectKeys().forEach((key) => {
-      const userId = key.slice(STORAGE_PREFIX.length);
-      safeLocalStorageRemoveItem(key);
-      safeLocalStorageRemoveItem(userId);
-    });
+    collectKeys().forEach((key) => safeLocalStorageRemoveItem(key));
 
     safeLocalStorageRemoveItem(REGISTRY_KEY);
 
@@ -656,10 +649,5 @@
   });
 
   // For tests (Node harness): the pure parts of the start page.
-  window.dbWalletIndexUI = {
-    resolveStartTarget,
-    describeStartTarget,
-    hashFromPastedLink,
-    openPastedLink,
-  };
+  window.dbWalletIndexUI = { hashFromPastedLink };
 })();

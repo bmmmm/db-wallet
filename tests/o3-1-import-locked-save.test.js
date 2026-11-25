@@ -6,7 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { makeEnv, makeStorage, REPO } = require("./harness");
+const { makeEnv, makeStorage, persisted, waitFor, REPO } = require("./harness");
 const { makePageDocument } = require("./fake-dom");
 const { makeActionsCtx } = require("./actions-ctx");
 
@@ -20,11 +20,6 @@ class FakeFileReader {
   readAsText(file) {
     Promise.resolve().then(() => this.onload({ target: { result: file._text } }));
   }
-}
-
-function persisted(storage, userId) {
-  const raw = storage.getItem("db-wallet:" + userId);
-  return raw ? JSON.parse(raw) : null;
 }
 
 test("index.html JSON import: a reset during the mode dialog does not fail the import", async () => {
@@ -63,7 +58,7 @@ test("index.html JSON import: a reset during the mode dialog does not fail the i
   for (const fn of input.listeners.change) {
     fn({ target: { files: [{ _text: JSON.stringify(exported) }] } });
   }
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+  await waitFor(() => w._nav.pageLoads.length || w._alerts.length, "the import's redirect (or its message)");
 
   assert.equal(dialogs, 1);
   assert.deepEqual(w._alerts, [], "no failure message: " + JSON.stringify(w._alerts));

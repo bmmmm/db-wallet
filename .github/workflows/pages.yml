@@ -32,9 +32,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The commit the guard checked, not whatever main points at by now: a
+      # second push during the guard run would otherwise ship untested code.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Assemble site from the allowlist
         run: |
           set -euo pipefail

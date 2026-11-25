@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bootWalletPage, BASE } = require("./wallet-page");
-const { makeEnv, plain } = require("./harness");
+const { makeEnv, plain, waitFor } = require("./harness");
 
 function seed700(e) {
   const S = e.dbWalletStorage;
@@ -20,14 +20,6 @@ function seed700(e) {
     evs.push(ev);
   }
   assert.equal(S.appendEvents(wallet, evs), true);
-}
-
-async function waitFor(pred, what) {
-  for (let i = 0; i < 500; i++) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error("timeout waiting for " + what);
 }
 
 test("700 events: QR too large, export offers a working i2: link", async () => {
@@ -69,4 +61,27 @@ test("small wallet: QR still rendered, link field stays empty (baseline)", async
   assert.equal(doc.getElementById("qr-box").style.display, "flex");
   assert.equal(doc.getElementById("export-url").value, "");
   assert.equal(w._alerts.length, 0);
+});
+
+test("qrcodegen.js does not load: the export offers the link instead", async () => {
+  const w = await bootWalletPage({
+    hash: "mini",
+    failScripts: new Set(["qrcodegen.js"]),
+    seed: (e) => {
+      const S = e.dbWalletStorage;
+      const x = S.loadWallet("mini");
+      S.appendEvents(x, [S.newEvent(x, "d", 1)]);
+    },
+  });
+  const doc = w.document;
+  const linkField = doc.getElementById("export-url");
+  w.console = Object.assign({}, console, { error() {} }); // expected "QR library missing" log
+  doc.getElementById("btn-export-link-qr").click();
+  await waitFor(() => linkField.value || doc.getElementById("status-text").textContent, "export result");
+  assert.equal(doc.getElementById("qr-box").style.display, "none");
+  assert.ok(linkField.value.startsWith(BASE + "#i2:"), linkField.value.slice(0, 80));
+  assert.equal(doc.getElementById("export-url-actions").style.display, "flex");
+  assert.match(doc.getElementById("status-text").textContent, /QR-Bibliothek fehlt.*Linkfeld/);
+  assert.ok(doc.getElementById("status-line").classList.contains("is-error"));
+  assert.deepEqual(plain(w._alerts), []);
 });

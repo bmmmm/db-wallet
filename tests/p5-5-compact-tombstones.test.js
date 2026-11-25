@@ -64,6 +64,15 @@ function withoutChecksum(bytes) {
   return bytes.slice(0, n - 7);
 }
 
+// The payload with a fresh "ck" trailer (after a test edited a byte): codec 3
+// without ck counts as cut off.
+function resealed(w, bytes) {
+  const sum = Number(w.dbWalletHelpers.fnv1a64(bytes) & 0xffffffffn);
+  return new Uint8Array([
+    ...bytes, 99, 107, 1, (sum >>> 24) & 255, (sum >>> 16) & 255, (sum >>> 8) & 255, sum & 255,
+  ]);
+}
+
 test("an export from before P5.5 (codec 2, xt v1) still imports, exact ms kept", () => {
   const w = makeEnv({ deviceKey: "devC" });
   const I = w.dbWalletImportV2;
@@ -186,7 +195,7 @@ test("tombstone times: 0, before every event, out of order — deltas stay >= 0"
   assert.equal(byId["devB.2"], T + 60 * MIN);
 });
 
-test("a corrupt device index in xt v2 drops the block with a warning, no bogus tombstone", () => {
+test("a corrupt device index in xt v2 refuses the payload, no bogus tombstone", () => {
   const w = makeEnv({ deviceKey: "devA" });
   const I = w.dbWalletImportV2;
   const wallet = fixtureWallet();
@@ -201,15 +210,12 @@ test("a corrupt device index in xt v2 drops the block with a warning, no bogus t
   assert.equal(bytes[p], 1, "devA is device 1");
   const bad = bytes.slice();
   bad[p] = 9; // no ninth device
-  const decoded = I.decodeImportV2Bytes(bad);
-  assert.equal(decoded._extWarning, true);
-  assert.deepEqual(tombstonesOf(decoded), []);
-  assert.equal(plain(decoded.events).length, 5);
+  assert.throws(() => I.decodeImportV2Bytes(resealed(w, bad)), (e) => I.importErrorCode(e) === "corrupt");
   // A self-referential tombstone (id === ref) is skipped, the block goes on.
   const self = bytes.slice();
   self[p + 2] = 1; // ref: devA.<seq of the id>
   self[p + 3] = self[p + 1];
-  const selfDecoded = I.decodeImportV2Bytes(self);
+  const selfDecoded = I.decodeImportV2Bytes(resealed(w, self));
   assert.equal(selfDecoded._extWarning, undefined);
   assert.deepEqual(tombstonesOf(selfDecoded), []);
   assert.equal(selfDecoded.deviceId, "devA");
@@ -237,8 +243,7 @@ function book(w, userId, type, n) {
 function remove(w, userId, rootId) {
   const S = w.dbWalletStorage;
   const wallet = S.loadWallet(userId);
-  assert.ok(S.appendTombstone(wallet, rootId));
-  assert.equal(S.saveWallet(wallet), true);
+  assert.equal(S.appendEvents(wallet, [S.buildTombstoneEvent(wallet, rootId)]), true);
 }
 
 test("two devices delete on both sides and converge; a round trip re-mints nothing", () => {

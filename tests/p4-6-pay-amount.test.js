@@ -7,24 +7,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { bootWalletPage } = require("./wallet-page");
-const { makeEnv, plain, REPO } = require("./harness");
+const { bootWalletPage, seedOpen, statusText } = require("./wallet-page");
+const { makeEnv, plain, settle, REPO } = require("./harness");
 const { makeActionsCtx } = require("./actions-ctx");
-
-function seedOpen(n) {
-  return (e) => {
-    const S = e.dbWalletStorage;
-    const x = S.loadWallet("max");
-    if (n > 0) S.appendEvents(x, [S.newEvent(x, "d", n)]);
-    else S.saveWallet(x);
-  };
-}
 
 const $ = (w, id) => w.document.getElementById(id);
 const unpaid = (w) => $(w, "unpaid").textContent;
-const statusText = (w) => $(w, "status-text").textContent;
-// The confirm dialog answers with a Promise (window.confirm as the fallback).
-const settle = () => new Promise((r) => setTimeout(r, 0));
 
 test("wallet.html: amount field has max 99; the pay button has no fixed label", () => {
   const html = fs.readFileSync(path.join(REPO, "wallet.html"), "utf8");

@@ -7,18 +7,8 @@
 
   let lastQrUrl = "";
 
-  const QR_SESSION_CACHE_PREFIX = "db-wallet:qr-session:";
-
-  function getBaseUrl() {
-    const href = String(window.location.href || "");
-    const idx = href.indexOf("#");
-    return idx >= 0 ? href.slice(0, idx) : href;
-  }
-
-  // UI-only reset: hides/clears the rendered QR without touching the session
-  // cache. Used before a fresh render attempt so a valid cache entry survives
-  // long enough for loadCachedQrUrl() to read it.
-  function clearQrUi() {
+  // Hides and clears the rendered QR, its link and status.
+  function clearQr() {
     if (refs && refs.qrBox) refs.qrBox.style.display = "none";
     if (refs && refs.qrHint) refs.qrHint.textContent = "";
     if (refs && refs.qrCanvas) {
@@ -65,29 +55,10 @@
     if (el) el.textContent = text;
   }
 
-  function selectField(el) {
-    if (!el) return;
-    try {
-      el.focus({ preventScroll: true });
-    } catch (e) {
-      try {
-        el.focus();
-      } catch (e2) {
-        // ignore
-      }
-    }
-    try {
-      el.select();
-      el.setSelectionRange(0, String(el.value || "").length);
-    } catch (e) {
-      // ignore
-    }
-  }
-
   // Legacy path for browsers without the async Clipboard API (or when it is
   // blocked, e.g. on plain http): copies the selection of `field`.
   function execCopy(field) {
-    selectField(field);
+    helpers.selectField(field);
     try {
       return typeof document.execCommand === "function" && document.execCommand("copy") === true;
     } catch (e) {
@@ -112,7 +83,7 @@
     if (ok) {
       setStatus(statusEl, "Link kopiert.");
     } else {
-      selectField(field);
+      helpers.selectField(field);
       setStatus(
         statusEl,
         "Kopieren nicht möglich: Der Link ist markiert, bitte selbst kopieren.",
@@ -164,25 +135,22 @@
     }
   }
 
-  function invalidateQrCache() {
-    try {
-      if (typeof sessionStorage !== "undefined" && sessionStorage) {
-        sessionStorage.removeItem(qrSessionCacheKey());
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  function clearQr() {
-    clearQrUi();
-    invalidateQrCache();
-  }
-
   function clear() {
     if (!refs) return;
     setExportUrl("");
     clearQr();
+  }
+
+  // The export options (hidden by style.css, so an inline "" is closed);
+  // "Export" says whether they are open (aria-expanded).
+  function optionsOpen() {
+    const d = refs.exportOptions.style.display;
+    return d !== "none" && d !== "";
+  }
+
+  function setOptionsOpen(open) {
+    refs.exportOptions.style.display = open ? "inline-block" : "none";
+    if (refs.btnExport) refs.btnExport.setAttribute("aria-expanded", open ? "true" : "false");
   }
 
   function openSection() {
@@ -192,92 +160,7 @@
     } catch (e) {
       // ignore
     }
-    if (
-      refs.exportOptions.style.display === "none" ||
-      refs.exportOptions.style.display === ""
-    ) {
-      refs.exportOptions.style.display = "inline-block";
-    }
-  }
-
-  function qrSessionCacheKey() {
-    const wallet = opts && opts.getWallet ? opts.getWallet() : null;
-    const id =
-      wallet && typeof wallet.walletId === "string"
-        ? wallet.walletId
-        : wallet && typeof wallet.userId === "string"
-          ? wallet.userId
-          : "unknown";
-    return QR_SESSION_CACHE_PREFIX + id;
-  }
-
-  function getQrSessionFingerprint() {
-    const wallet = opts && opts.getWallet ? opts.getWallet() : null;
-    let updated = 0;
-    try {
-      const reg = opts.loadRegistry ? opts.loadRegistry() : null;
-      const entry =
-        reg &&
-        wallet &&
-        typeof wallet.userId === "string" &&
-        reg[wallet.userId];
-      if (
-        entry &&
-        typeof entry.lastUpdated === "number" &&
-        Number.isFinite(entry.lastUpdated)
-      ) {
-        updated = entry.lastUpdated;
-      }
-    } catch (e) {
-      // ignore
-    }
-    const theme = opts.getStoredTheme ? opts.getStoredTheme() || "" : "";
-    const walletId = wallet && typeof wallet.walletId === "string" ? wallet.walletId : "";
-    const v = wallet && typeof wallet.v === "number" ? wallet.v : 1;
-    return `${walletId}|${v}|${updated}|${theme}`;
-  }
-
-  function loadCachedQrUrl() {
-    try {
-      if (typeof sessionStorage === "undefined" || !sessionStorage) return "";
-      const raw = sessionStorage.getItem(qrSessionCacheKey());
-      if (!raw) return "";
-      const obj = opts.safeParse ? opts.safeParse(raw) : null;
-      if (!obj || typeof obj !== "object") return "";
-      if (obj.f !== getQrSessionFingerprint()) return "";
-      return typeof obj.url === "string" ? obj.url : "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  function storeCachedQrUrl(url) {
-    if (!url) return;
-    try {
-      if (typeof sessionStorage === "undefined" || !sessionStorage) return;
-      sessionStorage.setItem(
-        qrSessionCacheKey(),
-        JSON.stringify({ f: getQrSessionFingerprint(), url }),
-      );
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  function selectQrUrl() {
-    if (!refs || !refs.qrUrl || !refs.qrUrl.value) return;
-    const el = refs.qrUrl;
-    if (document.activeElement !== el) {
-      try {
-        el.focus({ preventScroll: true });
-      } catch (e) {
-        el.focus();
-      }
-    }
-    el.select();
-    try {
-      el.setSelectionRange(0, el.value.length);
-    } catch (e) {}
+    if (!optionsOpen()) setOptionsOpen(true);
   }
 
   // Width (CSS px) the QR may take: the content box of #qr-box, measured
@@ -349,76 +232,31 @@
       refs.qrHint.textContent = `QR antippen = als PNG speichern • QR v${qr.version} (L) • ${url.length} Zeichen`;
     }
     lastQrUrl = url;
-    storeCachedQrUrl(url);
     if (refs.qrUrl) {
       refs.qrUrl.value = url;
-      selectQrUrl();
+      helpers.selectField(refs.qrUrl);
     }
     setStatus(refs.qrUrlStatus, "");
     updateShareButtons();
     setExportUrl("");
   }
 
+  // The PNG is drawn anew at 10 px per module (sharper than the shown QR).
   function downloadQrPng(url) {
     if (!window.qrcodegen || !window.qrcodegen.QrCode) return;
     const canvas = document.createElement("canvas");
     helpers.drawQrToCanvas(canvas, url, { scale: 10 });
-
-    const date = opts.todayDateStr ? opts.todayDateStr() : "date";
-    const wallet = opts.getWallet ? opts.getWallet() : null;
-    const safeUserId = String((wallet && wallet.userId) || "user").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    );
-    const filename = `db-wallet-${safeUserId}-${date}.png`;
-
-    const triggerDownload = (href, fname) => {
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = fname;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    };
-
-    const saveBlob = (blob) => helpers.downloadBlob(blob, filename);
-
-    if (canvas.toBlob) {
-      canvas.toBlob((blob) => {
-        if (blob) saveBlob(blob);
-      }, "image/png");
-    } else {
-      const dataUrl = canvas.toDataURL("image/png");
-      triggerDownload(dataUrl, filename);
-    }
+    const wallet = opts.getWallet();
+    const safeUserId = helpers.safeFilePart((wallet && wallet.userId) || "user");
+    helpers.downloadCanvasPng(canvas, `db-wallet-${safeUserId}-${opts.todayDateStr()}.png`);
   }
 
   async function buildQrUrl() {
-    const wallet = opts.getWallet ? opts.getWallet() : null;
-    try {
-      const actionApi = window.dbWalletActionCodes || null;
-      if (actionApi && typeof actionApi.ensureWalletActionCodes === "function") {
-        const res = actionApi.ensureWalletActionCodes(wallet);
-        if (res && res.changed && opts.saveWallet) {
-          opts.saveWallet(wallet);
-          if (opts.actionCodesUi && typeof opts.actionCodesUi.refresh === "function") {
-            opts.actionCodesUi.refresh();
-          }
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-    if (opts.touchLocalDevice) {
-      try {
-        opts.touchLocalDevice();
-      } catch (e) {
-        // ignore
-      }
-    }
+    opts.prepareExport();
+    const wallet = opts.getWallet();
     const theme = opts.getStoredTheme ? opts.getStoredTheme() : null;
     const raw = opts.encodeImportV2Bytes(wallet, theme);
-    const base = getBaseUrl();
+    const base = opts.getBaseUrl();
 
     try {
       const compressed = await opts.gzipCompress(raw);
@@ -430,27 +268,23 @@
     }
   }
 
-  // The data no longer fits a version-40 QR (roughly 560 entries, about 475
-  // with 10 % deletions since the compact tombstones of P5.5), but the compact
-  // i2: link is already built and works as a link — offer it instead of
-  // throwing it away (P2.5).
-  function showCompactLinkInstead(url) {
+  // No QR, but the compact i2: link is already built and works as a link —
+  // offer it in the link field instead of throwing it away. Either the data
+  // no longer fits a version-40 QR (roughly 560 entries, about 475 with 10 %
+  // deletions since the compact tombstones of P5.5; P2.5), or qrcodegen.js
+  // did not load.
+  function showCompactLinkInstead(url, reason, notifyOpts) {
     if (!refs || !refs.elExportUrl) return;
     setExportUrl(url);
     helpers.notify(
-      `Zu groß für einen QR-Code. Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
-      { sticky: true },
+      `${reason} Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
+      Object.assign({ sticky: true }, notifyOpts),
     );
-    try {
-      refs.elExportUrl.focus();
-      refs.elExportUrl.select();
-    } catch (e) {
-      // ignore
-    }
+    helpers.selectField(refs.elExportUrl);
   }
 
   async function showQrExport() {
-    clearQrUi();
+    clearQr();
     // qrcodegen.js loads on first use (P5.6). A failed load leaves the
     // library missing; drawExportQr then reports it below.
     try {
@@ -458,73 +292,42 @@
     } catch (e) {
       // handled by the "QR library missing" path
     }
-    const cached = loadCachedQrUrl();
-    if (cached) {
-      try {
-        renderQrCode(cached);
-        return;
-      } catch (e) {
-        clearQr();
-      }
-    }
-    let attempts = 0;
-    while (attempts < 2) {
-      attempts++;
-      let url = "";
-      try {
-        url = await buildQrUrl();
-        renderQrCode(url);
-        return;
-      } catch (e) {
-        clearQr();
-        console.error("QR export failed", e);
+    let url = "";
+    try {
+      url = await buildQrUrl();
+      renderQrCode(url);
+      return;
+    } catch (e) {
+      clearQr();
+      console.error("QR export failed", e);
 
-        const msg = String(e && e.message ? e.message : e || "");
-        if (msg.includes("QR library missing")) {
-          helpers.notify(
-            "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt). Du kannst den Export-Link trotzdem kopieren.",
-            { kind: "error" },
-          );
-          return;
+      const msg = String(e && e.message ? e.message : e || "");
+      if (msg.includes("QR library missing")) {
+        if (url) {
+          showCompactLinkInstead(url, "QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt).", {
+            kind: "error",
+          });
+        } else {
+          helpers.notify("QR-Code konnte nicht erzeugt werden (QR-Bibliothek fehlt).", {
+            kind: "error",
+          });
         }
-
-        if (msg.includes("Data too long")) {
-          if (opts.needsMigration && opts.needsMigration()) {
-            const migrated = opts.runMigrationDialog(
-              "Zu groß für QR-Export mit v1-Daten. Bitte migrieren.",
-              true,
-            );
-            if (!migrated) return;
-            continue;
-          }
-          if (url) {
-            showCompactLinkInstead(url);
-          } else {
-            helpers.notify("Zu groß für QR-Export. Nutze Export-Link oder JSON.", {
-              kind: "error",
-            });
-          }
-          return;
-        }
-
-        if (opts.needsMigration && opts.needsMigration()) {
-          const migrated = opts.runMigrationDialog(
-            "QR-Export ist zu groß oder instabil mit v1-Daten. Bitte migrieren.",
-            true,
-          );
-          if (!migrated) return;
-          continue;
-        }
-        helpers.notify("QR-Code konnte nicht erzeugt werden.", { kind: "error" });
         return;
       }
+
+      if (msg.includes("Data too long")) {
+        if (url) {
+          showCompactLinkInstead(url, "Zu groß für einen QR-Code.");
+        } else {
+          helpers.notify("Zu groß für QR-Export. Nutze den JSON-Download.", {
+            kind: "error",
+          });
+        }
+        return;
+      }
+
+      helpers.notify("QR-Code konnte nicht erzeugt werden.", { kind: "error" });
     }
-    // Reached only if every attempt (incl. post-migration retries) failed
-    // without returning — never leave the user without feedback.
-    helpers.notify(
-      "QR-Code konnte nach Migration nicht erzeugt werden. Bitte den Export-Link oder JSON-Download nutzen.",
-      { kind: "error" },
-    );
   }
 
   function init(nextOpts) {
@@ -537,66 +340,12 @@
     if (refs.btnExport) {
       refs.btnExport.addEventListener("click", () => {
         if (!refs.exportOptions) return;
-        if (
-          refs.exportOptions.style.display === "none" ||
-          refs.exportOptions.style.display === ""
-        ) {
-          refs.exportOptions.style.display = "inline-block";
+        if (!optionsOpen()) {
+          setOptionsOpen(true);
         } else {
-          refs.exportOptions.style.display = "none";
+          setOptionsOpen(false);
           clear();
         }
-      });
-    }
-
-    if (refs.btnExportLink) {
-      refs.btnExportLink.addEventListener("click", () => {
-        const wallet = opts.getWallet ? opts.getWallet() : null;
-        try {
-          const actionApi = window.dbWalletActionCodes || null;
-          if (actionApi && typeof actionApi.ensureWalletActionCodes === "function") {
-            const res = actionApi.ensureWalletActionCodes(wallet);
-            if (res && res.changed && opts.saveWallet) {
-              opts.saveWallet(wallet);
-              if (opts.actionCodesUi && typeof opts.actionCodesUi.refresh === "function") {
-                opts.actionCodesUi.refresh();
-              }
-            }
-          }
-        } catch (e) {
-          // ignore
-        }
-        if (opts.touchLocalDevice) {
-          try {
-            opts.touchLocalDevice();
-          } catch (e) {
-            // ignore
-          }
-        }
-        const theme = opts.getStoredTheme ? opts.getStoredTheme() : null;
-        const payload = JSON.stringify({
-          userId: wallet.userId,
-          walletId: wallet.walletId,
-          v: wallet.v,
-          events: wallet.events,
-          actionCodes: wallet.actionCodes,
-          devices: wallet.devices,
-          theme,
-        });
-        const token = opts.base64UrlEncode(payload);
-        const url = getBaseUrl() + "#import:" + token;
-        // The classic link is uncompressed JSON; for large wallets it can exceed
-        // what some apps/browsers accept in a URL. Warn but still show it.
-        if (url.length > 8000) {
-          helpers.notify(
-            `Achtung: Der Export-Link ist sehr lang (${url.length} Zeichen) und funktioniert evtl. nicht überall. Für große Wallets bitte den QR-Export oder JSON-Download nutzen.`,
-            { kind: "error" },
-          );
-        }
-        setExportUrl(url);
-        refs.elExportUrl.focus();
-        refs.elExportUrl.select();
-        clearQr();
       });
     }
 
@@ -610,13 +359,10 @@
       });
     }
 
-    if (refs.elExportUrl) {
-      refs.elExportUrl.addEventListener("focus", () => refs.elExportUrl.select());
-      refs.elExportUrl.addEventListener("click", () => refs.elExportUrl.select());
-    }
-    if (refs.qrUrl) {
-      refs.qrUrl.addEventListener("focus", selectQrUrl);
-      refs.qrUrl.addEventListener("click", selectQrUrl);
+    for (const field of [refs.elExportUrl, refs.qrUrl]) {
+      if (!field) continue;
+      field.addEventListener("focus", () => helpers.selectField(field));
+      field.addEventListener("click", () => helpers.selectField(field));
     }
     const bind = (btn, fn, field, status) => {
       if (btn) btn.addEventListener("click", () => fn(field, status));
@@ -628,10 +374,12 @@
     updateShareButtons();
 
     if (refs.qrCanvas) {
-      refs.qrCanvas.addEventListener("click", () => {
-        if (!lastQrUrl) return;
-        downloadQrPng(lastQrUrl);
-      });
+      const saveQrPng = () => {
+        if (lastQrUrl) downloadQrPng(lastQrUrl);
+      };
+      refs.qrCanvas.addEventListener("click", saveQrPng);
+      // role="button" (wallet.html): Enter and Space act like a click.
+      helpers.onEnterOrSpace(refs.qrCanvas, saveQrPng);
     }
     if (!qrResizeBound && typeof window.addEventListener === "function") {
       qrResizeBound = true;
@@ -643,7 +391,5 @@
     init,
     clear,
     openSection,
-    copyLink,
-    shareLink,
   };
 })();

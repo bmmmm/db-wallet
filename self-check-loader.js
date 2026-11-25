@@ -1,5 +1,5 @@
-// Stub for the in-browser test suite: window.dbWalletSelfCheck.run() loads
-// self-check.js (~75 KB) on first use instead of on every wallet.html visit,
+// Stub for the browser smoke test: window.dbWalletSelfCheck.run() loads
+// self-check.js (~11 KB) on first use instead of on every wallet.html visit,
 // then forwards to the real run(). self-check.js stays in the SW precache, so
 // this also works offline. A load failure rejects the promise with a clear
 // message (and a later call retries).

@@ -2,7 +2,7 @@
 // it the browser blocks style="…" attributes, <style> blocks, and from JS
 // setAttribute("style", …), .style.cssText and HTML strings with style=
 // (innerHTML/insertAdjacentHTML/outerHTML). Single el.style.x = … (CSSOM)
-// assignments stay allowed. colors.html keeps its own CSP (not an app page).
+// assignments stay allowed.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -91,7 +91,6 @@ test("JS: every display toggle treats an unset inline display as hidden", () => 
 test("style.css hides what the pages used to hide inline", () => {
   const css = read("style.css");
   for (const id of [
-    "btn-migrate",
     "pay-options",
     "export-options",
     "export-url",

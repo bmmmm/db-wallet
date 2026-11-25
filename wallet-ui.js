@@ -1,39 +1,9 @@
 (function () {
+  // theme.js loads synchronously in <head>, before every deferred script.
   const themeApi = window.dbWalletTheme || null;
-  const canonicalThemeName =
-    themeApi && typeof themeApi.canonicalThemeName === "function"
-      ? themeApi.canonicalThemeName
-      : (name) => String(name || "").trim();
-  const getStoredTheme =
-    themeApi && typeof themeApi.getStoredTheme === "function"
-      ? themeApi.getStoredTheme
-      : () => null;
-  const applyThemeRaw =
-    themeApi && typeof themeApi.applyTheme === "function"
-      ? themeApi.applyTheme
-      : () => false;
-  const initThemeSelector =
-    themeApi && typeof themeApi.initThemeSelector === "function"
-      ? themeApi.initThemeSelector
-      : () => {};
-
-  function updateCurrentThemeLabel() {
-    const el = document.getElementById("current-theme-name");
-    if (!el) return;
-    const stored = getStoredTheme() || "";
-    const attr = String(
-      document.documentElement.getAttribute("data-theme") || "",
-    ).trim();
-    const theme = stored || attr || "Lilac Carbon";
-    const canonical = canonicalThemeName(theme);
-    el.textContent = canonical || theme || "Lilac Carbon";
-  }
-
-  const applyTheme = (name) => {
-    const ok = applyThemeRaw(name);
-    updateCurrentThemeLabel();
-    return ok;
-  };
+  if (!themeApi) return;
+  // theme.js shows the theme's name (#current-theme-name) on every change.
+  const { applyTheme, getStoredTheme, initThemeSelector } = themeApi;
 
   const helpers = window.dbWalletHelpers || null;
   const storage = window.dbWalletStorage || null;
@@ -43,13 +13,7 @@
   const hashRouter = window.dbWalletHashRouter || null;
   if (!helpers || !storage || !importV2 || !summaryApi) return;
 
-  const {
-    base64UrlEncode,
-    base64UrlEncodeBytes,
-    gzipCompress,
-    loadRegistry,
-    safeParse,
-  } = helpers;
+  const { base64UrlEncodeBytes, gzipCompress } = helpers;
 
   const {
     ensureNonReservedUserId,
@@ -57,7 +21,6 @@
     getLocalDeviceSymbol,
     setLocalDeviceSymbol,
     touchLocalDevice,
-    parseCompactEventId,
     ensureDeviceSeq,
     newEvent,
     appendEvents,
@@ -74,6 +37,7 @@
   let lastHandledGlobalHash = "";
   let lastHandledGlobalHashAt = 0;
   const GLOBAL_ACTION_DUP_WINDOW_MS = 750;
+  const INVALID_GLOBAL_CODE = "Globaler Action Code ungültig — nichts gebucht.";
   const LAST_USER_KEY = "db-wallet:last-user";
 
   // Shared with the codec (wallet-helpers.js): history.replaceState, no
@@ -153,7 +117,6 @@
 
   document.addEventListener("DOMContentLoaded", async () => {
     const elUid = document.getElementById("uid");
-    const elWalletVersion = document.getElementById("wallet-version");
     const elTotal = document.getElementById("total");
     const elUnpaid = document.getElementById("unpaid");
     const elCredit = document.getElementById("credit");
@@ -164,17 +127,14 @@
     const qrCanvas = document.getElementById("qr-canvas");
     const qrUrl = document.getElementById("qr-url");
     const exportUrlActions = document.getElementById("export-url-actions");
-    const topRow = document.querySelector(".top-row");
     const actionCodesPanel = document.getElementById("action-codes-panel");
     const actionCodesBody = document.getElementById("action-codes-body");
     const elHistory = document.getElementById("history");
     const elHistoryList = document.getElementById("history-list");
     const logTools = document.getElementById("log-tools");
     const logEditGroup = document.getElementById("log-edit-group");
-    const rawToggle = document.querySelector(".raw-toggle");
     const logEditToggle = document.getElementById("log-edit-toggle");
 
-    const btnMigrate = document.getElementById("btn-migrate");
     const btnDrink = document.getElementById("btn-drink");
     const btnUndo = document.getElementById("btn-undo");
     const btnPay = document.getElementById("btn-pay");
@@ -189,15 +149,12 @@
     const btnPayCancel = document.getElementById("btn-pay-cancel");
     const btnExport = document.getElementById("btn-export");
     const exportOptions = document.getElementById("export-options");
-    const btnExportLink = document.getElementById("btn-export-link");
     const btnExportLinkQr = document.getElementById("btn-export-link-qr");
     const btnExportJson = document.getElementById("btn-export-json");
     const btnReset = document.getElementById("btn-reset");
     const btnModeDiagram = document.getElementById("mode-diagram");
     const btnModeLog = document.getElementById("mode-log");
     const btnModeRaw = document.getElementById("mode-raw");
-    const btnRawCurrent = document.getElementById("raw-scope-current");
-    const btnRawAll = document.getElementById("raw-scope-all");
 
     const requiredEls = [
       elUid,
@@ -215,8 +172,6 @@
       btnModeDiagram,
       btnModeLog,
       btnModeRaw,
-      btnRawCurrent,
-      btnRawAll,
     ];
     if (requiredEls.some((el) => !el)) return;
 
@@ -255,12 +210,6 @@
           window.location.reload();
         };
         window.addEventListener("hashchange", noWalletHashListener);
-      }
-    }
-
-    function clearNoWalletState() {
-      if (hashActions && typeof hashActions.clearNoWalletState === "function") {
-        hashActions.clearNoWalletState();
       }
     }
 
@@ -310,15 +259,31 @@
         };
       });
 
-      if (userIds.length === 0) {
+      if (!payload) {
+        // A broken or invalid code books nothing: no wallet choice for it.
+        // Say so, drop it from the address bar (a reload must not repeat
+        // it) and open the wallet this would have landed on anyway.
+        helpers.notify(INVALID_GLOBAL_CODE, { kind: "error" });
+        const fallback =
+          userIds.length === 1
+            ? userIds[0]
+            : lastUserId && wallets[lastUserId]
+              ? lastUserId
+              : "";
+        helpers.replaceHashSilently(fallback);
+        if (!fallback) {
+          enterNoWalletState("Bitte zuerst ein Wallet importieren oder öffnen.");
+          return;
+        }
+        initialUserId = fallback;
+        initialWallet = wallets[fallback] || null;
+      } else if (userIds.length === 0) {
         enterNoWalletState(
           "Bitte zuerst ein Wallet importieren oder öffnen.",
         );
         return;
-      }
-
-      pendingGlobalHash = initialRoute.raw || "";
-      if (userIds.length === 1) {
+      } else if (userIds.length === 1) {
+        pendingGlobalHash = initialRoute.raw || "";
         initialUserId = userIds[0];
         initialWallet = wallets[initialUserId] || null;
       } else {
@@ -329,7 +294,6 @@
           lastUserId,
         });
         if (!selection || selection.action === "cancel") {
-          pendingGlobalHash = "";
           const fallback =
             selection && selection.userId ? selection.userId : "";
           if (fallback && wallets[fallback]) {
@@ -343,6 +307,7 @@
             return;
           }
         } else {
+          pendingGlobalHash = initialRoute.raw || "";
           initialUserId = selection.userId;
           initialWallet = wallets[selection.userId] || null;
         }
@@ -357,18 +322,6 @@
     }
 
     initThemeSelector();
-    updateCurrentThemeLabel();
-    const themeButtons = document.getElementById("theme-buttons");
-    if (themeButtons) {
-      themeButtons.addEventListener("click", (e) => {
-        const btn =
-          e && e.target && typeof e.target.closest === "function"
-            ? e.target.closest(".theme-btn")
-            : null;
-        if (!btn) return;
-        setTimeout(updateCurrentThemeLabel, 0);
-      });
-    }
 
     const deviceUi = window.dbWalletDeviceUI || null;
     const syncUi = window.dbWalletSyncUI || null;
@@ -391,16 +344,6 @@
       return;
     }
 
-    if (pendingGlobalHash) {
-      const result = handleGlobalActionHash(pendingGlobalHash, {
-        wallet,
-        skipPersist: true,
-        skipHashCleanup: true,
-      });
-      if (result && result.applied) {
-        replaceHashSilently(userId);
-      }
-    }
     setLastUserId(userId);
     ensureDeviceSeq(wallet);
     try {
@@ -451,14 +394,10 @@
         elUid.textContent = userId;
         elUid.title = "";
       }
-      if (deviceUi && typeof deviceUi.render === "function") {
-        deviceUi.render();
-      }
     }
 
     if (deviceUi && typeof deviceUi.init === "function") {
       deviceUi.init({
-        elUid,
         getDeviceKey: () => deviceKey,
         getDeviceSymbol: () =>
           typeof getLocalDeviceSymbol === "function"
@@ -483,7 +422,6 @@
         refs: {
           btnExport,
           exportOptions,
-          btnExportLink,
           btnExportLinkQr,
           btnExportJson,
           elExportUrl,
@@ -500,42 +438,25 @@
           qrUrlStatus: document.getElementById("qr-url-status"),
         },
         getWallet: () => wallet,
-        saveWallet: (w) => saveWallet(w),
+        prepareExport,
+        getBaseUrl,
         encodeImportV2Bytes,
         gzipCompress,
-        base64UrlEncode,
         base64UrlEncodeBytes,
         todayDateStr,
-        needsMigration,
-        runMigrationDialog,
-        loadRegistry,
-        safeParse,
         getStoredTheme,
-        actionCodesUi,
-        touchLocalDevice: () => {
-          try {
-            if (typeof touchLocalDevice === "function") {
-              if (touchLocalDevice(wallet)) saveWallet(wallet);
-            }
-          } catch (e) {
-            // ignore
-          }
-        },
         downloadCurrentWalletBackup,
       });
     }
 
     if (syncUi && typeof syncUi.init === "function") {
       syncUi.init({
-        topRow,
         getWallet: () => wallet,
         saveWallet: (w) => saveWallet(w),
-        getDeviceKey: () => deviceKey,
         getLocalSymbol: () =>
           (typeof getLocalDeviceSymbol === "function"
             ? getLocalDeviceSymbol(wallet)
             : "") || "_",
-        parseCompactEventId,
         syncApi,
         openExportSection: () => {
           if (exportUi && typeof exportUi.openSection === "function") {
@@ -552,17 +473,13 @@
           elHistoryList,
           logTools,
           logEditGroup,
-          rawToggle,
           logEditToggle,
           btnModeDiagram,
           btnModeLog,
           btnModeRaw,
-          btnRawCurrent,
-          btnRawAll,
         },
         getWallet: () => wallet,
         getSummary,
-        getAllWallets,
         // P4.4: the row actions; actionsCtx is set up further down, before
         // any click can reach these.
         onEditEntry: (root, values) =>
@@ -581,39 +498,9 @@
     updateUidLabel();
     elExportUrl.value = ""; // initially empty
 
-    function openExportSection() {
-      if (exportUi && typeof exportUi.openSection === "function") {
-        exportUi.openSection();
-      }
-    }
-
     function clearExport() {
       if (exportUi && typeof exportUi.clear === "function") {
         exportUi.clear();
-      }
-    }
-
-    function getWalletVersion() {
-      return wallet && typeof wallet.v === "number" ? wallet.v : 1;
-    }
-
-    function needsMigration() {
-      try {
-        if (typeof window.dbWalletNeedsMigration === "function") {
-          return window.dbWalletNeedsMigration(wallet);
-        }
-      } catch (e) {
-        // ignore
-      }
-      return getWalletVersion() < 2;
-    }
-
-    function updateHeaderUi() {
-      if (elWalletVersion) {
-        elWalletVersion.textContent = `v${getWalletVersion()}`;
-      }
-      if (btnMigrate) {
-        btnMigrate.style.display = needsMigration() ? "inline-block" : "none";
       }
     }
 
@@ -627,28 +514,33 @@
       return idx >= 0 ? href.slice(0, idx) : href;
     }
 
-    function exportJsonData() {
-      const theme = getStoredTheme();
+    // Before every export (QR link, JSON backup): settle the action codes
+    // and stamp this device's "last seen", saved once. The code panel
+    // follows when the codes changed.
+    function prepareExport() {
+      let codesChanged = false;
+      let deviceChanged = false;
       try {
         const actionApi = window.dbWalletActionCodes || null;
-        if (
-          actionApi &&
-          typeof actionApi.ensureWalletActionCodes === "function"
-        ) {
+        if (actionApi && typeof actionApi.ensureWalletActionCodes === "function") {
           const res = actionApi.ensureWalletActionCodes(wallet);
-          if (res && res.changed) saveWallet(wallet);
+          codesChanged = !!(res && res.changed);
         }
       } catch (e) {
         // ignore
       }
       try {
-        if (typeof touchLocalDevice === "function") {
-          if (touchLocalDevice(wallet)) saveWallet(wallet);
-        }
+        deviceChanged = touchLocalDevice(wallet) === true;
       } catch (e) {
         // ignore
       }
-      return storage.walletBackupData(wallet, theme);
+      if (codesChanged || deviceChanged) saveWallet(wallet);
+      if (codesChanged && actionCodesUi) actionCodesUi.refresh();
+    }
+
+    function exportJsonData() {
+      prepareExport();
+      return storage.walletBackupData(wallet, getStoredTheme());
     }
 
     async function switchToUser(nextUserId) {
@@ -675,14 +567,14 @@
         // ignore
       }
       saveWallet(wallet);
-      handleWalletStateChange();
-      if (actionCodesUi) actionCodesUi.refresh();
-      updateHeaderUi();
+      handleWalletReloaded();
       updateUidLabel();
       return true;
     }
 
-    function handleGlobalActionHash(hash, options = {}) {
+    // Applies a global ('acg:') code to the open wallet: confirmed, saved (or
+    // the save error), reported, and the hash back to the wallet.
+    function handleGlobalActionHash(hash) {
       if (isDuplicateGlobalActionHash(hash)) {
         return { handled: true, applied: false, reason: "duplicate" };
       }
@@ -691,27 +583,14 @@
         actionApi && typeof actionApi.decodeGlobalActionHash === "function"
           ? actionApi.decodeGlobalActionHash(hash)
           : null;
-      const skipMessage = !!options.skipMessage;
 
       if (!payload) {
-        if (!skipMessage) {
-          showGlobalActionMessage(
-            "Bitte zuerst ein Wallet importieren oder öffnen.",
-          );
-        }
+        // A wallet is open here: an error in the status line, not the
+        // no-wallet notice, and the broken code leaves the address bar.
+        helpers.notify(INVALID_GLOBAL_CODE, { kind: "error" });
+        replaceHashSilently(userId);
         return { handled: true, applied: false, reason: "invalid" };
       }
-
-      const targetWallet = "wallet" in options ? options.wallet : wallet;
-      if (!targetWallet) {
-        if (!skipMessage) {
-          showGlobalActionMessage(
-            "Bitte zuerst ein Wallet importieren oder öffnen.",
-          );
-        }
-        return { handled: true, applied: false, reason: "no-wallet" };
-      }
-      if (!Array.isArray(targetWallet.events)) targetWallet.events = [];
 
       const { type, amount, label: payloadLabel } =
         actionApi.globalPayloadAction(payload);
@@ -719,7 +598,7 @@
       // Confirm before applying: a global ('acg:') QR books onto the wallet with
       // no key/auth check, so make the inflation explicit instead of silently
       // pushing it (on every path — boot, hashchange, and after wallet select).
-      if (!options.skipConfirm && typeof confirm === "function") {
+      if (typeof confirm === "function") {
         const label = payloadLabel ? ` „${payloadLabel}“` : "";
         const what =
           type === "d"
@@ -730,66 +609,38 @@
           // declined code. Do NOT arm the dedup guard — a decline isn't a
           // consume, so a deliberate later re-apply of the same code must still
           // be allowed.
-          if (targetWallet === wallet && !options.skipHashCleanup) {
-            const declinedUserId =
-              typeof options.userId === "string" && options.userId.trim()
-                ? options.userId.trim()
-                : userId;
-            if (declinedUserId) replaceHashSilently(declinedUserId);
-          }
+          replaceHashSilently(userId);
           return { handled: true, applied: false, reason: "declined" };
         }
       }
 
-      const event = newEvent(targetWallet, type, amount);
-
-      const isActiveWallet = targetWallet === wallet;
-      // Only arm the dedup guard on the active-wallet path (the boot vs.
-      // hashchange race it exists for). Arming it for a non-active/programmatic
-      // apply would poison a later real apply of the same code within the window.
-      if (isActiveWallet) {
-        markGlobalActionHandled(hash);
-      }
-      if (isActiveWallet && !options.skipPersist) {
-        // appendEvents snapshots + pushes + persists + rolls back atomically, so
-        // a failed write leaves the balance untouched instead of rolling back
-        // silently. Surface the failure — wording mirrors wallet-actions.js's
-        // persistMutation alert — instead of pretending the booking happened.
-        if (!appendEvents(wallet, [event])) {
-          if (storage.getLastSaveError() === "replaced") {
-            storage.notifyWalletReplaced();
-          } else {
-            helpers.notify(
-              "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
-              { kind: "error" },
-            );
-          }
-          return { handled: true, applied: false, reason: "save-failed" };
+      // Armed only for an apply (the boot vs. hashchange race it exists for).
+      markGlobalActionHandled(hash);
+      // appendEvents snapshots + pushes + persists + rolls back atomically, so
+      // a failed write leaves the balance untouched instead of rolling back
+      // silently. Surface the failure — the same wording as a failed booking
+      // in wallet-actions.js — instead of pretending the booking happened.
+      if (!appendEvents(wallet, [newEvent(wallet, type, amount)])) {
+        if (storage.getLastSaveError() === "replaced") {
+          storage.notifyWalletReplaced();
+        } else {
+          helpers.notify(
+            "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
+            { kind: "error" },
+          );
         }
-        invalidateCaches();
-        resetAmount();
-        clearExport();
-        refreshSummary();
-        const summary = getSummary();
-        const balance =
-          summary.credit > 0 ? `Guthaben: ${summary.credit}` : `Offen: ${summary.unpaid}`;
-        const what = type === "d" ? `+${amount} gebucht` : `Guthaben +${amount} gebucht`;
-        helpers.notify(`${payloadLabel ? `„${payloadLabel}“: ` : ""}${what} · ${balance}`);
-      } else {
-        // Non-persisting path: the boot pre-apply (skipPersist — the caller
-        // saves later) or a non-active/programmatic wallet. Stage the append in
-        // memory only.
-        targetWallet.events.push(event);
+        return { handled: true, applied: false, reason: "save-failed" };
       }
-
-      if (isActiveWallet && !options.skipHashCleanup) {
-        const targetUserId =
-          typeof options.userId === "string" && options.userId.trim()
-            ? options.userId.trim()
-            : userId;
-        if (targetUserId) replaceHashSilently(targetUserId);
-      }
-
+      invalidateCaches();
+      resetAmount();
+      clearExport();
+      refreshSummary();
+      const summary = getSummary();
+      const balance =
+        summary.credit > 0 ? `Guthaben: ${summary.credit}` : `Offen: ${summary.unpaid}`;
+      const what = type === "d" ? `+${amount} gebucht` : `Guthaben +${amount} gebucht`;
+      helpers.notify(`${payloadLabel ? `„${payloadLabel}“: ` : ""}${what} · ${balance}`);
+      replaceHashSilently(userId);
       return { handled: true, applied: true, reason: "applied" };
     }
 
@@ -800,14 +651,7 @@
       try {
         const hash = window.location.hash.slice(1);
         const route = classifyHashValue(hash);
-        if (route.kind === "none") {
-          if (!wallet) {
-            showGlobalActionMessage(
-              "Bitte zuerst ein Wallet importieren oder öffnen.",
-            );
-          }
-          return;
-        }
+        if (route.kind === "none") return;
 
         if (route.kind === "globalAction") {
           handleGlobalActionHash(route.raw);
@@ -851,57 +695,11 @@
       );
     }
 
-    function migrateWalletNow() {
-      if (typeof window.dbWalletMigrateV1toV2 !== "function") {
-        helpers.notify("Migration ist nicht verfügbar (migration.js fehlt).", {
-          kind: "error",
-        });
-        return false;
-      }
-      wallet = window.dbWalletMigrateV1toV2(wallet);
-      ensureDeviceSeq(wallet);
-      saveWallet(wallet);
-      handleWalletStateChange();
-      updateHeaderUi();
-      return true;
-    }
-
-    function runMigrationDialog(reason, force) {
-      const header =
-        reason ||
-        "Dein Wallet ist noch v1. Für einen zuverlässigen QR-Export empfiehlt sich die Migration auf v2.";
-      const text =
-        header +
-        "\n\n1 = Direkt migrieren\n2 = Lokal abspeichern & migrieren\n\nAbbrechen = kein QR-Export";
-      while (true) {
-        const choice = window.prompt(text, "1");
-        if (choice === null) return false;
-        const c = String(choice).trim();
-        if (c === "1") return migrateWalletNow();
-        if (c === "2") {
-          downloadCurrentWalletBackup("backup");
-          return migrateWalletNow();
-        }
-        if (!force) return false;
-      }
-    }
-
-    if (btnMigrate) {
-      btnMigrate.addEventListener("click", () => {
-        if (!needsMigration()) return;
-        runMigrationDialog("", false);
-      });
-    }
-
-    updateHeaderUi();
     refreshSummary();
 
     window.dbWalletUi = {
       getCurrentUserId: () => userId,
-      getCurrentWallet: () => wallet,
-      applyGlobalActionHash: (hash, options) =>
-        handleGlobalActionHash(hash, options),
-      handleWalletStateChange: () => handleWalletStateChange(),
+      applyGlobalActionHash: (hash) => handleGlobalActionHash(hash),
     };
 
     function getAmount() {
@@ -976,7 +774,7 @@
       if (elCredit) elCredit.textContent = summary.credit;
 
       // syncUi.refresh() runs via historyUi.render()'s onAfterRender callback
-      // (see historyUi.init), which also fires on the mode/raw-scope toggles that
+      // (see historyUi.init), which also fires on the mode toggles that
       // re-render without going through refreshSummary — so the sync line is
       // refreshed on exactly one path. Do NOT add a direct syncUi.refresh() here
       // when historyUi is present: that would rebuild the ASCII timeline + device
@@ -995,6 +793,15 @@
       refreshSummary();
     }
 
+    // The wallet was read again (another tab saved it, a wallet switch):
+    // the code panel and the device picker follow as well. The panel
+    // re-renders only when its codes changed.
+    function handleWalletReloaded() {
+      handleWalletStateChange();
+      if (actionCodesUi) actionCodesUi.sync();
+      if (deviceUi && typeof deviceUi.render === "function") deviceUi.render();
+    }
+
     // Stay live across tabs: when another tab of the SAME wallet persists a
     // change, reload from storage and re-render. saveWallet already union-merges
     // on write, so this is purely for UI freshness (the storage event never
@@ -1004,7 +811,7 @@
       const reloaded = loadWallet(userId);
       if (reloaded) {
         wallet = reloaded;
-        handleWalletStateChange();
+        handleWalletReloaded();
       }
     });
 
@@ -1024,7 +831,6 @@
           refreshActionCodesUi: () => {
             if (actionCodesUi) actionCodesUi.refresh();
           },
-          updateHeaderUi,
           onStateChanged: handleWalletStateChange,
           // Errors and notices go to the status line (P4.1), questions to
           // the shared dialog (P4.3; a Promise of the answer).
@@ -1117,5 +923,10 @@
     btnReset.addEventListener("click", () => {
       if (actionsApi) actionsApi.resetWallet(actionsCtx);
     });
+
+    // A global code opened on a cold start books on the chosen wallet
+    // through the same path as one opened with the wallet open: confirmed,
+    // saved (or the save error), reported, the hash back to the wallet.
+    if (pendingGlobalHash) handleGlobalActionHash(pendingGlobalHash);
   });
 })();

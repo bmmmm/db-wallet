@@ -3,6 +3,87 @@
 Neueste zuerst. Wie man auf eine neue Version kommt, steht im README unter
 [Update](README.md#update).
 
+## 2026-11-25 · Aufgeräumt, und ein Dutzend Fehler weniger
+
+Ein Aufräum-Update: Alte und doppelte Wege sind entfernt, insgesamt rund 3600
+Zeilen App-Code weniger. Dazu kommen Fehlerkorrekturen, vor allem beim Import,
+bei globalen Codes und beim Löschen. Bedienung und Daten bleiben, wie sie
+waren.
+
+### Entfernt
+
+- **Der Button „Export-Link (klassisch)“** im Export. Der kurze QR-Link kann
+  dasselbe. Alte `#import:`-Links lassen sich weiter öffnen.
+- **Der Raw-Schalter „alle Nutzer:innen“** auf der Wallet-Seite. Die
+  Startseite zeigt weiter „Alle Raw-Daten anzeigen“.
+- **Die Übernahme alter v1-Daten fragt nicht mehr.** Ein altes Wallet wird
+  beim Öffnen und beim Import still umgestellt, ohne Rückfrage, Button und
+  Versionsanzeige.
+- **Die Farbvorschau** `colors.html`.
+
+### Korrigiert
+
+- **Abgeschnittene oder kaputte Links** werden abgelehnt. Vorher importierte
+  die App den Teil vor der Bruchstelle, und eine verlorene Löschung brachte
+  eine gelöschte Buchung zurück.
+- **Löschen und Zurücksetzen** entfernen nur noch Daten des Wallets. Vorher
+  traf es auch einen gleichnamigen Eintrag einer anderen App auf derselben
+  Adresse (`bmmmm.github.io` teilen sich alle Projekte).
+- **Rückgängig und Löschen einer verschobenen Zahlung** sagen wieder, wie
+  viele Getränke dadurch offen werden.
+- **Ein geleertes Code-Label** bekommt den üblichen Namen („Drink +5“) und
+  behält seinen Schlüssel. Vorher wechselte der Schlüssel, und ein gedruckter
+  QR-Code ging nicht mehr.
+- **Globale Codes (`acg:`):**
+  - Ein ungültiger Code bucht nichts und sagt das in der Statuszeile, statt
+    eine erfundene Vorschau zu zeigen.
+  - Mit offenem Wallet erscheint dafür eine Fehlermeldung statt des
+    Hinweises „Bitte zuerst ein Wallet …“.
+  - Beim Kaltstart meldet sich die Buchung wie bei offenem Wallet
+    (etwa „Kiste“: +2 gebucht · Offen: 2), ein Speicherfehler ebenso.
+- **Ein abgelehnter `ac:`-Link** verschwindet aus der Adresszeile und fragt
+  beim Neuladen nicht noch einmal.
+- **Das Code-Panel folgt anderen Tabs:** Ein dort gelöschter Code oder einer
+  mit neuem Schlüssel zeigt keinen alten Link mehr.
+- **Das Speicher-Banner** nennt den neuesten Fehler, nicht mehr immer
+  „Speicher voll“.
+- **Der Theme-Name** wechselt mit, wenn das System von hell auf dunkel
+  schaltet.
+- **Ältere Browser**, die einen `i2:`-Link nicht entpacken können, werden zum
+  JSON-Backup geschickt statt zum entfernten klassischen Link.
+
+### Bedienung
+
+- Ein QR-Code lässt sich auch mit der Tastatur als PNG speichern (Enter oder
+  Leertaste).
+- Im Code-Panel bleibt der Tastaturfokus nach jedem Klick an einer sinnvollen
+  Stelle.
+- Der Fokusrahmen auf „Historie“, „Action Codes“ und „Theme“ ist wieder
+  sichtbar.
+- Buttons heißen für Screenreader so, wie sie dastehen, und Klappbereiche
+  sagen, ob sie offen sind. Der QR-Button heißt jetzt „QR-Code anzeigen“.
+- Die Lichter im Seitenhintergrund nehmen die Akzentfarbe des Themes an.
+- Die Import-Vorschau zeigt das Theme des Imports, ohne es zu speichern. Die
+  Wahl heißt „(auf diesem Gerät speichern)“.
+
+### Unter der Haube
+
+- Toter Code, Ersatzwege für Module, die immer geladen sind, und doppelte
+  Helfer sind entfernt (JS −3944/+1223 Zeilen, HTML/CSS −936/+39).
+- Der Browser-Selbsttest ist ein Smoke-Test mit 7 Checks (255 statt 2122
+  Zeilen). Die Logikfälle laufen jetzt in Node: 385 automatische Tests statt
+  298.
+- Die Pages-Veröffentlichung nimmt genau den Commit, den die Prüfung
+  freigegeben hat.
+
+### Mischbetrieb
+
+Gemessen mit `scripts/upgrade-check.js` gegen den Stand vom 17.11. Daten,
+QR/Link und JSON gehen in beide Richtungen wie bisher. Beim ersten Start nach
+dem Update laufen Buchen, Rückgängig, QR-Codes und Action Codes auch mit den
+alten Skripten aus dem Zwischenspeicher. Nur die Darstellung ist bis zum Tippen
+auf „Aktualisieren“ unfertig.
+
 ## 2026-11-17 · Gebaut fürs Handy, eine Reihenfolge auf allen Geräten
 
 Das größte Update seit dem Start: 20 Commits, 66 Dateien, etwa 9300 Zeilen neu

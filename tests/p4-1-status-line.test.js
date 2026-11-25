@@ -9,8 +9,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { bootWalletPage } = require("./wallet-page");
-const { makeEnv, makeStorage, plain, REPO } = require("./harness");
+const { bootWalletPage, seedOpen } = require("./wallet-page");
+const { makeEnv, makeStorage, plain, settle, waitFor, REPO } = require("./harness");
 const { makeActionsCtx } = require("./actions-ctx");
 
 function status(w) {
@@ -21,14 +21,6 @@ function status(w) {
     visible: line.classList.contains("is-visible"),
     error: line.classList.contains("is-error"),
     action: d.getElementById("status-action"),
-  };
-}
-
-function seedOpen(n) {
-  return (e) => {
-    const S = e.dbWalletStorage;
-    const x = S.loadWallet("max");
-    S.appendEvents(x, [S.newEvent(x, "d", n)]);
   };
 }
 
@@ -136,7 +128,7 @@ test("a global code reports what it booked", async () => {
     { scope: "global", type: "d", amount: 2, label: "Runde" },
     "https://example.invalid/wallet.html",
   ).split("#")[1];
-  const res = w.dbWalletUi.applyGlobalActionHash(hash, {});
+  const res = w.dbWalletUi.applyGlobalActionHash(hash);
   assert.equal(res.applied, true);
   assert.equal(status(w).text, "„Runde“: +2 gebucht · Offen: 3");
 });
@@ -191,8 +183,6 @@ function shareFake() {
   };
 }
 
-const settle = () => new Promise((r) => setTimeout(r, 5));
-
 test("O3.4: the first Teilen explains the link first, then shares on request", async () => {
   const fake = shareFake();
   const storage = makeStorage();
@@ -200,8 +190,9 @@ test("O3.4: the first Teilen explains the link first, then shares on request", a
   w.navigator = fake.nav;
   const d = w.document;
   d.getElementById("btn-export").click();
-  d.getElementById("btn-export-link").click();
-  d.getElementById("btn-share-export-url").click();
+  d.getElementById("btn-export-link-qr").click();
+  await waitFor(() => d.getElementById("qr-url").value, "qr url");
+  d.getElementById("btn-share-qr-url").click();
   await settle();
   assert.deepEqual(fake.shared, [], "not shared before the hint");
   const s = status(w);
@@ -210,16 +201,18 @@ test("O3.4: the first Teilen explains the link first, then shares on request", a
   s.action.click();
   await settle();
   assert.equal(fake.shared.length, 1);
+  assert.equal(fake.shared[0], d.getElementById("qr-url").value);
   // Seen once on this device: the next Teilen shares directly.
-  d.getElementById("btn-share-export-url").click();
+  d.getElementById("btn-share-qr-url").click();
   await settle();
   assert.equal(fake.shared.length, 2);
 
   const again = await bootWalletPage({ hash: "max", storage });
   again.navigator = fake.nav;
   again.document.getElementById("btn-export").click();
-  again.document.getElementById("btn-export-link").click();
-  again.document.getElementById("btn-share-export-url").click();
+  again.document.getElementById("btn-export-link-qr").click();
+  await waitFor(() => again.document.getElementById("qr-url").value, "qr url");
+  again.document.getElementById("btn-share-qr-url").click();
   await settle();
   assert.equal(fake.shared.length, 3, "the hint is shown once per device");
 });

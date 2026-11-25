@@ -269,6 +269,8 @@
     return Math.floor(ts / 60000);
   }
 
+  // The chain root of an event: an edit replacement carries supersedes=<root>,
+  // an un-edited event is its own root (dbWalletSummary.rootIdOf is this).
   function eventRootId(e) {
     if (e && typeof e.supersedes === "string" && e.supersedes) return e.supersedes;
     return e && typeof e.id === "string" ? e.id : "";
@@ -401,11 +403,6 @@
       .slice(0, 64);
   }
 
-  // Renders a QR code for `text` onto `canvas` using the global qrcodegen
-  // library. opts: { scale, maxPx, border }. `scale` is a fixed pixel-per-module
-  // integer; if omitted and `maxPx` is given, scale is derived to fit within
-  // maxPx. `border` defaults to 4 modules. Throws if the QR library is missing
-  // or encodeText fails — callers are expected to catch.
   // Replace the URL fragment in place (history.replaceState): no new session
   // history entry and no "hashchange". Assigning location.hash would push an
   // entry (Back re-runs an #ac: booking) and fire a second hashchange that
@@ -464,6 +461,12 @@
     return qrLibraryLoading;
   }
 
+  // Renders a QR code for `text` onto `canvas` using the global qrcodegen
+  // library. opts: { scale, maxPx, border }. `scale` is a fixed pixel-per-module
+  // integer; if omitted and `maxPx` is given, scale is derived to fit within
+  // maxPx. `border` defaults to 4 modules. Throws if the QR library is missing
+  // or encodeText fails — callers are expected to catch.
+  // Returns the QrCode (also without a 2d context); undefined without a canvas.
   function drawQrToCanvas(canvas, text, opts) {
     if (!canvas) return;
     if (!window.qrcodegen || !window.qrcodegen.QrCode) {
@@ -484,7 +487,7 @@
     canvas.width = dim;
     canvas.height = dim;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return qr;
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, dim, dim);
@@ -496,6 +499,7 @@
         }
       }
     }
+    return qr;
   }
 
   // Object URLs of a download stay valid this long. Revoking right after
@@ -532,6 +536,50 @@
     const api = window.dbWalletHelpers;
     const save = api && typeof api.downloadBlob === "function" ? api.downloadBlob : downloadBlob;
     return save(blob, filename);
+  }
+
+  // Saves a drawn canvas as a PNG file (the export QR, an action-code QR).
+  // Through the namespace's downloadBlob, like downloadJson.
+  function downloadCanvasPng(canvas, filename) {
+    canvas.toBlob((blob) => {
+      if (blob) window.dbWalletHelpers.downloadBlob(blob, filename);
+    }, "image/png");
+  }
+
+  // A file-name part: letters, digits, "_" and "-" only.
+  function safeFilePart(text) {
+    return String(text).replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
+  // Focuses a link field (without scrolling) and selects all of it.
+  function selectField(el) {
+    if (!el) return;
+    if (document.activeElement !== el) {
+      try {
+        el.focus({ preventScroll: true });
+      } catch (e) {
+        try {
+          el.focus();
+        } catch (e2) {
+          // ignore
+        }
+      }
+    }
+    try {
+      el.select();
+      el.setSelectionRange(0, String(el.value || "").length);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // For an element with role="button": Enter and Space run `run`, like a click.
+  function onEnterOrSpace(el, run) {
+    el.addEventListener("keydown", (e) => {
+      if (!e || (e.key !== "Enter" && e.key !== " ")) return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      run();
+    });
   }
 
   // --- Status line (P4.1) ----------------------------------------------------
@@ -762,6 +810,7 @@
     formatCompactEventId,
     cmpStr,
     cmpEventId,
+    eventRootId,
     compareEventsByTime,
     compareEdits,
     editOrderOf,
@@ -780,8 +829,11 @@
     BLOB_URL_REVOKE_MS,
     downloadBlob,
     downloadJson,
+    downloadCanvasPng,
+    safeFilePart,
+    selectField,
+    onEnterOrSpace,
     notify,
-    clearStatus,
     confirmDialog,
     whenConfirmed,
   };

@@ -9,14 +9,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { makeEnv, makeStorage, plain, REPO } = require("./harness");
+const { makeEnv, makeStorage, persisted, plain, REPO } = require("./harness");
 const { makeActionsCtx } = require("./actions-ctx");
 const { makePageDocument } = require("./fake-dom");
-
-function persisted(storage, userId) {
-  const raw = storage.getItem("db-wallet:" + userId);
-  return raw ? JSON.parse(raw) : null;
-}
 
 test("reset with full storage: stored wallet survives, tab keeps old state, message", () => {
   const storage = makeStorage();
