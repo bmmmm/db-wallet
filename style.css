@@ -183,7 +183,6 @@ pre {
 
 /* Hidden until the JS shows them (was inline style="display: none", which
    the CSP without 'unsafe-inline' blocks). JS sets style.display explicitly. */
-#btn-migrate,
 #pay-options,
 #export-options,
 #export-url,
@@ -248,11 +247,6 @@ hr {
 
 .wallet-header .top-row {
     gap: 0.25rem 0.75rem;
-}
-
-.wallet-version {
-    font-size: 0.8rem;
-    color: var(--muted);
 }
 
 /* P4.7: the device symbol, labelled; the six choices with their meaning

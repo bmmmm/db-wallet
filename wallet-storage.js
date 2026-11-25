@@ -484,6 +484,42 @@
     return out;
   }
 
+  // M1: a v1 wallet (v < 2 or any non-compact event id) is migrated silently
+  // when it is read — no dialog. Returns the migrated { v, events } as fresh
+  // copies (the input is never touched, a failed migration changes nothing),
+  // or null when nothing needs migrating or migration.js is missing.
+  // migration.js loads before this file on every page that opens wallets;
+  // its ids are deterministic (hash53 of the legacy id), so two tabs or two
+  // devices migrate the same data to the same ids.
+  function migratedV1Copy(wallet) {
+    const needs = window.dbWalletNeedsMigration;
+    const migrate = window.dbWalletMigrateV1toV2;
+    if (typeof needs !== "function" || typeof migrate !== "function") return null;
+    try {
+      if (!needs(wallet)) return null;
+      const copy = {
+        v: wallet.v,
+        events: wallet.events.map((e) => Object.assign({}, e)),
+      };
+      migrate(copy);
+      return copy;
+    } catch (e) {
+      console.warn("db-wallet: v1 -> v2 migration failed", e);
+      return null;
+    }
+  }
+
+  // The events of a stored record as loadWallet reads them: canonical and,
+  // for a v1 record, migrated. saveWallet compares against these, so a
+  // record still in v1 form (not yet saved since the update, or written by a
+  // tab of the previous release) matches the migrated wallet by id, and its
+  // legacy tombstone refs / edit links follow the migrated ids.
+  function storedEventsOf(record) {
+    const events = normalizeEvents(record && record.events);
+    const migrated = migratedV1Copy({ v: record && record.v, events });
+    return migrated ? migrated.events : events;
+  }
+
   // Wallets whose walletId loadWallet just minted (nothing stored yet, or a
   // legacy record without one) → the event ids they were loaded with. Kept
   // off the object so it never persists. Two tabs loading such a wallet mint
@@ -525,6 +561,18 @@
     if (!obj.seq || typeof obj.seq !== "object") obj.seq = {};
     obj.userId = userId;
     obj.events = normalizeEvents(obj.events);
+    // M1: migrate in memory only. Reading never writes (the start page
+    // lists every wallet through here; a failed write there would only
+    // raise the storage banner); the next save stores the migrated wallet —
+    // wallet.html saves right after its boot. Until then the stored v1
+    // record stays as it was, so a full storage loses nothing.
+    const migrated = migratedV1Copy(obj);
+    if (migrated) {
+      obj.events = migrated.events;
+      obj.v = migrated.v;
+    }
+    // After the migration: saveWallet checks these ids against a record
+    // another tab may have saved (migrated) meanwhile.
     if (mintedWalletId) {
       unsavedWalletIds.set(
         obj,
@@ -844,8 +892,9 @@
           // fall through to normal dedup, so mergeEvents' import contract is intact.
           // Compare canonical shapes on both sides: a raw persisted event that
           // loadWallet would normalize (n > 1e9, string n, pay with n) must not
-          // look like a collision with its own normalized in-memory copy.
-          const persistedEvents = normalizeEvents(persisted.events);
+          // look like a collision with its own normalized in-memory copy. A
+          // persisted v1 record is compared migrated, like loadWallet reads it.
+          const persistedEvents = storedEventsOf(persisted);
           const persistedById = new Map();
           for (const e of persistedEvents) {
             if (e && typeof e.id === "string" && e.id) {
@@ -949,7 +998,7 @@
     if (!loadedIds.length) return true;
     if (!persisted || !Array.isArray(persisted.events)) return false;
     const stored = new Set();
-    for (const e of normalizeEvents(persisted.events)) {
+    for (const e of storedEventsOf(persisted)) {
       if (e && typeof e.id === "string") stored.add(e.id);
     }
     return loadedIds.every((id) => stored.has(id));

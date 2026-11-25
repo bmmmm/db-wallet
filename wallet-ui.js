@@ -117,7 +117,6 @@
 
   document.addEventListener("DOMContentLoaded", async () => {
     const elUid = document.getElementById("uid");
-    const elWalletVersion = document.getElementById("wallet-version");
     const elTotal = document.getElementById("total");
     const elUnpaid = document.getElementById("unpaid");
     const elCredit = document.getElementById("credit");
@@ -136,7 +135,6 @@
     const logEditGroup = document.getElementById("log-edit-group");
     const logEditToggle = document.getElementById("log-edit-toggle");
 
-    const btnMigrate = document.getElementById("btn-migrate");
     const btnDrink = document.getElementById("btn-drink");
     const btnUndo = document.getElementById("btn-undo");
     const btnPay = document.getElementById("btn-pay");
@@ -446,8 +444,6 @@
         gzipCompress,
         base64UrlEncodeBytes,
         todayDateStr,
-        needsMigration,
-        runMigrationDialog,
         getStoredTheme,
         downloadCurrentWalletBackup,
       });
@@ -505,30 +501,6 @@
     function clearExport() {
       if (exportUi && typeof exportUi.clear === "function") {
         exportUi.clear();
-      }
-    }
-
-    function getWalletVersion() {
-      return wallet && typeof wallet.v === "number" ? wallet.v : 1;
-    }
-
-    function needsMigration() {
-      try {
-        if (typeof window.dbWalletNeedsMigration === "function") {
-          return window.dbWalletNeedsMigration(wallet);
-        }
-      } catch (e) {
-        // ignore
-      }
-      return getWalletVersion() < 2;
-    }
-
-    function updateHeaderUi() {
-      if (elWalletVersion) {
-        elWalletVersion.textContent = `v${getWalletVersion()}`;
-      }
-      if (btnMigrate) {
-        btnMigrate.style.display = needsMigration() ? "inline-block" : "none";
       }
     }
 
@@ -755,49 +727,6 @@
       );
     }
 
-    function migrateWalletNow() {
-      if (typeof window.dbWalletMigrateV1toV2 !== "function") {
-        helpers.notify("Migration ist nicht verfügbar (migration.js fehlt).", {
-          kind: "error",
-        });
-        return false;
-      }
-      wallet = window.dbWalletMigrateV1toV2(wallet);
-      ensureDeviceSeq(wallet);
-      saveWallet(wallet);
-      handleWalletStateChange();
-      updateHeaderUi();
-      return true;
-    }
-
-    function runMigrationDialog(reason, force) {
-      const header =
-        reason ||
-        "Dein Wallet ist noch v1. Für einen zuverlässigen QR-Export empfiehlt sich die Migration auf v2.";
-      const text =
-        header +
-        "\n\n1 = Direkt migrieren\n2 = Lokal abspeichern & migrieren\n\nAbbrechen = kein QR-Export";
-      while (true) {
-        const choice = window.prompt(text, "1");
-        if (choice === null) return false;
-        const c = String(choice).trim();
-        if (c === "1") return migrateWalletNow();
-        if (c === "2") {
-          downloadCurrentWalletBackup("backup");
-          return migrateWalletNow();
-        }
-        if (!force) return false;
-      }
-    }
-
-    if (btnMigrate) {
-      btnMigrate.addEventListener("click", () => {
-        if (!needsMigration()) return;
-        runMigrationDialog("", false);
-      });
-    }
-
-    updateHeaderUi();
     refreshSummary();
 
     window.dbWalletUi = {
@@ -899,12 +828,11 @@
     }
 
     // The wallet was read again (another tab saved it, a wallet switch):
-    // the code panel, the header and the device picker follow as well. The
-    // panel re-renders only when its codes changed.
+    // the code panel and the device picker follow as well. The panel
+    // re-renders only when its codes changed.
     function handleWalletReloaded() {
       handleWalletStateChange();
       if (actionCodesUi) actionCodesUi.sync();
-      updateHeaderUi();
       if (deviceUi && typeof deviceUi.render === "function") deviceUi.render();
     }
 
@@ -937,7 +865,6 @@
           refreshActionCodesUi: () => {
             if (actionCodesUi) actionCodesUi.refresh();
           },
-          updateHeaderUi,
           onStateChanged: handleWalletStateChange,
           // Errors and notices go to the status line (P4.1), questions to
           // the shared dialog (P4.3; a Promise of the answer).

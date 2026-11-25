@@ -22,7 +22,6 @@ function makeActionsCtx(w, wallet, opts = {}) {
     resetPayUi() {},
     clearExport() {},
     refreshActionCodesUi() {},
-    updateHeaderUi() {},
     onStateChanged() {},
     dialogAlert: (m) => state.alerts.push(String(m)),
     // Status-line notices (P4.1): { text, action } with action = the label.

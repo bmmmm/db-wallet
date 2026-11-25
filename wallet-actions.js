@@ -321,7 +321,6 @@
     ctx.refreshActionCodesUi();
     ctx.clearExport();
     ctx.resetAmount();
-    ctx.updateHeaderUi();
     ctx.onStateChanged();
     notify(ctx, `Alle Daten für „${userId}“ gelöscht.`);
     return true;

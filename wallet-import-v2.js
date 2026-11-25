@@ -1286,9 +1286,10 @@
     }
 
     // If the merge pulled in non-compact (v1) ids, migrate the COMBINED wallet
-    // instead of silently downgrading to v=1 and re-prompting migration on every
-    // load. migrateV1toV2 is idempotent for already-compact ids and re-points the
-    // tombstone refs of the events it migrates.
+    // before it is saved, instead of storing a v=1 wallet that loadWallet would
+    // migrate again on every read. migrateV1toV2 is idempotent for
+    // already-compact ids and re-points the tombstone refs of the events it
+    // migrates.
     const allCompactBefore = local.events.every((e) => {
       const id = e && typeof e.id === "string" ? e.id : "";
       return !!parseCompactEventId(id);

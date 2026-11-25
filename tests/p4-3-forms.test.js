@@ -56,10 +56,8 @@ test("wallet.html: credit form and confirm dialog; no prompt() in the booking fl
   );
   const actions = read("wallet-actions.js");
   assert.doesNotMatch(actions, /prompt\(|dialogPrompt/);
-  // The only prompt left in wallet-ui.js is the v1 → v2 migration choice.
-  const ui = read("wallet-ui.js");
-  assert.equal((ui.match(/prompt\(/g) || []).length, 1);
-  assert.match(ui, /function runMigrationDialog[\s\S]*?window\.prompt\(/);
+  // M1: the v1 → v2 migration choice is gone too (silent on load).
+  assert.doesNotMatch(read("wallet-ui.js"), /prompt\(/);
   // Hidden until opened (CSP: no inline style in the markup).
   assert.match(read("style.css"), /#credit-form\s*\{\s*display:\s*none;/);
 });
