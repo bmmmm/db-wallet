@@ -572,7 +572,9 @@
       return true;
     }
 
-    function handleGlobalActionHash(hash, options = {}) {
+    // Applies a global ('acg:') code to the open wallet: confirmed, saved (or
+    // the save error), reported, and the hash back to the wallet.
+    function handleGlobalActionHash(hash) {
       if (isDuplicateGlobalActionHash(hash)) {
         return { handled: true, applied: false, reason: "duplicate" };
       }
@@ -581,28 +583,14 @@
         actionApi && typeof actionApi.decodeGlobalActionHash === "function"
           ? actionApi.decodeGlobalActionHash(hash)
           : null;
-      const skipMessage = !!options.skipMessage;
 
-      const targetWallet = "wallet" in options ? options.wallet : wallet;
       if (!payload) {
         // A wallet is open here: an error in the status line, not the
         // no-wallet notice, and the broken code leaves the address bar.
-        if (!skipMessage) helpers.notify(INVALID_GLOBAL_CODE, { kind: "error" });
-        if (targetWallet && targetWallet === wallet && !options.skipHashCleanup) {
-          replaceHashSilently(userId);
-        }
+        helpers.notify(INVALID_GLOBAL_CODE, { kind: "error" });
+        replaceHashSilently(userId);
         return { handled: true, applied: false, reason: "invalid" };
       }
-
-      if (!targetWallet) {
-        if (!skipMessage) {
-          showGlobalActionMessage(
-            "Bitte zuerst ein Wallet importieren oder öffnen.",
-          );
-        }
-        return { handled: true, applied: false, reason: "no-wallet" };
-      }
-      if (!Array.isArray(targetWallet.events)) targetWallet.events = [];
 
       const { type, amount, label: payloadLabel } =
         actionApi.globalPayloadAction(payload);
@@ -610,7 +598,7 @@
       // Confirm before applying: a global ('acg:') QR books onto the wallet with
       // no key/auth check, so make the inflation explicit instead of silently
       // pushing it (on every path — boot, hashchange, and after wallet select).
-      if (!options.skipConfirm && typeof confirm === "function") {
+      if (typeof confirm === "function") {
         const label = payloadLabel ? ` „${payloadLabel}“` : "";
         const what =
           type === "d"
@@ -621,58 +609,38 @@
           // declined code. Do NOT arm the dedup guard — a decline isn't a
           // consume, so a deliberate later re-apply of the same code must still
           // be allowed.
-          if (targetWallet === wallet && !options.skipHashCleanup) {
-            replaceHashSilently(userId);
-          }
+          replaceHashSilently(userId);
           return { handled: true, applied: false, reason: "declined" };
         }
       }
 
-      const event = newEvent(targetWallet, type, amount);
-
-      const isActiveWallet = targetWallet === wallet;
-      // Only arm the dedup guard on the active-wallet path (the boot vs.
-      // hashchange race it exists for). Arming it for a non-active/programmatic
-      // apply would poison a later real apply of the same code within the window.
-      if (isActiveWallet) {
-        markGlobalActionHandled(hash);
-      }
-      if (isActiveWallet && !options.skipPersist) {
-        // appendEvents snapshots + pushes + persists + rolls back atomically, so
-        // a failed write leaves the balance untouched instead of rolling back
-        // silently. Surface the failure — the same wording as a failed booking
-        // in wallet-actions.js — instead of pretending the booking happened.
-        if (!appendEvents(wallet, [event])) {
-          if (storage.getLastSaveError() === "replaced") {
-            storage.notifyWalletReplaced();
-          } else {
-            helpers.notify(
-              "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
-              { kind: "error" },
-            );
-          }
-          return { handled: true, applied: false, reason: "save-failed" };
+      // Armed only for an apply (the boot vs. hashchange race it exists for).
+      markGlobalActionHandled(hash);
+      // appendEvents snapshots + pushes + persists + rolls back atomically, so
+      // a failed write leaves the balance untouched instead of rolling back
+      // silently. Surface the failure — the same wording as a failed booking
+      // in wallet-actions.js — instead of pretending the booking happened.
+      if (!appendEvents(wallet, [newEvent(wallet, type, amount)])) {
+        if (storage.getLastSaveError() === "replaced") {
+          storage.notifyWalletReplaced();
+        } else {
+          helpers.notify(
+            "Speichern fehlgeschlagen — Aktion verworfen (Speicher voll oder blockiert).",
+            { kind: "error" },
+          );
         }
-        invalidateCaches();
-        resetAmount();
-        clearExport();
-        refreshSummary();
-        const summary = getSummary();
-        const balance =
-          summary.credit > 0 ? `Guthaben: ${summary.credit}` : `Offen: ${summary.unpaid}`;
-        const what = type === "d" ? `+${amount} gebucht` : `Guthaben +${amount} gebucht`;
-        helpers.notify(`${payloadLabel ? `„${payloadLabel}“: ` : ""}${what} · ${balance}`);
-      } else {
-        // Non-persisting path: a programmatic apply (skipPersist, the
-        // self-check's dry runs) or a non-active wallet. Stage the append in
-        // memory only.
-        targetWallet.events.push(event);
+        return { handled: true, applied: false, reason: "save-failed" };
       }
-
-      if (isActiveWallet && !options.skipHashCleanup) {
-        replaceHashSilently(userId);
-      }
-
+      invalidateCaches();
+      resetAmount();
+      clearExport();
+      refreshSummary();
+      const summary = getSummary();
+      const balance =
+        summary.credit > 0 ? `Guthaben: ${summary.credit}` : `Offen: ${summary.unpaid}`;
+      const what = type === "d" ? `+${amount} gebucht` : `Guthaben +${amount} gebucht`;
+      helpers.notify(`${payloadLabel ? `„${payloadLabel}“: ` : ""}${what} · ${balance}`);
+      replaceHashSilently(userId);
       return { handled: true, applied: true, reason: "applied" };
     }
 
@@ -731,9 +699,7 @@
 
     window.dbWalletUi = {
       getCurrentUserId: () => userId,
-      applyGlobalActionHash: (hash, options) =>
-        handleGlobalActionHash(hash, options),
-      handleWalletStateChange: () => handleWalletStateChange(),
+      applyGlobalActionHash: (hash) => handleGlobalActionHash(hash),
     };
 
     function getAmount() {

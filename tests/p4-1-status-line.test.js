@@ -128,7 +128,7 @@ test("a global code reports what it booked", async () => {
     { scope: "global", type: "d", amount: 2, label: "Runde" },
     "https://example.invalid/wallet.html",
   ).split("#")[1];
-  const res = w.dbWalletUi.applyGlobalActionHash(hash, {});
+  const res = w.dbWalletUi.applyGlobalActionHash(hash);
   assert.equal(res.applied, true);
   assert.equal(status(w).text, "„Runde“: +2 gebucht · Offen: 3");
 });

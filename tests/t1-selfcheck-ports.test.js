@@ -3,8 +3,8 @@
 // only what needs a real browser (tests/self-check-smoke.test.js runs it).
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { makeEnv, makeStorage, plain, waitFor } = require("./harness");
-const { bootWalletPage } = require("./wallet-page");
+const { makeEnv, makeStorage, plain, persisted, waitFor } = require("./harness");
+const { bootWalletPage, flushHashChanges } = require("./wallet-page");
 const { makeActionsCtx } = require("./actions-ctx");
 const { findAll } = require("./fake-dom");
 
@@ -220,32 +220,24 @@ const saved = (...ids) => (e) => {
   }
 };
 
-test("applyGlobalActionHash on a wallet that is not open books in memory only", async () => {
+test("acg: with a wallet open: booked once, a repeat is a duplicate, a decline books nothing", async () => {
   const storage = makeStorage();
   const w = await bootWalletPage({ hash: "anna", storage, seed: saved("anna") });
-  const ui = w.dbWalletUi;
-  const entries = w._nav.entries.length;
-  const annaBefore = storage.getItem("db-wallet:anna");
-  const other = w.dbWalletStorage.loadWallet("bert");
-  const opts = { wallet: other, skipPersist: true, skipConfirm: true, skipMessage: true, skipHashCleanup: true };
+  const drinks = () => persisted(storage, "anna").events.filter((e) => e.t === "d").map((e) => e.n);
   const hd = acg("d", 4, "Vier");
-  assert.equal(ui.applyGlobalActionHash(hd, opts).applied, true);
-  assert.equal(ui.applyGlobalActionHash(acg("g", 6, "Sechs"), opts).applied, true);
-  // A programmatic apply does not arm the duplicate guard of the open wallet.
-  assert.equal(ui.applyGlobalActionHash(hd, opts).applied, true);
-  assert.deepEqual(plain(other.events.map((e) => [e.t, e.n])), [["d", 4], ["g", 6], ["d", 4]]);
-  assert.equal(storage.getItem("db-wallet:bert"), null, "nothing persisted");
-  assert.equal(storage.getItem("db-wallet:anna"), annaBefore, "the open wallet is untouched");
+  w.location.hash = hd;
+  await flushHashChanges(w);
+  assert.deepEqual(drinks(), [1, 4]);
   assert.equal(w.location.hash, "#anna");
-  assert.equal(ui.getCurrentUserId(), "anna");
-  assert.equal(w._nav.entries.length, entries);
-  // Without a wallet: refused, nothing booked.
-  const none = ui.applyGlobalActionHash(acg("d", 2, "Zwei"), Object.assign({}, opts, { wallet: null }));
-  assert.deepEqual([none.applied, none.reason], [false, "no-wallet"]);
-  // The fan-out after every change can run twice in a row.
-  ui.handleWalletStateChange();
-  ui.handleWalletStateChange();
-  assert.equal(w.document.getElementById("uid").textContent, "anna");
+  // The same code again right away (boot vs. hashchange race): not booked twice.
+  assert.equal(w.dbWalletUi.applyGlobalActionHash(hd).reason, "duplicate");
+  w.confirm = () => false;
+  w.location.hash = acg("g", 6, "Sechs");
+  await flushHashChanges(w);
+  assert.deepEqual(drinks(), [1, 4]);
+  assert.equal(persisted(storage, "anna").events.some((e) => e.t === "g"), false);
+  assert.equal(w.location.hash, "#anna", "a declined code leaves the address bar");
+  assert.equal(w.dbWalletUi.getCurrentUserId(), "anna");
 });
 
 test("a valid acg: on a cold start without wallets: the hint, no wallet made", async () => {
