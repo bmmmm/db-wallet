@@ -424,10 +424,21 @@
     const wallet = ctx.getWallet();
     const safeUserId = safeFilePart((wallet && wallet.userId) || "user");
 
-    canvas.addEventListener("click", () => {
+    const codeName = code.label || `+${code.amount}`;
+    const savePng = () => {
       if (!url || !job.drawn) return;
-      const safeCode = safeFilePart(code.label || `+${code.amount}`).slice(0, 20);
+      const safeCode = safeFilePart(codeName).slice(0, 20);
       canvasToPngDownload(canvas, `db-wallet-${safeUserId}-action-${safeCode}.png`);
+    };
+    // A button for the keyboard too: Enter and Space save the PNG.
+    canvas.tabIndex = 0;
+    canvas.setAttribute("role", "button");
+    canvas.setAttribute("aria-label", `QR-Code „${codeName}“ als PNG speichern`);
+    canvas.addEventListener("click", savePng);
+    canvas.addEventListener("keydown", (e) => {
+      if (!e || (e.key !== "Enter" && e.key !== " ")) return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      savePng();
     });
 
     return { canvas, urlInput };

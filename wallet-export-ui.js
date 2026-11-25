@@ -421,9 +421,15 @@
     updateShareButtons();
 
     if (refs.qrCanvas) {
-      refs.qrCanvas.addEventListener("click", () => {
-        if (!lastQrUrl) return;
-        downloadQrPng(lastQrUrl);
+      const saveQrPng = () => {
+        if (lastQrUrl) downloadQrPng(lastQrUrl);
+      };
+      refs.qrCanvas.addEventListener("click", saveQrPng);
+      // role="button" (wallet.html): Enter and Space act like a click.
+      refs.qrCanvas.addEventListener("keydown", (e) => {
+        if (!e || (e.key !== "Enter" && e.key !== " ")) return;
+        if (typeof e.preventDefault === "function") e.preventDefault();
+        saveQrPng();
       });
     }
     if (!qrResizeBound && typeof window.addEventListener === "function") {
