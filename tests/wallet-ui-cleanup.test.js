@@ -22,7 +22,14 @@ function seedTwo(e) {
 test("no classic export link and no all-wallets raw toggle on wallet.html", () => {
   const html = read("wallet.html");
   assert.doesNotMatch(html, /id="btn-export-link"/);
-  assert.doesNotMatch(html, /raw-scope|raw-toggle/);
+  assert.doesNotMatch(html, /raw-toggle/);
+  // Only the hidden placeholders the previous release's cached wallet-ui.js
+  // needs to boot (docs/upgrade-compat.md S6-boot): empty, out of the tab order.
+  assert.deepEqual(html.match(/id="raw-scope-[a-z]+"/g), ['id="raw-scope-placeholder"', 'id="raw-scope-current"', 'id="raw-scope-all"']);
+  assert.match(html, /<div id="raw-scope-placeholder" hidden>\s*<button id="raw-scope-current" type="button" tabindex="-1"><\/button>\s*<button id="raw-scope-all" type="button" tabindex="-1"><\/button>\s*<\/div>/);
+  for (const f of ["wallet-ui.js", "wallet-history-ui.js", "style.css"]) {
+    assert.doesNotMatch(read(f), /raw-scope/, f);
+  }
   assert.doesNotMatch(read("wallet-export-ui.js"), /#import:|btnExportLink\b/);
   assert.doesNotMatch(read("wallet-history-ui.js"), /getAllWallets|rawScope/);
 });

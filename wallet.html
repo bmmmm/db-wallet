@@ -105,6 +105,16 @@
                         <button id="mode-raw" class="mode-btn" aria-label="Raw-Log-Ansicht">Raw-Log 🛠️</button>
                     </div>
 
+                    <!-- Placeholders for one release: right after the deploy the old
+                         service worker still serves the previous wallet-ui.js, whose
+                         boot stops without these two ids (docs/upgrade-compat.md
+                         S6-boot). No current script uses them; remove them in the
+                         release after the one that dropped the raw toggle. -->
+                    <div id="raw-scope-placeholder" hidden>
+                        <button id="raw-scope-current" type="button" tabindex="-1"></button>
+                        <button id="raw-scope-all" type="button" tabindex="-1"></button>
+                    </div>
+
                     <!-- Log-Bearbeitung -->
                     <div id="log-tools">
                         <label>
