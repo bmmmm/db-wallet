@@ -8,7 +8,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { makeEnv, makeStorage, plain, REPO } = require("./harness");
+const { makeEnv, makeStorage, plain, settle, REPO } = require("./harness");
 const { makePageDocument, find, findAll } = require("./fake-dom");
 const { bootWalletPage } = require("./wallet-page");
 
@@ -347,7 +347,6 @@ const INDEX_SKIP = new Set(["theme.js", "import-preview.js", "sw-register.js"]);
 const INDEX_FILES = Array.from(INDEX_HTML.matchAll(/<script src="(?:\.\/)?([^"]+)"/g))
   .map((m) => m[1])
   .filter((f) => !INDEX_SKIP.has(f));
-const settle = () => new Promise((r) => setTimeout(r, 0));
 
 async function bootIndex(storage) {
   const document = makePageDocument(INDEX_HTML);
