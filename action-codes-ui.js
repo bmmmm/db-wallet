@@ -33,17 +33,6 @@
     GLOBAL_ACTION_MAX_AMOUNT,
   } = api;
 
-  function canvasToPngDownload(canvas, filename) {
-    canvas.toBlob((blob) => {
-      if (blob) helpers.downloadBlob(blob, filename);
-    }, "image/png");
-  }
-
-  // A file-name part: letters, digits, "_" and "-" only.
-  function safeFilePart(text) {
-    return String(text).replace(/[^a-zA-Z0-9_-]/g, "_");
-  }
-
   function renderQrToCanvas(canvas, url) {
     if (!canvas) return;
     helpers.drawQrToCanvas(canvas, String(url || ""), { scale: 6 });
@@ -402,44 +391,25 @@
     ctx.qrQueue.push(job);
 
     // Focus (without scrolling) and select the whole link.
-    function selectUrl() {
-      if (document.activeElement !== urlInput) {
-        try {
-          urlInput.focus({ preventScroll: true });
-        } catch (e) {
-          urlInput.focus();
-        }
-      }
-      try {
-        urlInput.select();
-        urlInput.setSelectionRange(0, urlInput.value.length);
-      } catch (e) {
-        // ignore
-      }
-    }
-
+    const selectUrl = () => helpers.selectField(urlInput);
     urlInput.addEventListener("focus", selectUrl);
     urlInput.addEventListener("click", selectUrl);
 
     const wallet = ctx.getWallet();
-    const safeUserId = safeFilePart((wallet && wallet.userId) || "user");
+    const safeUserId = helpers.safeFilePart((wallet && wallet.userId) || "user");
 
     const codeName = code.label || `+${code.amount}`;
     const savePng = () => {
       if (!url || !job.drawn) return;
-      const safeCode = safeFilePart(codeName).slice(0, 20);
-      canvasToPngDownload(canvas, `db-wallet-${safeUserId}-action-${safeCode}.png`);
+      const safeCode = helpers.safeFilePart(codeName).slice(0, 20);
+      helpers.downloadCanvasPng(canvas, `db-wallet-${safeUserId}-action-${safeCode}.png`);
     };
     // A button for the keyboard too: Enter and Space save the PNG.
     canvas.tabIndex = 0;
     canvas.setAttribute("role", "button");
     canvas.setAttribute("aria-label", `QR-Code „${codeName}“ als PNG speichern`);
     canvas.addEventListener("click", savePng);
-    canvas.addEventListener("keydown", (e) => {
-      if (!e || (e.key !== "Enter" && e.key !== " ")) return;
-      if (typeof e.preventDefault === "function") e.preventDefault();
-      savePng();
-    });
+    helpers.onEnterOrSpace(canvas, savePng);
 
     return { canvas, urlInput };
   }

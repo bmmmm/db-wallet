@@ -1018,7 +1018,7 @@
 
   // "db-wallet-<user>-<YYYY-MM-DD>[-<tag>].json"
   function walletBackupFileName(userId, dateStr, tag) {
-    const safe = String(userId || "user").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const safe = helpers.safeFilePart(userId || "user");
     return `db-wallet-${safe}-${dateStr}${tag ? "-" + tag : ""}.json`;
   }
 

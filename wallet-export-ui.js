@@ -55,32 +55,10 @@
     if (el) el.textContent = text;
   }
 
-  // Focuses a link field (without scrolling) and selects all of it.
-  function selectField(el) {
-    if (!el) return;
-    if (document.activeElement !== el) {
-      try {
-        el.focus({ preventScroll: true });
-      } catch (e) {
-        try {
-          el.focus();
-        } catch (e2) {
-          // ignore
-        }
-      }
-    }
-    try {
-      el.select();
-      el.setSelectionRange(0, String(el.value || "").length);
-    } catch (e) {
-      // ignore
-    }
-  }
-
   // Legacy path for browsers without the async Clipboard API (or when it is
   // blocked, e.g. on plain http): copies the selection of `field`.
   function execCopy(field) {
-    selectField(field);
+    helpers.selectField(field);
     try {
       return typeof document.execCommand === "function" && document.execCommand("copy") === true;
     } catch (e) {
@@ -105,7 +83,7 @@
     if (ok) {
       setStatus(statusEl, "Link kopiert.");
     } else {
-      selectField(field);
+      helpers.selectField(field);
       setStatus(
         statusEl,
         "Kopieren nicht möglich: Der Link ist markiert, bitte selbst kopieren.",
@@ -256,7 +234,7 @@
     lastQrUrl = url;
     if (refs.qrUrl) {
       refs.qrUrl.value = url;
-      selectField(refs.qrUrl);
+      helpers.selectField(refs.qrUrl);
     }
     setStatus(refs.qrUrlStatus, "");
     updateShareButtons();
@@ -269,10 +247,8 @@
     const canvas = document.createElement("canvas");
     helpers.drawQrToCanvas(canvas, url, { scale: 10 });
     const wallet = opts.getWallet();
-    const safeUserId = String((wallet && wallet.userId) || "user").replace(/[^a-zA-Z0-9_-]/g, "_");
-    canvas.toBlob((blob) => {
-      if (blob) helpers.downloadBlob(blob, `db-wallet-${safeUserId}-${opts.todayDateStr()}.png`);
-    }, "image/png");
+    const safeUserId = helpers.safeFilePart((wallet && wallet.userId) || "user");
+    helpers.downloadCanvasPng(canvas, `db-wallet-${safeUserId}-${opts.todayDateStr()}.png`);
   }
 
   async function buildQrUrl() {
@@ -304,7 +280,7 @@
       `${reason} Stattdessen steht der kompakte Export-Link (${url.length} Zeichen) im Linkfeld: kopieren und auf dem anderen Gerät öffnen.`,
       Object.assign({ sticky: true }, notifyOpts),
     );
-    selectField(refs.elExportUrl);
+    helpers.selectField(refs.elExportUrl);
   }
 
   async function showQrExport() {
@@ -412,8 +388,8 @@
 
     for (const field of [refs.elExportUrl, refs.qrUrl]) {
       if (!field) continue;
-      field.addEventListener("focus", () => selectField(field));
-      field.addEventListener("click", () => selectField(field));
+      field.addEventListener("focus", () => helpers.selectField(field));
+      field.addEventListener("click", () => helpers.selectField(field));
     }
     const bind = (btn, fn, field, status) => {
       if (btn) btn.addEventListener("click", () => fn(field, status));
@@ -430,11 +406,7 @@
       };
       refs.qrCanvas.addEventListener("click", saveQrPng);
       // role="button" (wallet.html): Enter and Space act like a click.
-      refs.qrCanvas.addEventListener("keydown", (e) => {
-        if (!e || (e.key !== "Enter" && e.key !== " ")) return;
-        if (typeof e.preventDefault === "function") e.preventDefault();
-        saveQrPng();
-      });
+      helpers.onEnterOrSpace(refs.qrCanvas, saveQrPng);
     }
     if (!qrResizeBound && typeof window.addEventListener === "function") {
       qrResizeBound = true;

@@ -538,6 +538,50 @@
     return save(blob, filename);
   }
 
+  // Saves a drawn canvas as a PNG file (the export QR, an action-code QR).
+  // Through the namespace's downloadBlob, like downloadJson.
+  function downloadCanvasPng(canvas, filename) {
+    canvas.toBlob((blob) => {
+      if (blob) window.dbWalletHelpers.downloadBlob(blob, filename);
+    }, "image/png");
+  }
+
+  // A file-name part: letters, digits, "_" and "-" only.
+  function safeFilePart(text) {
+    return String(text).replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
+  // Focuses a link field (without scrolling) and selects all of it.
+  function selectField(el) {
+    if (!el) return;
+    if (document.activeElement !== el) {
+      try {
+        el.focus({ preventScroll: true });
+      } catch (e) {
+        try {
+          el.focus();
+        } catch (e2) {
+          // ignore
+        }
+      }
+    }
+    try {
+      el.select();
+      el.setSelectionRange(0, String(el.value || "").length);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // For an element with role="button": Enter and Space run `run`, like a click.
+  function onEnterOrSpace(el, run) {
+    el.addEventListener("keydown", (e) => {
+      if (!e || (e.key !== "Enter" && e.key !== " ")) return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      run();
+    });
+  }
+
   // --- Status line (P4.1) ----------------------------------------------------
   // One line per page (#status-line; #status-text is the role="status" live
   // region) takes the success and error notices that used to be alert()s.
@@ -785,6 +829,10 @@
     BLOB_URL_REVOKE_MS,
     downloadBlob,
     downloadJson,
+    downloadCanvasPng,
+    safeFilePart,
+    selectField,
+    onEnterOrSpace,
     notify,
     confirmDialog,
     whenConfirmed,
