@@ -85,7 +85,7 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-history-ui.js` | Verlaufs-UI: Diagramm/Raw im `<pre>`, „Historie" als Zeilen (`#history-list`, 200 je Schritt) mit Bearbeiten (Inline-Formular) / Löschen pro Eintrag |
 | `wallet-device-ui.js` | Geräte-UI |
 | `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas` + `loadQrLibrary` (injects `qrcodegen.js` on first use — no page loads it; the action-code panel draws its QRs only while `#action-codes-panel` is open), `downloadBlob` = the one Blob-download path, revokes late (`downloadJson` builds on it); `notify`/`confirmDialog`/`whenConfirmed`; shared UI steps `selectField`, `downloadCanvasPng`, `safeFilePart`, `onEnterOrSpace`; `RESERVED_HASH_PREFIXES`/`isReservedHashPrefix`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
-| `migration.js` | Datenmigration v1→v2 |
+| `migration.js` | Migration v1→v2 (`dbWalletMigrateV1toV2`, `dbWalletNeedsMigration`): still in `loadWallet` und im Import-Merge, keine UI |
 | `hash-router.js` | `classifyHash` — der einzige Hash-Klassifizierer (`#<name>`, `ac:`/`acg:`/`import:`/`i2:`/`i2u:`) |
 | `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |
 | `self-check-loader.js` | Stub on `wallet.html`: `dbWalletSelfCheck.run()` loads `self-check.js` on first call |
@@ -143,7 +143,12 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   are merged field-wise. Every event passes through `normalizeEvent` (loadWallet,
   both sides of the saveWallet compare, import with a field whitelist); the amount
   ceiling is `dbWalletHelpers.MAX_EVENT_AMOUNT` (1e9), enforced at every input. `undoLastEvent` returns the tombstone, `null` (nothing to
-  undo), or `{status:"failed"}` (save failure).
+  undo), or `{status:"failed"}` (save failure). A v1 wallet (`v < 2` or any
+  non-compact id) is migrated silently by `loadWallet`, in memory only (a read
+  never writes; `wallet.html` saves right after its boot), and `saveWallet`
+  reconciles against a migrated copy of the stored record — so a v1 record still
+  in storage or written by an old tab merges without duplicates (the migrated ids
+  are deterministic, hash53 of the legacy id; `tests/m1-silent-migration.test.js`).
 - **Action codes never expire; the key is the only secret** — revocation = edit (key
   rotation) or delete. An imported code can update label/amount/type but never the
   local key (key rotation is local-only). A global `acg:` apply asks for confirmation.
@@ -200,8 +205,7 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   a re-render. An edit on the same day keeps the `ts`; another day keeps the time
   of day (today but later than now → now); a later day or a move across a pay is
   refused. Still native (synchronous boot/hash path): the `acg:` apply confirm in
-  `wallet-ui.js`, the `ac:` target confirms in `wallet-import-v2.js`, and the v1
-  migration prompt. The import choice (`import-preview.js` `chooseImportMode`) is
+  `wallet-ui.js` and the `ac:` target confirms in `wallet-import-v2.js`. The import choice (`import-preview.js` `chooseImportMode`) is
   its own native `<dialog>` (Escape/backdrop = cancel, the focus goes back).
 - **CSP has no `'unsafe-inline'`** (index/wallet/preview) — no `style="…"`, no
   `<style>`, no `setAttribute("style")`/`.cssText`/HTML strings with `style=`; single

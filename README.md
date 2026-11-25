@@ -213,7 +213,7 @@ fragt nach, wenn die letzte Aktion eine Löschung war.
 | `action-codes.js` | Action Codes: Normalisierung, Merge, Hash-Codec, Löschliste, Änderungen als reine Funktionen |
 | `action-codes-ui.js` | Action-Code-Panel (DOM, nur `wallet.html`) |
 | `hash-router.js` | Hash-Parsing (`#<name>`, `ac` / `acg` / `import` / `i2` / `i2u`) |
-| `migration.js` | Migration v1 → v2 (für robusten QR-Export) |
+| `migration.js` | Migration v1 → v2, still beim Laden und beim Import (ohne Rückfrage) |
 
 **UI:**
 
