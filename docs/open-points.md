@@ -34,6 +34,16 @@ App von vor 5b378ae einen Export mit Löschungen als „neuere App-Version“ ab
 bis sie aktualisiert ist; also beide Geräte aktualisieren, bevor sie
 abgleichen.
 
+Stand 2026-11-25: Der Aufräum-Stand `5e81555` ist live (Service Worker
+`db-wallet-v2-2026-11-25a`) und auf der Pages-Origin in einem frischen
+Inkognito-Profil geprüft, am Desktop und bei 360 × 740: Self-Check 7/7 grün,
+keiner übersprungen (Service Worker aktiv, 26 Dateien im Cache); keine
+Konsolenmeldung, keine CSP-Verletzung; Buchen mit „Rückgängig“ in der
+Statuszeile; Export-QR (per Tastatur als PNG), dessen `i2:`-Link als Import und
+als „Nur ansehen“; Action Code anlegen, `ac:`-Link bucht einmal, Zurück bucht
+nicht erneut; Theme-Wechsel samt Name und `theme-color`; auf keiner der drei
+Seiten waagrechtes Scrollen. Für ein echtes Gerät bleibt dieselbe Liste wie oben.
+
 ## O1 Veröffentlichten Stand im Browser prüfen
 
 Zuerst, weil es als Einziges schon bei Nutzern wirkt: Phase 0 bis 3 ist nie in einem
