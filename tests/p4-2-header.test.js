@@ -232,9 +232,14 @@ test("sync UI: classes instead of inline styles", () => {
   assert.doesNotMatch(src, /\.style\./);
 });
 
-test("the no-wallet notice lands after the header, as a <body> child", () => {
+test("the no-wallet notice lands after the header, as a <body> child", async () => {
   const hash = fs.readFileSync(path.join(REPO, "wallet-hash-actions.js"), "utf8");
-  assert.match(hash, /anchors: \["#wallet-header", "\.top-row", "h1"\]/);
+  assert.match(hash, /anchors: \["#wallet-header"\]/);
+  const w = await bootWalletPage({ hash: "" });
+  const kids = w.document.body.children;
+  const header = kids.findIndex((el) => el.id === "wallet-header");
+  assert.ok(header >= 0);
+  assert.equal(kids[header + 1].id, "global-action-message");
   const msgs = fs.readFileSync(path.join(REPO, "wallet-messages.js"), "utf8");
   assert.match(msgs, /\["#wallet-header", "\.top-row", "h1"\]/);
 });

@@ -34,23 +34,14 @@
   } = api;
 
   function canvasToPngDownload(canvas, filename) {
-    if (!canvas) return;
-    const saveBlob = (blob) => {
-      if (typeof helpers.downloadBlob === "function") helpers.downloadBlob(blob, filename);
-    };
+    canvas.toBlob((blob) => {
+      if (blob) helpers.downloadBlob(blob, filename);
+    }, "image/png");
+  }
 
-    if (canvas.toBlob) {
-      canvas.toBlob((blob) => {
-        if (blob) saveBlob(blob);
-      }, "image/png");
-      return;
-    }
-    const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  // A file-name part: letters, digits, "_" and "-" only.
+  function safeFilePart(text) {
+    return String(text).replace(/[^a-zA-Z0-9_-]/g, "_");
   }
 
   function renderQrToCanvas(canvas, url) {
@@ -166,6 +157,7 @@
     amountInput.type = "number";
     amountInput.min = "1";
     amountInput.value = config.amount;
+    ctx.focusRefs.form = amountInput;
 
     const labelInput = document.createElement("input");
     labelInput.type = "text";
@@ -276,31 +268,21 @@
       onSave: ({ scopeToggle, typeToggle, amountInput, labelInput }) => {
         const walletNow = ctx.getWallet();
         if (!walletNow) return;
-        const scope = scopeToggle.getScope();
-        const hadNoLocalCodes = !(
-          Array.isArray(walletNow.actionCodes) && walletNow.actionCodes.length
-        );
-        commit(
-          ctx,
-          createActionCode(walletNow, {
-            scope,
-            type: typeToggle.getType(),
-            amount: amountInput.value,
-            label: labelInput.value,
-          }),
-        );
-        if (scope !== "global" && hadNoLocalCodes) {
-          const details =
-            typeof ctx.container.closest === "function"
-              ? ctx.container.closest("details")
-              : null;
-          if (details) details.open = true;
-        }
+        const result = createActionCode(walletNow, {
+          scope: scopeToggle.getScope(),
+          type: typeToggle.getType(),
+          amount: amountInput.value,
+          label: labelInput.value,
+        });
+        commit(ctx, result);
         ctx.createOpen = false;
+        // On the new card (falls back to "Neuer Action Code" without one).
+        ctx.pendingFocus = { what: "edit", id: result && result.code ? result.code.id : "" };
         ctx.refresh();
       },
       onCancel: () => {
         ctx.createOpen = false;
+        ctx.pendingFocus = { what: "add" };
         ctx.refresh();
       },
     });
@@ -326,19 +308,30 @@
           amount: amountInput.value,
           label: labelInput.value,
         });
-        if (!result) return;
-        commit(ctx, result);
         ctx.editingId = "";
+        if (result) commit(ctx, result);
+        // Deleted in another tab meanwhile: the save keeps it deleted
+        // (wallet.deletedActionCodes), so the edit is gone — say so.
+        const kept = result && (!result.code || hasCode(ctx.getWallet(), result.code.id));
+        if (!kept) {
+          helpers.notify(
+            "Dieser Action Code wurde inzwischen in einem anderen Tab gelöscht — die Änderung ist nicht gespeichert.",
+            { kind: "error" },
+          );
+        }
+        // A scope change gives the code a new id.
+        ctx.pendingFocus = { what: "edit", id: kept && result.code ? result.code.id : code.id };
         ctx.refresh();
       },
       onCancel: () => {
         ctx.editingId = "";
+        ctx.pendingFocus = { what: "edit", id: code.id };
         ctx.refresh();
       },
     });
   }
 
-  function buildDeleteConfirm(ctx, code, isGlobal) {
+  function buildDeleteConfirm(ctx, code) {
     const deleteBox = document.createElement("div");
     deleteBox.className = "action-code-confirm card card--flat";
 
@@ -356,6 +349,7 @@
       if (!walletNow) return;
       commit(ctx, deleteActionCode(walletNow, code.id));
       ctx.pendingDeleteId = "";
+      ctx.pendingFocus = { what: "add" };
       ctx.refresh();
     });
 
@@ -364,8 +358,11 @@
     btnCancel.textContent = "Abbrechen";
     btnCancel.addEventListener("click", () => {
       ctx.pendingDeleteId = "";
+      ctx.pendingFocus = { what: "delete", id: code.id };
       ctx.refresh();
     });
+    // The question gets the focus on its harmless answer.
+    ctx.focusRefs.confirm = btnCancel;
 
     deleteActions.appendChild(btnConfirm);
     deleteActions.appendChild(btnCancel);
@@ -404,34 +401,44 @@
     const job = { canvas, url, drawn: false };
     ctx.qrQueue.push(job);
 
+    // Focus (without scrolling) and select the whole link.
     function selectUrl() {
-      try {
-        urlInput.focus({ preventScroll: true });
-      } catch (e) {
-        urlInput.focus();
+      if (document.activeElement !== urlInput) {
+        try {
+          urlInput.focus({ preventScroll: true });
+        } catch (e) {
+          urlInput.focus();
+        }
       }
-      urlInput.select();
       try {
+        urlInput.select();
         urlInput.setSelectionRange(0, urlInput.value.length);
-      } catch (e) {}
+      } catch (e) {
+        // ignore
+      }
     }
 
     urlInput.addEventListener("focus", selectUrl);
     urlInput.addEventListener("click", selectUrl);
 
     const wallet = ctx.getWallet();
-    const safeUserId = String((wallet && wallet.userId) || "user").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    );
+    const safeUserId = safeFilePart((wallet && wallet.userId) || "user");
 
-    canvas.addEventListener("click", () => {
+    const codeName = code.label || `+${code.amount}`;
+    const savePng = () => {
       if (!url || !job.drawn) return;
-      const safeCode = String(code.label || `+${code.amount}`)
-        .replace(/[^a-zA-Z0-9_-]/g, "_")
-        .slice(0, 20);
-      const filename = `db-wallet-${safeUserId}-action-${safeCode}.png`;
-      canvasToPngDownload(canvas, filename);
+      const safeCode = safeFilePart(codeName).slice(0, 20);
+      canvasToPngDownload(canvas, `db-wallet-${safeUserId}-action-${safeCode}.png`);
+    };
+    // A button for the keyboard too: Enter and Space save the PNG.
+    canvas.tabIndex = 0;
+    canvas.setAttribute("role", "button");
+    canvas.setAttribute("aria-label", `QR-Code „${codeName}“ als PNG speichern`);
+    canvas.addEventListener("click", savePng);
+    canvas.addEventListener("keydown", (e) => {
+      if (!e || (e.key !== "Enter" && e.key !== " ")) return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      savePng();
     });
 
     return { canvas, urlInput };
@@ -476,10 +483,12 @@
     const btnEdit = document.createElement("button");
     btnEdit.type = "button";
     btnEdit.textContent = "Bearbeiten";
+    btnEdit.setAttribute("aria-expanded", ctx.editingId === code.id ? "true" : "false");
     btnEdit.addEventListener("click", () => {
       ctx.editingId = code.id;
       ctx.pendingDeleteId = "";
       ctx.createOpen = false;
+      ctx.pendingFocus = { what: "form" };
       ctx.refresh();
     });
 
@@ -490,8 +499,12 @@
       ctx.pendingDeleteId = ctx.pendingDeleteId === code.id ? "" : code.id;
       ctx.editingId = "";
       ctx.createOpen = false;
+      ctx.pendingFocus = ctx.pendingDeleteId
+        ? { what: "confirm" }
+        : { what: "delete", id: code.id };
       ctx.refresh();
     });
+    ctx.focusRefs.cards.set(code.id, { edit: btnEdit, delete: btnDelete });
 
     btns.appendChild(btnEdit);
     btns.appendChild(btnDelete);
@@ -504,7 +517,7 @@
     if (ctx.editingId === code.id) {
       card.appendChild(buildEditForm(ctx, code, isGlobal));
     } else if (ctx.pendingDeleteId === code.id) {
-      card.appendChild(buildDeleteConfirm(ctx, code, isGlobal));
+      card.appendChild(buildDeleteConfirm(ctx, code));
     } else {
       const qr = buildQrCard(ctx, code);
       if (qr.error) {
@@ -562,6 +575,12 @@
     ctx.qrQueue = [];
 
     persistIfChanged(ctx, wallet);
+    // Same wallet as the last render? (A wallet switch closes an open form
+    // without a word; a code gone from the same wallet was deleted elsewhere.)
+    const walletKey = `${wallet.userId || ""}\n${wallet.walletId || ""}`;
+    const sameWallet = walletKey === ctx.walletKey;
+    ctx.walletKey = walletKey;
+    ctx.signature = codesSignature(wallet);
 
     const localCodes = Array.isArray(wallet.actionCodes)
       ? wallet.actionCodes
@@ -570,6 +589,9 @@
     if (localCodes.length < SOFT_LIMIT) ctx.showSoftLimitNotice = false;
     if (ctx.editingId && !codes.find((c) => c && c.id === ctx.editingId)) {
       ctx.editingId = "";
+      if (sameWallet) {
+        helpers.notify("Der Action Code, der gerade bearbeitet wurde, wurde in einem anderen Tab gelöscht.");
+      }
     }
     if (
       ctx.pendingDeleteId &&
@@ -580,6 +602,7 @@
 
     ctx.container.innerHTML = "";
     ctx.container.classList.add("action-codes-body-inner");
+    ctx.focusRefs = { add: null, form: null, confirm: null, cards: new Map() };
 
     const toolbar = document.createElement("div");
     toolbar.className = "action-codes-toolbar";
@@ -598,8 +621,11 @@
       ctx.createOpen = !ctx.createOpen;
       ctx.editingId = "";
       ctx.pendingDeleteId = "";
+      ctx.pendingFocus = { what: ctx.createOpen ? "form" : "add" };
       ctx.refresh();
     });
+    btnAdd.setAttribute("aria-expanded", ctx.createOpen ? "true" : "false");
+    ctx.focusRefs.add = btnAdd;
 
     toolbar.appendChild(btnAdd);
 
@@ -632,6 +658,7 @@
       if (ctx.showTrimNotice) ctx.container.appendChild(notice);
       if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
       ctx.container.appendChild(empty);
+      applyPendingFocus(ctx);
       return;
     }
 
@@ -652,7 +679,31 @@
     if (ctx.showTrimNotice) ctx.container.appendChild(notice);
     if (ctx.createOpen) ctx.container.appendChild(buildCreateForm(ctx));
     ctx.container.appendChild(grid);
+    applyPendingFocus(ctx);
     drawQueuedQrs(ctx);
+  }
+
+  // A click re-renders the panel, so the clicked button is gone: the focus
+  // goes where ctx.pendingFocus says, "Neuer Action Code" when that target
+  // is not there (a deleted code, a failed save).
+  function applyPendingFocus(ctx) {
+    const want = ctx.pendingFocus;
+    ctx.pendingFocus = null;
+    if (!want) return;
+    const refs = ctx.focusRefs;
+    const cardRefs = want.id ? refs.cards.get(want.id) : null;
+    let target = null;
+    if (want.what === "form") target = refs.form;
+    else if (want.what === "confirm") target = refs.confirm;
+    else if (want.what === "edit") target = cardRefs && cardRefs.edit;
+    else if (want.what === "delete") target = cardRefs && cardRefs.delete;
+    target = target || refs.add;
+    if (!target || typeof target.focus !== "function") return;
+    try {
+      target.focus();
+    } catch (e) {
+      // ignore
+    }
   }
 
   // Global ('🌍') codes live on the wallet (wallet.globalActionCodes) and only
@@ -665,27 +716,45 @@
       : [];
   }
 
+  function hasCode(wallet, id) {
+    const local = wallet && Array.isArray(wallet.actionCodes) ? wallet.actionCodes : [];
+    return local.concat(getGlobalCodes(wallet)).some((c) => c && c.id === id);
+  }
+
+  // What the panel shows of a wallet: a change elsewhere that leaves this
+  // alone (a booking) needs no re-render.
+  function codesSignature(wallet) {
+    return JSON.stringify([
+      wallet.userId,
+      wallet.walletId,
+      wallet.actionCodes || [],
+      wallet.globalActionCodes || [],
+    ]);
+  }
+
+  // options: container, getWallet, persistWallet(next), getBaseUrl (all
+  // required), panel (optional). Returns refresh() (always re-renders) and
+  // sync() (re-renders only when the wallet's codes changed, e.g. after
+  // another tab saved; an open form keeps what was typed otherwise).
   function initActionCodesUi(options) {
-    const container = options && options.container;
-    if (!container) return { refresh: () => {} };
+    const o = options || {};
+    if (
+      !o.container ||
+      typeof o.getWallet !== "function" ||
+      typeof o.persistWallet !== "function" ||
+      typeof o.getBaseUrl !== "function"
+    ) {
+      return { refresh: () => {}, sync: () => false };
+    }
 
     const ctx = {
-      container,
-      getWallet:
-        options && typeof options.getWallet === "function"
-          ? options.getWallet
-          : () => null,
-      persistWallet:
-        options && typeof options.persistWallet === "function"
-          ? options.persistWallet
-          : () => {},
-      getBaseUrl:
-        options && typeof options.getBaseUrl === "function"
-          ? options.getBaseUrl
-          : () => String(window.location.href || "").split("#")[0],
+      container: o.container,
+      getWallet: o.getWallet,
+      persistWallet: o.persistWallet,
+      getBaseUrl: o.getBaseUrl,
       // The <details> around the panel: QR cards are drawn while it is open.
       // Without one they are drawn at once.
-      panel: (options && options.panel) || null,
+      panel: o.panel || null,
       qrQueue: [],
       renderGen: 0,
       showTrimNotice: false,
@@ -695,15 +764,27 @@
       createOpen: false,
       editingId: "",
       pendingDeleteId: "",
+      walletKey: "",
+      signature: "",
+      // Where the focus goes after the next render (applyPendingFocus) and
+      // the elements of the last render it can go to.
+      pendingFocus: null,
+      focusRefs: { add: null, form: null, confirm: null, cards: new Map() },
       refresh: null,
     };
     ctx.refresh = () => renderActionList(ctx);
+    const sync = () => {
+      const wallet = ctx.getWallet();
+      if (!wallet || codesSignature(wallet) === ctx.signature) return false;
+      renderActionList(ctx);
+      return true;
+    };
     if (ctx.panel && typeof ctx.panel.addEventListener === "function") {
       ctx.panel.addEventListener("toggle", () => drawQueuedQrs(ctx));
     }
 
     ctx.refresh();
-    return { refresh: ctx.refresh };
+    return { refresh: ctx.refresh, sync };
   }
 
   window.dbWalletActionCodesUI = { initActionCodesUi };

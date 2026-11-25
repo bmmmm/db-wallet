@@ -16,6 +16,16 @@ async function settle() {
   for (let i = 0; i < 6; i++) await tick();
 }
 
+// The export link is built with gzip on real time: wait by time, not by a
+// number of ticks (under a loaded parallel run 200 ticks were not enough).
+async function waitFor(pred, what) {
+  for (let i = 0; i < 1000; i++) {
+    if (pred()) return;
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  throw new Error("timeout waiting for " + what);
+}
+
 function seedCodes(e) {
   const S = e.dbWalletStorage;
   const AC = e.dbWalletActionCodes;
@@ -72,7 +82,7 @@ test("the export QR loads the library on first use", async () => {
   const doc = w.document;
   doc.getElementById("btn-export").click();
   doc.getElementById("btn-export-link-qr").click();
-  for (let i = 0; i < 200 && !doc.getElementById("qr-url").value; i++) await tick();
+  await waitFor(() => doc.getElementById("qr-url").value, "qr url");
   assert.match(doc.getElementById("qr-url").value, /#i2:/);
   assert.deepEqual(w._scriptLoads, ["qrcodegen.js"]);
   assert.ok(doc.getElementById("qr-canvas").width > 100);
@@ -100,7 +110,7 @@ test("a failed load shows the link and an error per card; the next try loads aga
   const doc = w.document;
   doc.getElementById("btn-export").click();
   doc.getElementById("btn-export-link-qr").click();
-  for (let i = 0; i < 200 && !doc.getElementById("qr-url").value; i++) await tick();
+  await waitFor(() => doc.getElementById("qr-url").value, "qr url");
   assert.deepEqual(w._scriptLoads, ["qrcodegen.js", "qrcodegen.js"]);
   assert.ok(doc.getElementById("qr-canvas").width > 100);
 });

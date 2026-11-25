@@ -7,9 +7,8 @@
   const LIST_STEP = 200;
 
   let historyMode = "diagram"; // "diagram" | "log" | "raw"
-  let rawScope = "current"; // "current" | "all"
-  let rawAllCache = null;
-  let rawCurrentCache = null;
+  // The raw view of the open wallet (the start page shows all wallets).
+  let rawCache = null;
   let listLimit = LIST_STEP;
 
   // The open edit form, keyed by the entry's root id: {root, values: {date,
@@ -28,7 +27,6 @@
   let refs = null;
   let getWallet = null;
   let getSummary = null;
-  let getAllWallets = null;
   let onAfterRender = null;
   let onEditEntry = null;
   let onDeleteEntry = null;
@@ -50,11 +48,6 @@
     setPressed(refs.btnModeLog, mode === "log");
     setPressed(refs.btnModeRaw, mode === "raw");
 
-    // Raw-Scope-Toggle nur im Raw-Log-Modus anzeigen
-    if (refs.rawToggle) {
-      refs.rawToggle.style.display = mode === "raw" ? "block" : "none";
-    }
-
     // Log-editing tools are only visible in history mode, the reset button
     // only once the checkbox is enabled.
     if (refs.logTools) {
@@ -75,24 +68,7 @@
     }
     if (mode !== "log") editState = null;
 
-    // Switching to diagram or history always resets the raw scope to the current user
-    if (mode !== "raw") {
-      setRawScope("current");
-    }
-
     window.dbWalletHistoryUI.render();
-  }
-
-  function setRawScope(scope) {
-    rawScope = scope;
-    if (scope !== "all") {
-      rawAllCache = null;
-    }
-    setPressed(refs.btnRawCurrent, scope === "current");
-    setPressed(refs.btnRawAll, scope === "all");
-    if (historyMode === "raw") {
-      window.dbWalletHistoryUI.render();
-    }
   }
 
   const formatPerDayDiagram = summaryApi.formatPerDayDiagram;
@@ -335,7 +311,6 @@
       refs = params.refs;
       getWallet = params.getWallet;
       getSummary = params.getSummary;
-      getAllWallets = params.getAllWallets;
       onAfterRender = params.onAfterRender;
       onEditEntry = params.onEditEntry || null;
       onDeleteEntry = params.onDeleteEntry || null;
@@ -357,11 +332,6 @@
       refs.btnModeLog.addEventListener("click", () => setHistoryMode("log"));
       refs.btnModeRaw.addEventListener("click", () => setHistoryMode("raw"));
 
-      refs.btnRawCurrent.addEventListener("click", () =>
-        setRawScope("current"),
-      );
-      refs.btnRawAll.addEventListener("click", () => setRawScope("all"));
-
       // Initial call to set UI state
       setHistoryMode(historyMode);
     },
@@ -379,25 +349,15 @@
       } else if (historyMode === "log") {
         if (refs.elHistoryList) renderList(summary);
       } else if (historyMode === "raw") {
-        if (rawScope === "current") {
-          if (!rawCurrentCache) {
-            rawCurrentCache = JSON.stringify(wallet, null, 2);
-          }
-          refs.elHistory.textContent = rawCurrentCache;
-        } else {
-          if (!rawAllCache) {
-            rawAllCache = JSON.stringify(getAllWallets(), null, 2);
-          }
-          refs.elHistory.textContent = rawAllCache;
-        }
+        if (!rawCache) rawCache = JSON.stringify(wallet, null, 2);
+        refs.elHistory.textContent = rawCache;
       }
       if (onAfterRender) {
         onAfterRender();
       }
     },
     invalidateCache() {
-      rawAllCache = null;
-      rawCurrentCache = null;
+      rawCache = null;
     },
   };
 })();

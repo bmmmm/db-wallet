@@ -105,19 +105,6 @@
                         <button id="mode-raw" class="mode-btn" aria-label="Raw-Log-Ansicht">Raw-Log 🛠️</button>
                     </div>
 
-                    <div class="raw-toggle">
-                        Raw-Log für:
-                        <button
-                            id="raw-scope-current"
-                            class="raw-toggle-btn active"
-                        >
-                            diese:n Nutzer:in
-                        </button>
-                        <button id="raw-scope-all" class="raw-toggle-btn">
-                            alle Nutzer:innen
-                        </button>
-                    </div>
-
                     <!-- Log-Bearbeitung -->
                     <div id="log-tools">
                         <label>
@@ -125,7 +112,7 @@
                             Einträge bearbeiten oder löschen
                         </label>
                         <div id="log-edit-group">
-                            <button id="btn-reset" aria-label="Alle Daten dieser Nutzer:in löschen">
+                            <button id="btn-reset" aria-label="Alle Daten für diese:n Nutzer:in löschen">
                                 Alle Daten für diese:n Nutzer:in löschen 🗑️
                             </button>
                         </div>
@@ -150,12 +137,9 @@
             <section class="wallet-export panel" aria-labelledby="export-title">
                 <h2 id="export-title" class="visually-hidden">Export</h2>
                 <!-- Export-Bereich -->
-                <button id="btn-export">Export</button>
+                <button id="btn-export" aria-expanded="false" aria-controls="export-options">Export</button>
                 <span id="export-options">
-                    <button id="btn-export-link" aria-label="Export-Link (klassisch)">Export-Link (klassisch) 🔗</button>
-                    <button id="btn-export-link-qr" aria-label="QR-Code anzeigen">
-                        QR-Code (kurz) anzeigen 📱
-                    </button>
+                    <button id="btn-export-link-qr" aria-label="QR-Code anzeigen">QR-Code anzeigen 📱</button>
                     <button id="btn-export-json" aria-label="Als JSON herunterladen">Als JSON herunterladen 📄</button>
                 </span>
                 <input
@@ -171,7 +155,7 @@
                 </div>
                 <div id="qr-box" class="qr-box card">
                     <div class="qr-hint" id="qr-hint"></div>
-                    <canvas id="qr-canvas" aria-label="QR-Code"></canvas>
+                    <canvas id="qr-canvas" tabindex="0" role="button" aria-label="QR-Code als PNG speichern"></canvas>
                     <input
                         id="qr-url"
                         type="text"

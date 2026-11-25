@@ -1,5 +1,6 @@
-// P3.6: the export link (classic link field and the QR link) gets "Kopieren"
-// and, where navigator.share exists, "Teilen". Copy uses
+// P3.6: the export link (the QR link, and the link field that takes the
+// compact link when there is no QR, P2.5) gets "Kopieren" and, where
+// navigator.share exists, "Teilen". Copy uses
 // navigator.clipboard.writeText; if that is missing or rejects, the field is
 // selected and document.execCommand("copy") is tried; if that fails too, the
 // link stays selected with a German hint to copy it by hand. Share falls back
@@ -29,22 +30,33 @@ async function waitFor(pred, what) {
 
 const settle = () => new Promise((r) => setTimeout(r, 5));
 
+// The link field gets the compact link when the data does not fit a QR
+// (P2.5); a QR library that refuses every text gets there without 700 events.
+function refuseQr(w) {
+  w.console = Object.assign({}, console, { error() {} }); // expected "Data too long" log
+  w.qrcodegen = {
+    QrCode: {
+      Ecc: { LOW: 0 },
+      encodeText() {
+        throw new Error("Data too long");
+      },
+    },
+  };
+}
+
 async function bootWithLink(kind, nav) {
   const w = await bootWalletPage({ hash: "max", seed: seedOne });
   w.navigator = nav || {};
   const doc = w.document;
   doc.getElementById("btn-export").click();
-  if (kind === "qr") {
-    doc.getElementById("btn-export-link-qr").click();
-    await waitFor(() => doc.getElementById("qr-url").value, "qr url");
-  } else {
-    doc.getElementById("btn-export-link").click();
-  }
+  if (kind === "compact") refuseQr(w);
+  doc.getElementById("btn-export-link-qr").click();
+  await waitFor(() => doc.getElementById(IDS[kind].field).value, kind + " url");
   return w;
 }
 
 const IDS = {
-  classic: { field: "export-url", copy: "btn-copy-export-url", share: "btn-share-export-url", status: "export-url-status", row: "export-url-actions" },
+  compact: { field: "export-url", copy: "btn-copy-export-url", share: "btn-share-export-url", status: "export-url-status", row: "export-url-actions" },
   qr: { field: "qr-url", copy: "btn-copy-qr-url", share: "btn-share-qr-url", status: "qr-url-status" },
 };
 
@@ -61,7 +73,7 @@ function clipboardFake(mode) {
   };
 }
 
-for (const kind of ["classic", "qr"]) {
+for (const kind of ["compact", "qr"]) {
   const id = IDS[kind];
 
   test(`${kind}: Kopieren writes the link via navigator.clipboard`, async () => {
@@ -154,13 +166,14 @@ for (const kind of ["classic", "qr"]) {
 }
 
 test("hiding the export clears the link actions", async () => {
-  const w = await bootWithLink("classic", {});
+  const w = await bootWithLink("compact", {});
   const doc = w.document;
   doc.getElementById("btn-export").click(); // close
   assert.equal(doc.getElementById("export-url").style.display, "none");
   assert.equal(doc.getElementById("export-url-actions").style.display, "none");
-  // A QR export replaces the classic link: its row goes too.
-  const w2 = await bootWithLink("classic", {});
+  // A QR export replaces the compact link: its row goes too.
+  const w2 = await bootWithLink("compact", {});
+  delete w2.qrcodegen; // the real library loads on the next try
   w2.document.getElementById("btn-export-link-qr").click();
   await waitFor(() => w2.document.getElementById("qr-url").value, "qr url");
   assert.equal(w2.document.getElementById("export-url-actions").style.display, "none");

@@ -193,6 +193,15 @@ function shareFake() {
 
 const settle = () => new Promise((r) => setTimeout(r, 5));
 
+// The QR link is built asynchronously (gzip on real time).
+async function waitFor(pred, what) {
+  for (let i = 0; i < 500; i++) {
+    if (pred()) return;
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  throw new Error("timeout waiting for " + what);
+}
+
 test("O3.4: the first Teilen explains the link first, then shares on request", async () => {
   const fake = shareFake();
   const storage = makeStorage();
@@ -200,8 +209,9 @@ test("O3.4: the first Teilen explains the link first, then shares on request", a
   w.navigator = fake.nav;
   const d = w.document;
   d.getElementById("btn-export").click();
-  d.getElementById("btn-export-link").click();
-  d.getElementById("btn-share-export-url").click();
+  d.getElementById("btn-export-link-qr").click();
+  await waitFor(() => d.getElementById("qr-url").value, "qr url");
+  d.getElementById("btn-share-qr-url").click();
   await settle();
   assert.deepEqual(fake.shared, [], "not shared before the hint");
   const s = status(w);
@@ -210,16 +220,18 @@ test("O3.4: the first Teilen explains the link first, then shares on request", a
   s.action.click();
   await settle();
   assert.equal(fake.shared.length, 1);
+  assert.equal(fake.shared[0], d.getElementById("qr-url").value);
   // Seen once on this device: the next Teilen shares directly.
-  d.getElementById("btn-share-export-url").click();
+  d.getElementById("btn-share-qr-url").click();
   await settle();
   assert.equal(fake.shared.length, 2);
 
   const again = await bootWalletPage({ hash: "max", storage });
   again.navigator = fake.nav;
   again.document.getElementById("btn-export").click();
-  again.document.getElementById("btn-export-link").click();
-  again.document.getElementById("btn-share-export-url").click();
+  again.document.getElementById("btn-export-link-qr").click();
+  await waitFor(() => again.document.getElementById("qr-url").value, "qr url");
+  again.document.getElementById("btn-share-qr-url").click();
   await settle();
   assert.equal(fake.shared.length, 3, "the hint is shown once per device");
 });
