@@ -816,7 +816,7 @@ Voreinstellungen gelten, solange der Nutzer nichts anderes sagt.
 | E3 | Soll `wallet.html` ohne gültigen Hash das zuletzt benutzte Wallet öffnen? (Offen seit Juni als „U2“.) | Nein, Wallet-Liste zeigen. |
 | E4 | Soll das Löschen eines Action Codes per Export auf andere Geräte wandern? | Ja, als neuer Codec-Block; kann nach P1.2 als eigenes Paket folgen. |
 | E5 | Obergrenzen im Mengenfeld? | Getränke höchstens 99, Guthaben höchstens 999, Rückfrage ab 20 Getränken. |
-| E6 | `colors.html` in der App behalten? | Aus `APP_SHELL` und den Theme-Hinweisen nehmen, im Repo behalten. |
+| E6 | `colors.html` in der App behalten? | Aus `APP_SHELL` und den Theme-Hinweisen nehmen, im Repo behalten. **Überholt 2026-11-25:** `colors.html` und `colors.css` gelöscht. |
 | E7 | Diese Datei nennt unbehobene Fehler, GitHub ist öffentlich. | Erst zusammen mit den Korrekturen aus Phase 1 veröffentlichen. **Erledigt 2026-11-10:** mit Phase 0 bis 3 veröffentlicht. |
 
 Unverändert bleibt die Entscheidung „I1“ vom Juni: Nach abgelehntem Import-Prompt auf

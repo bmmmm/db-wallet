@@ -73,16 +73,24 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
 | `wallet-import-v2.js` | Binär-QR-Codec (encode/decode), Import-Merge |
 | `action-codes.js` | QR-Action-Codes (lokal/global): Normalisierung, Merge, Hash-Codec, Löschliste und die Änderungen als reine Funktionen (`createActionCode`/`editActionCode`/`deleteActionCode`, `(wallet, change) → {wallet}`) |
 | `action-codes-ui.js` | Action-Code-Panel (DOM, nur `wallet.html`): Karten, QR, Formulare; speichert jede Änderung einmal |
-| `wallet-sync.js` | Wallet-Sync-Logik |
+| `wallet-sync.js` | Sync-Ampel + ASCII-Timeline (pure) |
+| `wallet-ui.js` | Composer von `wallet.html`: Hash klassifizieren → Wallet laden → Module initialisieren; Hash-/Storage-Events |
+| `wallet-export-ui.js` | Export: QR-Link (`#i2:`/`#i2u:`), JSON-Backup, PNG; ohne QR-Bibliothek steht der Link in `#export-url` |
+| `wallet-sync-ui.js` | Sync-Zeile (nur mit Sync-Partner) |
+| `wallet-hash-actions.js` | Wallet-Auswahl und Hinweise für `#acg:` ohne/mit mehreren Wallets |
+| `wallet-messages.js` | Hinweisblock nach dem Seitenkopf (`#wallet-header`/`#index-header`): No-Wallet, Speicherfehler-Banner |
+| `index-ui.js` | Startseite; einziger Export `dbWalletIndexUI.hashFromPastedLink` |
+| `import-preview.js` / `preview.html` | Read-only-Vorschau eines Imports (nichts gespeichert) |
+| `theme.js` | Theme-Wahl; schreibt auch `#current-theme-name` bei jedem Wechsel |
 | `wallet-history-ui.js` | Verlaufs-UI: Diagramm/Raw im `<pre>`, „Historie" als Zeilen (`#history-list`, 200 je Schritt) mit Bearbeiten (Inline-Formular) / Löschen pro Eintrag |
 | `wallet-device-ui.js` | Geräte-UI |
-| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas` + `loadQrLibrary` (injects `qrcodegen.js` on first use — no page loads it; the action-code panel draws its QRs only while `#action-codes-panel` is open), `downloadBlob` = the one Blob-download path, revokes late (`downloadJson` builds on it); `notify`/`confirmDialog`/`whenConfirmed`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
+| `wallet-helpers.js` | Shared Helpers (base64url, gzip, IDs, Hashing, `formatDate`/`formatDateTime`, `normalizeUserId`, `drawQrToCanvas` + `loadQrLibrary` (injects `qrcodegen.js` on first use — no page loads it; the action-code panel draws its QRs only while `#action-codes-panel` is open), `downloadBlob` = the one Blob-download path, revokes late (`downloadJson` builds on it); `notify`/`confirmDialog`/`whenConfirmed`; shared UI steps `selectField`, `downloadCanvasPng`, `safeFilePart`, `onEnterOrSpace`; `RESERVED_HASH_PREFIXES`/`isReservedHashPrefix`); canonical event comparator (`cmpEventId`/`compareEventsByTime`) + `DEVICE_SYMBOLS` |
 | `migration.js` | Datenmigration v1→v2 |
-| `hash-router.js` | Client-seitiges Routing via URL-Hash |
+| `hash-router.js` | `classifyHash` — der einzige Hash-Klassifizierer (`#<name>`, `ac:`/`acg:`/`import:`/`i2:`/`i2u:`) |
 | `self-check.js` | In-Browser-Testsuite (`dbWalletSelfCheck.run()`), lazy-loaded |
 | `self-check-loader.js` | Stub on `wallet.html`: `dbWalletSelfCheck.run()` loads `self-check.js` on first call |
 | `manifest.json` | PWA Manifest |
-| `themes.css` / `colors.css` | Theme-System |
+| `themes.css` | Theme-Paletten (Lilac Carbon nur dort, als `:root`-Default) |
 
 ## Gotchas
 
@@ -227,7 +235,7 @@ fires there, so rAF-deferred UI work looks broken under browser automation.
   "Link einfügen", import/raw (with "Alle löschen" in `.danger-zone`), theme.
   An existing name **opens** that wallet (never `makeUniqueUserId` here);
   `normalizeUserId` spells out ä/ö/ü/ß and strips other accents, everywhere
-  (imports too). "Link einfügen" (`dbWalletIndexUI.openPastedLink`) takes only
+  (imports too). "Link einfügen" (`hashFromPastedLink` in `index-ui.js`) takes only
   the part after `#`/`%23` and hands import/`ac:`/`acg:` hashes to `wallet.html`;
   a bare name opens only an existing wallet (the data is not in it). Backups
   use `storage.walletBackupData` + `walletBackupFileName` + `helpers.downloadJson`

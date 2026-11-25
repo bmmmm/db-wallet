@@ -61,6 +61,9 @@ schlechtem Empfang träge, `NAV_TIMEOUT_MS` in `service-worker.js` senken.
 
 ## O2 Remotes dieses Checkouts angleichen
 
+**Erledigt:** `origin` = Forgejo, `github` = Spiegel (geprüft 2026-11-25). Der Rest
+dieses Abschnitts beschreibt den Ausgangsstand.
+
 Im Haupt-Checkout (`~/db-wallet`) zeigt `origin` auf GitHub, ein Remote `github` fehlt;
 `CLAUDE.md` beschreibt `origin` als Forgejo und `github` als Spiegel. Der Push am
 2026-11-10 ging deshalb per URL nach Forgejo. Voreinstellung: Remotes so umbenennen,
@@ -134,4 +137,5 @@ Reihenfolge, falls angegangen: **P5.2** (toter und doppelter Code, billig) → *
 macht) → **P5.4** (Konvergenzfehler bei zwei Geräten in derselben Minute; der einzige
 echte Fehler in Phase 5, erst Entwurf) → **P5.6** → **P5.3** → **P5.5**.
 P5.7 ist durch P3.1 erledigt: `colors.html` und `colors.css` stehen nicht mehr in
-`APP_SHELL`; beim nächsten Anfassen nur gegenprüfen und abhaken.
+`APP_SHELL`. Seit 2026-11-25 sind beide gelöscht (Aufräumlauf; E6 ist damit
+überholt).

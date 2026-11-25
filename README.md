@@ -18,7 +18,7 @@ ohne Cloud.
    werden ausgeschrieben („Jörg“ → `joerg`); die Zeile unter dem Feld sagt
    vorher, was „Weiter“ tut.
 2. Getränke buchen, bezahlen, Guthaben aufladen.
-3. Zum Übertragen: auf einem Gerät **Export → „QR-Code (kurz)"**, auf dem anderen
+3. Zum Übertragen: auf einem Gerät **Export → „QR-Code anzeigen"**, auf dem anderen
    scannen — der Merge passiert automatisch.
 
 > Theme lässt sich am Seitenende wählen und wird gespeichert.
@@ -36,16 +36,9 @@ steht in [CHANGELOG.md](CHANGELOG.md).
 3. Erscheint kein Hinweis: die App ganz schließen (auch aus der App-Übersicht
    wegwischen) und wieder öffnen; im Browser die Seite neu laden.
 
-Erkennen lässt sich die neue Version daran, dass nach „+ Trinken“ unten eine
-Zeile „+1 gebucht · Offen: …“ mit „Rückgängig“ erscheint.
-
-Bis zum Tippen auf „Aktualisieren“ ist die Seite ein Mischstand aus alt und neu:
-
-- Sie sieht halb fertig aus, das Guthaben-Formular steht offen.
-- Export- und Action-Code-QRs werden nicht gezeichnet („QR-Code konnte nicht
-  erzeugt werden“).
-
-Buchen geht, die Zahlen stimmen, aber besser erst aktualisieren.
+Bis zum Tippen auf „Aktualisieren“ ist die Seite ein Mischstand: die neue Seite
+mit Skripten und Styles der alten Version aus dem Cache. Sie kann unfertig
+aussehen; Buchen geht, die Zahlen stimmen, aber besser erst aktualisieren.
 
 **Mehrere Geräte:** erst **alle** Geräte aktualisieren, dann Links oder QR-Codes
 austauschen.
@@ -203,13 +196,10 @@ der Summary-Fold kollabiert alle Replacements einer Root auf den kanonisch
 letzten Gewinner, sodass parallele Edits auf zwei Geräten konvergieren statt zu
 doppeln; eine Löschung der Root gewinnt gegen einen parallelen Edit. Ein Event
 wird **nie** in-place geändert — der Merge dedupliziert strikt nach `id`.
-Reihenfolge: nach `ts` sortiert, Tie-Break über numerische base36-`seq` (nicht
-lexikalisch). Undo ist **monoton** (entfernt den letzten sichtbaren Eintrag) und
+Reihenfolge: nach der Minute von `ts`, dann nach Root-ID, dann nach ID (Gerät,
+dann numerische base36-`seq`, nicht lexikalisch) — so sortiert jedes Gerät gleich.
+Undo ist **monoton** (entfernt den letzten sichtbaren Eintrag) und
 fragt nach, wenn die letzte Aktion eine Löschung war.
-
-`wallet.deviceId` (Sync-Metadatum) und `wallet.seq` (Event-Zähler pro
-Device-Key) bleiben getrennt — eine Zusammenlegung wäre nicht
-rückwärtskompatibel.
 
 **Core (Logik / Codec / Storage):**
 
@@ -237,12 +227,12 @@ rückwärtskompatibel.
 | `wallet-sync-ui.js` | Sync-Zeile (Ampel, Timeline, „✅ passt", „Zum Export"; nur mit Sync-Partner) |
 | `wallet-export-ui.js` | Export (Link/QR/JSON, PNG-Download) |
 | `wallet-hash-actions.js` | Wallet-Auswahl bei globalen Action Codes |
-| `wallet-messages.js` | Zentrale UI-Message-API |
+| `wallet-messages.js` | Hinweisblock unter dem Seitenkopf (kein Wallet offen, Speicherfehler) |
 | `import-preview.js` + `preview.html` | Read-Only-Import-Vorschau (lokal, nicht gespeichert) |
 | `theme.js` + `themes.css` | Theme-System (5 Paletten) |
 
 **PWA:** `manifest.json`, `service-worker.js`, `sw-register.js` &nbsp;·&nbsp;
-**Tools:** `self-check.js` (+ `self-check-loader.js`), `colors.html` (Theme-Vorschau, nicht im Precache) &nbsp;·&nbsp;
+**Tools:** `self-check.js` (+ `self-check-loader.js`) &nbsp;·&nbsp;
 **QR:** `qrcodegen.js` (Nayuki), erst beim ersten QR nachgeladen (Export, offenes Action-Code-Panel)
 
 **Ladereihenfolge ist load-bearing:** jedes Modul ist ein
@@ -258,7 +248,10 @@ jedem Static-Host:
 
 - **GitHub Pages** — aktuelles Deployment: `bmmmm.github.io/db-wallet`
 - **Codeberg Pages** (Forgejo), **GitLab Pages** oder self-hosted hinter
-  Nginx/Caddy — einfach den Repo-Root als Static-Verzeichnis ausliefern.
+  Nginx/Caddy — nur die App-Dateien ausliefern, nicht den Repo-Root: die Liste
+  steht in der `cp`-Zeile von `.github/workflows/pages.yml` (`*.js`, `*.html`,
+  `*.css`, Manifest, Icons, `LICENSE`, `NOTICE`). `tests/`, `scripts/`, `docs/`
+  und die Markdown-Dateien gehören nicht auf den Server.
 
 **Cache-Invalidierung:** beim Release `VERSION` in `service-worker.js` erhöhen —
 alte Caches werden beim nächsten Besuch aufgeräumt. Der SW schreibt nur
@@ -270,38 +263,8 @@ Vor dem Push auf `main`: `node scripts/upgrade-check.js <veröffentlichter Commi
 <details>
 <summary>Notizen für LLMs / Agents</summary>
 
-- **Einstiegspunkte:** `index.html` → `index-ui.js`; `wallet.html` →
-  `wallet-ui.js` (Hash klassifizieren → Wallet laden → Summary berechnen →
-  rendern). `hash-router.js` ist der einzige Hash-Parser.
-- **Invarianten:** Storage-Prefix `db-wallet:`, Registry `db-wallet:registry`;
-  Event-Schema `{id,t,n?,ts,ref?,supersedes?}` mit Tombstones `t:"x"` + `ref`
-  (= Root-ID) und Edit-Replacements via `supersedes` (= Root-ID); append-only
-  (Merge dedupt nach `id`); Order = Minute von `ts`, dann Root-ID, dann ID
-  (`compareEventsByTime`; IDs nach deviceKey, dann numerischer base36-`seq`),
-  von mehreren Edits einer Root gewinnt die höchste `seq` (`compareEdits`);
-  Action-Code-Limits 6/10; `#acg:` deterministisch (Apply mit Confirm);
-  gelöschte Codes stehen in `deletedActionCodes` (Löschen nur über
-  `removeActionCode`, Reconcile und Import-Merge filtern sie); Reset = neue
-  `walletId`, die `seq`-Zähler laufen weiter (keine Event-ID wird neu vergeben);
-  ein veralteter Tab mit der alten `walletId` speichert danach nicht mehr
-  (`saveWallet` lehnt abweichende `walletId` ab, nur der Reset darf sie wechseln;
-  eine frisch vergebene, nie gespeicherte `walletId` übernimmt die gespeicherte).
-  Meldungen laufen über `dbWalletHelpers.notify` in die Statuszeile, `alert()`
-  nur direkt vor einem Seitenwechsel; Buchungsgrenzen in
-  `dbWalletActions.LIMITS` (99/999, Rückfrage ab 20).
-- **Codec:** Extension-Blocks ohne Length-Prefix — `se` (supersedes), `gc`
-  (globale Codes), `dc` (gelöschte Codes) und `ck` (Integritäts-Checksum) stehen
-  als Letztes, `ck` ganz zuletzt. Tombstones (`xt` v2: Minuten-Delta + Geräte-
-  index/`seq`) setzen den Header auf Codec 3, den eine ältere App als
-  „neuere App-Version“ ablehnt; ohne Tombstones bleibt der Export Codec 2. Bei jeder
-  APP_SHELL-Änderung `service-worker.js` VERSION bumpen (Guard:
-  `scripts/check-sw-version.sh`).
-- **Wo editieren:** Storage/Modell → `wallet-storage.js`; Summary/Tombstones →
-  `wallet-summary.js`; Action-Codes → `action-codes.js` (Panel:
-  `action-codes-ui.js`); Hash-Parsing →
-  `hash-router.js`; Buchungen → `wallet-actions.js`.
-- **Smoke-Test:** Wallet anlegen → Drinks/Pay → Undo → Export/Import v2 →
-  lokale/globale Action Codes → `dbWalletSelfCheck.run()`.
+Invarianten, Codec-Regeln, Gotchas und die Test-Harness stehen in
+[`CLAUDE.md`](CLAUDE.md) — dort, nicht hier, pflegen.
 </details>
 
 ## Lizenz
